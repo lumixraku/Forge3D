@@ -107,6 +107,15 @@ export function rebuildDagEdges(nodes) {
   connect('generate-multiview-images', 'image', 'generate-model', 'image')
   connect('generate-multiview-images', 'image', 'smart-mesh', 'image')
 
+  // When no intermediate image node exists, the reference image and prompt feed
+  // the 3D model node directly (generate-model / smart-mesh accept image + text).
+  // Without this, an image→3D chain leaves reference-image and prompt dangling.
+  if (!byType.has('generate-image') && !byType.has('generate-multiview-images')) {
+    connect('reference-image', 'image', 'generate-model', 'image')
+    connect('reference-image', 'image', 'smart-mesh', 'image')
+    connect('prompt', 'text', 'generate-model', 'text')
+  }
+
   const modelSource = byType.has('text-to-3d')
     ? 'text-to-3d'
     : byType.has('multiview-to-3d')

@@ -248,6 +248,26 @@ test('connects multi-view images to the model node even without multiview-to-3d'
   assert.ok(edges.some((edge) => edge.target.nodeId === 'generate-model'))
 })
 
+test('wires reference image and prompt directly into the model without an intermediate image node', () => {
+  const nodes = [
+    { id: 'reference-image', type: 'reference-image' },
+    { id: 'prompt', type: 'prompt' },
+    { id: 'generate-model', type: 'generate-model' },
+    { id: 'export-model', type: 'export-model' },
+  ]
+  const edges = rebuildDagEdges(nodes)
+  const pairs = edges.map((edge) => [edge.source.nodeId, edge.target.nodeId])
+  assert.deepEqual(pairs, [
+    ['reference-image', 'generate-model'],
+    ['prompt', 'generate-model'],
+    ['generate-model', 'export-model'],
+  ])
+  // Neither the reference image nor the prompt is left dangling.
+  const outgoing = (id) => edges.filter((edge) => edge.source.nodeId === id).length
+  assert.ok(outgoing('reference-image') > 0)
+  assert.ok(outgoing('prompt') > 0)
+})
+
 test('adds a new frame with a unique ID', () => {
   const initial = planWorkflow('Create a prop workflow').workflow
   const result = addWorkflowStage(initial, 'frame', 'Add another group')
