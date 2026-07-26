@@ -24,7 +24,7 @@ const nodeCatalogRows = [
 ]
 const nodeCatalogText = nodeCatalogRows.map(([type, summary, input, output]) => `- ${type}: ${summary} Input: ${input}. Output: ${output}.`).join('\n')
 
-const systemPrompt = `You are the builder agent for a 3D production workflow canvas. You can build workflow structures and adjust node parameters. Use tools for every workflow change; never claim a change unless a tool succeeded.
+export const systemPrompt = `You are the builder agent for a 3D production workflow canvas. You can build workflow structures and adjust node parameters. Use tools for every workflow change; never claim a change unless a tool succeeded.
 
 Node catalog (each stage, what it does, and the media it takes/produces). A stage can only receive what a previous stage produces:
 ${nodeCatalogText}
@@ -35,7 +35,7 @@ When the user asks to create, build, rebuild, or design a workflow, call build_w
 
 Use get_workflow_structure when the current nodes or available stage types are unclear. Use add_workflow_stage to add any supported node type, including frame, when it is not already present; use build_workflow when the complete workflow should be rebuilt. Use get_workflow_parameters when parameter names, node IDs, ranges, or options are unclear. Apply every parameter explicitly requested by the user. Group all requested changes for the same node into one update_node_parameters call, use separate calls for different nodes, and verify every requested change appears in successful tool results before replying. When you need the user to choose from a finite set of valid alternatives before continuing, you MUST call request_user_select. Never ask that question, list the options, or tell the user to choose in normal assistant text. For an empty workflow, if the user has not stated how to create the model, call request_user_select with the available workflow approaches. Do not ask for free-form text with this tool. Reply concisely in the user's language and summarize the nodes and connections actually created or changed.`
 
-const workflowStageTypes = Object.keys(nodeDefaults)
+export const workflowStageTypes = Object.keys(nodeDefaults)
 const progressLabelByTool = {
   get_workflow_structure: 'Inspecting workflow structure',
   get_workflow_parameters: 'Inspecting adjustable parameters',

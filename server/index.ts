@@ -7,6 +7,7 @@ import { createMockRun, downstreamWorkflow, executeMockRun } from './mock-runs.j
 import { latestNodeRuns } from './node-state.js'
 import { createInitialConversation, createWorkflow } from './workflows.js'
 import { runDeepSeekAgent } from './deepseek.js'
+import { runAgentViaService } from './agent-client.js'
 
 const port = Number(process.env.PORT || 8787)
 const { state, persist } = await createStore()
@@ -76,7 +77,12 @@ async function executeAgentTask(task, emit = async () => {}) {
     const workflow = workflowById(task.workflowId)
     if (!workflow) throw new Error('Workflow not found')
     const conversation = conversationFor(task.workflowId)
-    const plan = await runDeepSeekAgent({
+    // Local dev defaults to the Pi agent service. Set AGENT_SERVICE_URL=direct
+    // to use the built-in DeepSeek loop instead.
+    const serviceUrl = process.env.AGENT_SERVICE_URL === 'direct' ? '' : (process.env.AGENT_SERVICE_URL || 'http://127.0.0.1:8788/agent')
+    const runAgent = serviceUrl ? runAgentViaService : runDeepSeekAgent
+    const plan = await runAgent({
+      serviceUrl,
       apiKey: process.env.DEEPSEEK_API_KEY,
       baseUrl: process.env.DEEPSEEK_BASE_URL,
       model: process.env.DEEPSEEK_MODEL,

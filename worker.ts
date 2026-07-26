@@ -3,6 +3,7 @@ import { createMockRun, downstreamWorkflow, executeMockRun } from './server/mock
 import { latestNodeRuns } from './server/node-state.js'
 import { createInitialConversation, createWorkflow } from './server/workflows.js'
 import { runDeepSeekAgent } from './server/deepseek.js'
+import { runAgentViaService } from './server/agent-client.js'
 
 const collections = ['workflows', 'conversations', 'runs', 'fragments', 'tasks']
 const terminalStatuses = new Set(['succeeded', 'failed'])
@@ -80,7 +81,9 @@ async function executeAgentTask(env, state, task, emit = async () => {}) {
     const workflow = workflowById(state, task.workflowId)
     if (!workflow) throw new Error('Workflow not found')
     const conversation = conversationFor(state, task.workflowId)
-    const plan = await runDeepSeekAgent({
+    const runAgent = env.AGENT_SERVICE_URL ? runAgentViaService : runDeepSeekAgent
+    const plan = await runAgent({
+      serviceUrl: env.AGENT_SERVICE_URL,
       apiKey: env.DEEPSEEK_API_KEY,
       baseUrl: env.DEEPSEEK_BASE_URL,
       model: env.DEEPSEEK_MODEL,
