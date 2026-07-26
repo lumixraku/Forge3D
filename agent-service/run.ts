@@ -53,7 +53,15 @@ const progressLabelByTool: Record<string, string> = {
 const result = (text: string, details?: unknown) => ({ content: [{ type: 'text', text }], details })
 const errorResult = (text: string) => ({ content: [{ type: 'text', text }], isError: true })
 
-export async function runPiAgent(opts: RunOptions): Promise<AgentPlan> {
+// A run that is still alive: the caller holds the Pi Agent so it can inject
+// steering messages mid-flight, and awaits `done` for the final plan.
+export interface LiveRun {
+  agent: any
+  steer: (text: string) => void
+  done: Promise<AgentPlan>
+}
+
+export function startPiAgent(opts: RunOptions): LiveRun {
   const model = {
     id: opts.model || 'deepseek-chat',
     name: 'DeepSeek',
@@ -182,6 +190,8 @@ export async function runPiAgent(opts: RunOptions): Promise<AgentPlan> {
     initialState: { systemPrompt, model, tools },
     streamFn: streamSimple as any,
     getApiKey: () => opts.apiKey,
+    // Drain every queued steering message at the next turn boundary.
+    steeringMode: 'all',
   })
   session.agent = agent
 
@@ -197,26 +207,41 @@ export async function runPiAgent(opts: RunOptions): Promise<AgentPlan> {
     if (error) runError = typeof error === 'string' ? error : (error.message || JSON.stringify(error))
   })
 
-  await opts.onProgress?.({ label: 'Pi · Reviewing your request', status: 'running' })
-  try {
-    await agent.prompt(opts.message)
-  } catch (error: any) {
-    // request_user_select aborts the run on purpose; any other rejection is real.
-    if (!session.userSelectionRequest) runError = runError || error?.message || 'Agent run failed'
+  // Inject a user message into the running loop. Pi holds it until the current
+  // assistant turn (and its tool calls) finishes, then feeds it to the model.
+  const steer = (text: string) => {
+    agent.steer({ role: 'user', content: [{ type: 'text', text }], timestamp: Date.now() })
   }
 
-  if (runError && !session.userSelectionRequest) throw new Error(runError)
+  const done = (async (): Promise<AgentPlan> => {
+    await opts.onProgress?.({ label: 'Pi · Reviewing your request', status: 'running' })
+    try {
+      await agent.prompt(opts.message)
+    } catch (error: any) {
+      // request_user_select aborts the run on purpose; any other rejection is real.
+      if (!session.userSelectionRequest) runError = runError || error?.message || 'Agent run failed'
+    }
 
-  const changedNodeIds = [...new Set(session.changes.map((change) => change.nodeId))]
-  if (session.userSelectionRequest) {
-    return { workflow: session.workflow, reply, changedNodeIds, structureChanged: session.structureChanged, userSelectionRequest: session.userSelectionRequest }
-  }
-  if (session.changes.length && session.workflow.revision === opts.workflow.revision) session.workflow.revision += 1
-  if (session.changes.length) session.workflow.updatedAt = new Date().toISOString()
-  return {
-    workflow: session.workflow,
-    reply: reply || (session.changes.length ? 'Workflow updated.' : 'No workflow changes were made. Use the workflow tools to make a change.'),
-    changedNodeIds,
-    structureChanged: session.structureChanged,
-  }
+    if (runError && !session.userSelectionRequest) throw new Error(runError)
+
+    const changedNodeIds = [...new Set(session.changes.map((change) => change.nodeId))]
+    if (session.userSelectionRequest) {
+      return { workflow: session.workflow, reply, changedNodeIds, structureChanged: session.structureChanged, userSelectionRequest: session.userSelectionRequest }
+    }
+    if (session.changes.length && session.workflow.revision === opts.workflow.revision) session.workflow.revision += 1
+    if (session.changes.length) session.workflow.updatedAt = new Date().toISOString()
+    return {
+      workflow: session.workflow,
+      reply: reply || (session.changes.length ? 'Workflow updated.' : 'No workflow changes were made. Use the workflow tools to make a change.'),
+      changedNodeIds,
+      structureChanged: session.structureChanged,
+    }
+  })()
+
+  return { agent, steer, done }
+}
+
+// Convenience wrapper for callers that do not need to steer: start and await.
+export async function runPiAgent(opts: RunOptions): Promise<AgentPlan> {
+  return startPiAgent(opts).done
 }

@@ -19,6 +19,7 @@ export async function runAgentViaService(opts: any) {
   const decoder = new TextDecoder()
   let buffer = ''
   let plan: any
+  let steered = false
   let serviceError: string | undefined
 
   const handleLine = async (line: string) => {
@@ -27,6 +28,7 @@ export async function runAgentViaService(opts: any) {
     const message = JSON.parse(trimmed)
     if (message.type === 'progress') await onProgress(message.event)
     else if (message.type === 'result') plan = message.plan
+    else if (message.type === 'steered') steered = true
     else if (message.type === 'error') serviceError = message.error
   }
 
@@ -43,6 +45,8 @@ export async function runAgentViaService(opts: any) {
   await handleLine(buffer)
 
   if (serviceError) throw new Error(serviceError)
+  // The message was injected into an already-running run; no plan of its own.
+  if (steered) return { steered: true }
   if (!plan) throw new Error('Agent service returned no result')
   return plan
 }

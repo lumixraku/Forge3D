@@ -12,6 +12,10 @@ import { runAgentViaService } from './agent-client.js'
 const port = Number(process.env.PORT || 8787)
 const { state, persist } = await createStore()
 const workflowTaskQueues = new Map()
+// How many agent runs are currently streaming per workflow. A new chat message
+// for a workflow with an active run is dispatched immediately (bypassing the
+// serial queue) so the agent service can steer it into the running run.
+const activeRuns = new Map()
 
 function json(response, status, body) {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
@@ -81,21 +85,51 @@ async function executeAgentTask(task, emit = async () => {}) {
     // to use the built-in DeepSeek loop instead.
     const serviceUrl = process.env.AGENT_SERVICE_URL === 'direct' ? '' : (process.env.AGENT_SERVICE_URL || 'http://127.0.0.1:8788/agent')
     const runAgent = serviceUrl ? runAgentViaService : runDeepSeekAgent
-    const plan = await runAgent({
-      serviceUrl,
-      apiKey: process.env.DEEPSEEK_API_KEY,
-      baseUrl: process.env.DEEPSEEK_BASE_URL,
-      model: process.env.DEEPSEEK_MODEL,
-      message: task.selection ? `${task.message}\n\nThe user selected: ${task.selection.selected_option_ids.map((optionId) => task.request.options.find((option) => option.id === optionId)?.label || optionId).join(', ')}. Continue the task using this selection.` : task.message,
-      workflow,
-      history: conversation?.messages || [],
-      onProgress: async (event) => {
-        task.progress.push(event)
-        task.updatedAt = new Date().toISOString()
-        await persist('tasks')
-        await emit(taskEvent(task, 'progress', { step_id: `progress-${task.progress.length}`, ...event }))
-      },
-    })
+    activeRuns.set(task.workflowId, (activeRuns.get(task.workflowId) || 0) + 1)
+    let plan
+    try {
+      plan = await runAgent({
+        serviceUrl,
+        apiKey: process.env.DEEPSEEK_API_KEY,
+        baseUrl: process.env.DEEPSEEK_BASE_URL,
+        model: process.env.DEEPSEEK_MODEL,
+        message: task.selection ? `${task.message}\n\nThe user selected: ${task.selection.selected_option_ids.map((optionId) => task.request.options.find((option) => option.id === optionId)?.label || optionId).join(', ')}. Continue the task using this selection.` : task.message,
+        workflow,
+        history: conversation?.messages || [],
+        onProgress: async (event) => {
+          task.progress.push(event)
+          task.updatedAt = new Date().toISOString()
+          await persist('tasks')
+          await emit(taskEvent(task, 'progress', { step_id: `progress-${task.progress.length}`, ...event }))
+        },
+      })
+    } finally {
+      const remaining = (activeRuns.get(task.workflowId) || 1) - 1
+      if (remaining > 0) activeRuns.set(task.workflowId, remaining)
+      else activeRuns.delete(task.workflowId)
+    }
+    // The message was steered into a still-running run; it produces no diff of
+    // its own. Acknowledge it in the conversation and finish.
+    if (plan.steered) {
+      let steerConversation = conversationFor(task.workflowId)
+      if (!steerConversation) {
+        steerConversation = { id: task.threadId, workflowId: task.workflowId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), messages: [] }
+        state.conversations.push(steerConversation)
+      }
+      const steerNow = new Date().toISOString()
+      const steerReply = '🔀 Pi steering · Added your message to the running task.'
+      const steerAssistantId = `msg-${randomUUID()}`
+      steerConversation.messages.push({ id: `msg-${randomUUID()}`, role: 'user', content: task.message, createdAt: steerNow })
+      steerConversation.messages.push({ id: steerAssistantId, role: 'assistant', content: steerReply, progress: task.progress, createdAt: steerNow })
+      steerConversation.updatedAt = steerNow
+      task.status = 'succeeded'
+      task.completedAt = steerNow
+      task.updatedAt = steerNow
+      await Promise.all([persist('conversations'), persist('tasks')])
+      await emit(taskEvent(task, 'text', { step_id: 'final-response', id: steerAssistantId, text: steerReply }))
+      await emit(taskEvent(task, 'finish', { finish_reason: 'stop' }))
+      return
+    }
     if (plan.userSelectionRequest) {
       task.status = 'waiting_for_user'
       delete task.selection
@@ -322,14 +356,18 @@ const server = createServer(async (request, response) => {
       }
       state.tasks.push(task)
       await Promise.all([persist('workflows'), persist('conversations'), persist('tasks')])
+      // A run for this workflow is already streaming -> dispatch now (bypassing
+      // the serial queue) so the agent service steers this message into it.
+      // Otherwise queue it as the workflow's next run.
+      const dispatch = (activeRuns.get(existing.id) || 0) > 0 ? executeAgentTask : enqueueAgentTask
       if (request.headers.accept?.includes('text/event-stream')) {
         openSse(response)
-        enqueueAgentTask(task, (event) => writeSse(response, event))
+        dispatch(task, (event) => writeSse(response, event))
           .catch(() => {})
           .finally(() => response.end())
         return
       }
-      void enqueueAgentTask(task)
+      void dispatch(task)
       return json(response, 202, task)
     }
 
