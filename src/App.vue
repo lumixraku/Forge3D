@@ -86,6 +86,7 @@ const contextMenu = ref(null)
 const nodeMenuOpen = ref(false)
 const nodeMenuContext = ref(null)
 const workflowMenu = ref(null)
+const workflowSwitcherOpen = ref(false)
 const theme = ref(localStorage.getItem('forge3d-theme') || 'system')
 const workspaceMode = ref('workflow')
 const modelEditorNodeId = ref(null)
@@ -118,7 +119,7 @@ let historySettleTimer = null
 const canUndo = ref(false)
 const canRedo = ref(false)
 
-const { fitView, screenToFlowCoordinate, zoomIn, zoomOut, updateNodeInternals } = useVueFlow()
+const { fitView, screenToFlowCoordinate, updateNodeInternals } = useVueFlow()
 const edgeDefaults = { selectable: true }
 const messages = computed(() => conversation.value?.messages || [])
 const composer = useEditor({
@@ -505,6 +506,7 @@ async function loadWorkflows(preferredId) {
 }
 
 async function openWorkflow(id) {
+  closeWorkflowSwitcher()
   if (activeWorkflow.value && activeWorkflow.value.id !== id) await flushPendingSave()
   runPollToken += 1
   error.value = ''
@@ -1351,6 +1353,14 @@ function closeWorkflowMenu() {
   workflowMenu.value = null
 }
 
+function toggleWorkflowSwitcher() {
+  workflowSwitcherOpen.value = !workflowSwitcherOpen.value
+}
+
+function closeWorkflowSwitcher() {
+  workflowSwitcherOpen.value = false
+}
+
 function runWorkflowMenuAction(action) {
   const workflowId = workflowMenu.value?.workflowId
   closeWorkflowMenu()
@@ -1700,6 +1710,7 @@ function handleKeyboard(event) {
 onMounted(async () => {
   window.addEventListener('keydown', handleKeyboard, true)
   window.addEventListener('pointerdown', closeWorkflowMenu)
+  window.addEventListener('pointerdown', closeWorkflowSwitcher)
   systemTheme.addEventListener('change', handleSystemThemeChange)
   applyTheme()
   try {
@@ -1713,6 +1724,7 @@ onUnmounted(() => {
   composer.value?.destroy()
   window.removeEventListener('keydown', handleKeyboard, true)
   window.removeEventListener('pointerdown', closeWorkflowMenu)
+  window.removeEventListener('pointerdown', closeWorkflowSwitcher)
   systemTheme.removeEventListener('change', handleSystemThemeChange)
 })
 </script>
@@ -1724,10 +1736,33 @@ onUnmounted(() => {
         <span class="brand-mark grid place-items-center w-[35px] h-[35px] rounded-[10px] bg-acid text-text-inverse font-mono font-semibold text-xs transition-all duration-150 hover:scale-105 hover:shadow-[0_0_0_3px] hover:shadow-acid/20">F3</span>
         <div><strong class="block font-mono font-semibold text-sm tracking-[-0.03em]">Forge3D</strong><small class="block mt-[2px] text-text-muted text-[11px]">Conversational workflow studio</small></div>
       </div>
-      <div v-if="activeWorkflow" class="workflow-title min-w-0 px-6">
+      <div v-if="activeWorkflow" class="workflow-title min-w-0 px-6" @pointerdown.stop>
         <span class="label-mono">{{ workspaceMode === 'workflow' ? 'WORKFLOW' : 'MODEL EDITOR' }} / {{ activeWorkflow.revision.toString().padStart(2, '0') }}</span>
         <input v-if="renamingWorkflow" ref="workflowNameInput" v-model="workflowNameDraft" class="workflow-title-input" type="text" @keydown.enter.prevent="commitRenameWorkflow" @keydown.esc.prevent="cancelRenameWorkflow" @blur="commitRenameWorkflow" />
-        <strong v-else class="block mt-[3px] text-sm truncate" :class="{ 'workflow-title-name': workspaceMode === 'workflow' }" :title="workspaceMode === 'workflow' ? 'Double-click to rename' : null" @dblclick="startRenameWorkflow">{{ activeWorkflow.name }}</strong>
+        <template v-else-if="workspaceMode === 'workflow'">
+          <div class="workflow-title-bar">
+            <strong class="workflow-title-name truncate" title="Double-click to rename" @dblclick="startRenameWorkflow">{{ activeWorkflow.name }}</strong>
+            <div class="workflow-button-group" :class="{ open: workflowSwitcherOpen }">
+              <button type="button" class="wbg-label" :aria-expanded="workflowSwitcherOpen" @click="toggleWorkflowSwitcher">
+                <span>Workflows</span>
+                <svg class="chevron-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+              </button>
+              <button type="button" class="wbg-new" :disabled="busy" @click="createWorkflow">New</button>
+            </div>
+          </div>
+          <div v-if="workflowSwitcherOpen" class="workflow-switcher-panel">
+            <div class="workflow-switcher-head"><span>WORKFLOWS · {{ workflows.length }}</span></div>
+            <button class="workflow-import-button" :class="{ dragging: workflowImportDragging }" type="button" :disabled="busy" @click="workflowImportInput.click()" @dragover="onWorkflowImportDragOver" @dragleave="onWorkflowImportDragLeave" @drop="onWorkflowImportDrop">{{ workflowImportDragging ? 'Drop to import' : 'Import JSON' }}</button>
+            <div class="workflow-switcher-list">
+              <button v-for="workflow in workflows" :key="workflow.id" class="workflow-list-item" :class="{ active: activeWorkflow?.id === workflow.id }" @click="openWorkflow(workflow.id)" @contextmenu="openWorkflowMenu($event, workflow)">
+                <span>{{ workflow.name }}</span><small>{{ workflow.nodeCount }} nodes · v{{ workflow.revision }}</small>
+              </button>
+            </div>
+            <p class="workflow-switcher-note">Right-click a workflow for export, duplicate, or delete.</p>
+            <input ref="workflowImportInput" class="file-input" type="file" accept="application/json,.json" @change="importWorkflow" />
+          </div>
+        </template>
+        <strong v-else class="block mt-[3px] text-sm truncate">{{ activeWorkflow.name }}</strong>
       </div>
       <div class="topbar-actions flex items-center gap-2 pr-4">
         <span class="save-state w-[15ch] truncate text-right text-text-muted font-mono text-[9px]">{{ savedState }}</span>
@@ -1737,24 +1772,13 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <section v-if="workspaceMode === 'workflow'" class="workspace">
-      <aside class="sidebar bg-bg-secondary border-r border-line">
-        <div class="sidebar-heading"><span>WORKFLOWS</span><div><b>{{ workflows.length }}</b><button class="sidebar-add-button" type="button" :disabled="busy" @click="createWorkflow">+ New</button></div></div>
-        <div class="workflow-actions">
-          <button class="workflow-import-button" :class="{ dragging: workflowImportDragging }" type="button" :disabled="busy" @click="workflowImportInput.click()" @dragover="onWorkflowImportDragOver" @dragleave="onWorkflowImportDragLeave" @drop="onWorkflowImportDrop">{{ workflowImportDragging ? 'Drop to import' : 'Import JSON' }}</button>
-        </div>
-        <button v-for="workflow in workflows" :key="workflow.id" class="workflow-list-item" :class="{ active: activeWorkflow?.id === workflow.id }" @click="openWorkflow(workflow.id)" @contextmenu="openWorkflowMenu($event, workflow)">
-          <span>{{ workflow.name }}</span><small>{{ workflow.nodeCount }} nodes · v{{ workflow.revision }}</small>
-        </button>
-        <div v-if="workflowMenu" class="workflow-menu" :style="{ left: `${workflowMenu.left}px`, top: `${workflowMenu.top}px` }" @pointerdown.stop>
-          <button type="button" @click="runWorkflowMenuAction(exportWorkflow)">Export JSON</button>
-          <button type="button" @click="runWorkflowMenuAction(duplicateWorkflow)">Duplicate</button>
-          <button class="danger" type="button" @click="runWorkflowMenuAction(deleteWorkflow)">Delete</button>
-        </div>
-        <input ref="workflowImportInput" class="file-input" type="file" accept="application/json,.json" @change="importWorkflow" />
-        <div class="sidebar-note"><span>LOCAL WORKSPACE</span><p>Definitions, conversations, and mock runs persist as JSON on this machine.</p></div>
-      </aside>
+    <div v-if="workflowMenu" class="workflow-menu" :style="{ left: `${workflowMenu.left}px`, top: `${workflowMenu.top}px` }" @pointerdown.stop>
+      <button type="button" @click="runWorkflowMenuAction(exportWorkflow)">Export JSON</button>
+      <button type="button" @click="runWorkflowMenuAction(duplicateWorkflow)">Duplicate</button>
+      <button class="danger" type="button" @click="runWorkflowMenuAction(deleteWorkflow)">Delete</button>
+    </div>
 
+    <section v-if="workspaceMode === 'workflow'" class="workspace">
       <section class="chat-panel bg-bg-panel border-r border-line">
         <header><div><span>WORKFLOW COPILOT</span><b>DeepSeek tool-calling agent</b></div><i /></header>
         <div class="message-list">
@@ -1795,7 +1819,7 @@ onUnmounted(() => {
                 <span>{{ item.label }}</span><small>{{ item.description }}</small>
               </button>
             </template>
-          </div></div><button title="Undo (⌘Z)" :disabled="!canUndo" @click="undo">Undo</button><button title="Redo (⌘⇧Z)" :disabled="!canRedo" @click="redo">Redo</button><button @click="selectAll">Select all</button><button @click="zoomOut">−</button><button @click="zoomIn">+</button><button @click="fitView({ padding: .18, duration: 400 })">Fit</button><button :disabled="busy || saving || !nodes.length" @click="autoLayout">Auto layout</button><button class="run-button" :disabled="busy || isRunning || !activeWorkflow" @click="runWorkflow()">{{ isRunning ? 'Running…' : busy ? 'Working…' : run ? 'Run again' : 'Run workflow' }}</button></div>
+          </div></div><button :disabled="!activeWorkflow" @click="addNode('frame')">Frame</button><button :disabled="!activeWorkflow" @click="addNode('generate-model')">Gen HD Model</button><button @click="fitView({ padding: .18, duration: 400 })">Fit</button><button :disabled="busy || saving || !nodes.length" @click="autoLayout">Auto layout</button><button class="run-button" :disabled="busy || isRunning || !activeWorkflow" @click="runWorkflow()">{{ isRunning ? 'Running…' : busy ? 'Working…' : run ? 'Run again' : 'Run workflow' }}</button></div>
         </div>
         <div v-if="nodeMenuOpen && nodeMenuContext" ref="contextMenu" class="node-menu-popover canvas-node-menu contextual" :class="{ 'selection-menu': nodeMenuContext.kind === 'selection' }" :style="{ left: `${nodeMenuContext.left}px`, top: `${nodeMenuContext.top}px`, maxWidth: `${nodeMenuContext.maxWidth}px`, maxHeight: `${nodeMenuContext.maxHeight}px` }" @pointerdown.stop>
           <template v-if="nodeMenuContext.kind === 'selection'">
