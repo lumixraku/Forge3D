@@ -393,6 +393,13 @@
 .canvas-toolbar button { min-width: 30px; height: 30px; padding: 0 9px; border: 1px solid var(--line-subtle); border-radius: 6px; background: var(--bg-input); color: var(--text-muted); font: 500 10px var(--font-mono); transition: border-color .15s ease, background .15s ease, color .15s ease, transform .15s ease; }
 .canvas-toolbar button:hover:not(:disabled) { border-color: var(--line-strong); background: var(--bg-input-hover); color: var(--acid); transform: translateY(-1px); }
 .canvas-toolbar button:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--acid) 50%, transparent); }
+.canvas-toolbar .canvas-mode-switch, .canvas-toolbar .canvas-view-switch { display: flex; height: 30px; padding: 0; border: 1px solid var(--line-subtle); border-radius: 6px; background: var(--bg-input); overflow: hidden; }
+.canvas-toolbar .canvas-mode-switch button, .canvas-toolbar .canvas-view-switch button { display: flex; min-width: 58px; height: 100%; align-items: center; justify-content: center; gap: 5px; padding: 0 11px; border: 0; border-radius: 0; background: transparent; }
+.canvas-toolbar .canvas-mode-switch button:first-child, .canvas-toolbar .canvas-view-switch button:first-child { border-right: 1px solid var(--line-subtle); }
+.canvas-toolbar .canvas-mode-switch button:hover:not(:disabled), .canvas-toolbar .canvas-view-switch button:hover:not(:disabled) { background: var(--bg-input-hover); color: var(--acid); transform: none; }
+.canvas-toolbar .canvas-mode-switch button.active, .canvas-toolbar .canvas-mode-switch button.active:hover, .canvas-toolbar .canvas-view-switch button.active, .canvas-toolbar .canvas-view-switch button.active:hover { background: color-mix(in srgb, var(--acid) 12%, var(--bg-input)); color: var(--acid); }
+.canvas-toolbar .canvas-mode-switch svg, .canvas-toolbar .canvas-view-switch svg { width: 12px; height: 12px; fill: currentColor; }
+.canvas-toolbar .canvas-mode-switch span, .canvas-toolbar .canvas-view-switch span { color: inherit; font: 600 9px var(--font-mono); letter-spacing: .04em; text-transform: uppercase; }
 .canvas-toolbar .run-button { border-color: var(--acid); background: var(--acid); color: var(--text-inverse); }
 .canvas-toolbar .run-button:hover { filter: brightness(1.08); box-shadow: 0 0 0 3px color-mix(in srgb, var(--acid) 18%, transparent); }
 .node-menu { position: relative; }
@@ -408,6 +415,35 @@
 .canvas-node-menu button:hover { border-color: var(--line-strong); background: var(--bg-input-hover); }
 .canvas-node-menu .node-menu-empty { padding: 12px 9px; color: var(--text-muted); }
 .flow-canvas { background: var(--bg-primary); transition: background .2s ease; }
+.flow-canvas.canvas-mode-move .vue-flow__pane { cursor: grab; }
+.flow-canvas.canvas-mode-move .vue-flow__pane.dragging { cursor: grabbing; }
+
+/* Asset library — a console-style stack of horizontal rails that replaces the
+   canvas region (grid-row 2) without touching the flow data. */
+.asset-library { grid-row: 2; display: flex; flex-direction: column; gap: 22px; min-height: 0; overflow-y: auto; padding: 22px 20px 26px; background: var(--bg-primary); }
+.asset-empty { margin: auto; display: grid; gap: 6px; max-width: 340px; text-align: center; }
+.asset-empty strong { color: var(--text-secondary); font: 600 12px var(--font-mono); letter-spacing: .04em; }
+.asset-empty span { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.asset-rail { display: flex; flex-direction: column; gap: 11px; }
+.asset-rail-header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 9px; border-bottom: 1px solid var(--line); }
+.asset-rail-header > div:first-child { display: flex; align-items: baseline; gap: 8px; }
+.asset-rail-header span { color: var(--text-secondary); font: 600 10px var(--font-mono); letter-spacing: .14em; text-transform: uppercase; }
+.asset-rail-header b { display: grid; place-items: center; min-width: 18px; height: 16px; padding: 0 5px; border-radius: 8px; background: var(--bg-input-hover); color: var(--text-muted); font: 600 9px var(--font-mono); }
+.asset-rail-nav { display: flex; gap: 5px; }
+.asset-rail-nav button { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 1px solid var(--line-subtle); border-radius: 6px; background: var(--bg-input); color: var(--text-muted); font-size: 14px; line-height: 1; transition: border-color .15s ease, background .15s ease, color .15s ease; }
+.asset-rail-nav button:hover { border-color: var(--line-strong); background: var(--bg-input-hover); color: var(--acid); }
+.asset-rail-empty { padding: 20px 2px; color: var(--text-muted); font: 500 10px var(--font-mono); letter-spacing: .04em; }
+.asset-rail-track { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x proximity; padding-bottom: 6px; scrollbar-width: thin; }
+.asset-card { position: relative; flex: 0 0 auto; width: 168px; scroll-snap-align: start; display: flex; flex-direction: column; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 11px; background: var(--bg-card); transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
+.asset-card:hover { border-color: var(--line-strong); box-shadow: var(--shadow-lg); transform: translateY(-2px); }
+.asset-card-thumb { display: block; width: 100%; aspect-ratio: 1; padding: 0; border: 0; border-radius: 8px; overflow: hidden; background: var(--bg-input-hover); cursor: zoom-in; }
+.asset-card-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.asset-card-meta { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 2px; }
+.asset-card-meta strong { overflow: hidden; color: var(--text-primary); font: 500 11px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.asset-card-badge { flex: 0 0 auto; padding: 2px 6px; border-radius: 5px; background: var(--bg-input-hover); color: var(--text-muted); font: 600 8px var(--font-mono); letter-spacing: .06em; }
+.asset-card-open { position: absolute; top: 14px; right: 14px; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 7px; background: color-mix(in srgb, var(--bg-card) 82%, transparent); color: var(--text-secondary); font-size: 13px; line-height: 1; opacity: 0; backdrop-filter: blur(4px); transition: opacity .15s ease, background .15s ease, color .15s ease; }
+.asset-card:hover .asset-card-open { opacity: 1; }
+.asset-card-open:hover { background: var(--acid); color: var(--text-inverse); }
 .workflow-frame { width: 100%; height: 100%; min-width: 100%; min-height: 100%; padding: 17px 20px; border: 1px solid color-mix(in srgb, var(--acid) 44%, transparent); border-radius: 15px; background: color-mix(in srgb, var(--acid) 4.5%, transparent); transition: border-color .15s ease, box-shadow .15s ease; }
 /* The frame node is configured with pointer-events:none (see its node object in
    App.vue) so its body doesn't steal clicks from the edges/child nodes beneath

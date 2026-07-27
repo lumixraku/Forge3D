@@ -89,6 +89,8 @@ const workflowMenu = ref(null)
 const workflowSwitcherOpen = ref(false)
 const theme = ref(localStorage.getItem('forge3d-theme') || 'system')
 const workspaceMode = ref('workflow')
+const canvasMode = ref('select')
+const canvasView = ref('canvas')
 const modelEditorNodeId = ref(null)
 const imagePreview = ref(null)
 const runSummaryOpen = ref(false)
@@ -358,7 +360,36 @@ const canFrameSelection = computed(() => frameableSelectedNodes.value.length > 0
 const canDissolveSelection = computed(() => selectedNodes.value.some((node) => node.type === 'frame'))
 const selectedCount = computed(() => selectedNodes.value.length + selectedEdges.value.length)
 const hasSelection = computed(() => selectedCount.value > 0)
-const panOnDrag = window.matchMedia('(pointer: coarse)').matches
+const panOnDrag = computed(() => canvasMode.value === 'move')
+
+// Aggregate every produced asset from the current workflow's nodes into the three
+// library buckets (reference / 2D / 3D). Purely derived — the canvas data is untouched.
+const MODEL_ASSET_TYPES = new Set(['generate-model', 'text-to-3d', 'multiview-to-3d', 'smart-mesh', 'texture', 'retopology', 'bake', 'rigging', 'split', 'model-preview', 'export-model'])
+const assetLibrary = computed(() => {
+  const reference = [], images = [], models = []
+  for (const node of nodes.value) {
+    if (node.type !== 'workflow') continue
+    const type = node.data?.workflowType
+    const config = node.data?.config || {}
+    const label = node.data?.label || type
+    if (type === 'reference-image') {
+      const src = config.selectedPreview || config.preview
+      if (src) reference.push({ id: node.id, src, label, nodeId: node.id })
+    } else if (type === 'generate-image' || type === 'generated-image') {
+      const previews = Array.isArray(config.previews) && config.previews.length ? config.previews : [config.selectedPreview || config.preview].filter(Boolean)
+      previews.forEach((src, i) => src && images.push({ id: `${node.id}-${i}`, src, label, nodeId: node.id }))
+    } else if (MODEL_ASSET_TYPES.has(type)) {
+      const src = config.selectedPreview || config.preview
+      if (src) models.push({ id: node.id, src, label, nodeId: node.id })
+    }
+  }
+  return { reference, images, models, total: reference.length + images.length + models.length }
+})
+const assetRails = computed(() => [
+  { key: 'reference', title: 'Reference', badge: 'REF', items: assetLibrary.value.reference },
+  { key: 'images', title: '2D Assets', badge: '2D', items: assetLibrary.value.images },
+  { key: 'models', title: '3D Assets', badge: '3D', items: assetLibrary.value.models },
+])
 const resolvedTheme = computed(() => theme.value === 'system' ? (systemTheme.matches ? 'dark' : 'light') : theme.value)
 const modelEditorNode = computed(() => nodes.value.find((node) => node.id === modelEditorNodeId.value) || null)
 
@@ -1000,6 +1031,11 @@ function closeModelEditor() {
 
 function openImagePreview(preview) {
   imagePreview.value = preview
+}
+
+function scrollRail(event, direction) {
+  const track = event.currentTarget.closest('.asset-rail')?.querySelector('.asset-rail-track')
+  track?.scrollBy({ left: direction * Math.min(track.clientWidth * 0.85, 520), behavior: 'smooth' })
 }
 
 function closeImagePreview() {
@@ -1811,15 +1847,15 @@ onUnmounted(() => {
 
       <section class="canvas-panel bg-bg-secondary" @pointerdown.capture="selectCanvasEdge" @pointerdown="closeContextMenu">
         <div class="canvas-toolbar">
-          <div><span>CANVAS</span><b>{{ nodes.length }} nodes · {{ edges.length }} connections · {{ selectedCount }} selected</b></div>
-          <div><div class="node-menu"><button class="add-node-button" :disabled="!activeWorkflow" @click="nodeMenuContext = null; nodeMenuOpen = !nodeMenuOpen">+ Add node</button><div v-if="nodeMenuOpen && !nodeMenuContext" class="node-menu-popover canvas-node-menu" @pointerdown.stop>
+          <div><span>{{ canvasView === 'assets' ? 'ASSET LIBRARY' : 'CANVAS' }}</span><b v-if="canvasView === 'assets'">{{ assetLibrary.total }} assets · {{ assetLibrary.reference.length }} reference · {{ assetLibrary.images.length }} 2D · {{ assetLibrary.models.length }} 3D</b><b v-else>{{ nodes.length }} nodes · {{ edges.length }} connections · {{ selectedCount }} selected</b></div>
+          <div><div class="canvas-view-switch" role="group" aria-label="Canvas view"><button type="button" :class="{ active: canvasView === 'canvas' }" :aria-pressed="canvasView === 'canvas'" title="Workflow canvas" @click="canvasView = 'canvas'"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5.2" height="5.2" rx="1.2" /><rect x="8.8" y="2" width="5.2" height="5.2" rx="1.2" /><rect x="2" y="8.8" width="5.2" height="5.2" rx="1.2" /><rect x="8.8" y="8.8" width="5.2" height="5.2" rx="1.2" /></svg><span>Canvas</span></button><button type="button" :class="{ active: canvasView === 'assets' }" :aria-pressed="canvasView === 'assets'" title="Asset library" @click="canvasView = 'assets'"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3.5" width="9" height="7" rx="1.4" /><rect x="5" y="6" width="9" height="7" rx="1.4" opacity=".5" /></svg><span>Assets</span></button></div><template v-if="canvasView === 'canvas'"><div class="canvas-mode-switch" role="group" aria-label="Canvas interaction mode"><button type="button" :class="{ active: canvasMode === 'select' }" :aria-pressed="canvasMode === 'select'" title="Select and marquee" @click="canvasMode = 'select'"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 1.8 12.3 9l-4.1.7 2.2 3.7-2.1 1.2-2.1-3.7L3 13.5Z" /></svg><span>Select</span></button><button type="button" :class="{ active: canvasMode === 'move' }" :aria-pressed="canvasMode === 'move'" title="Move canvas" @click="canvasMode = 'move'"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.8 7V3.4a1 1 0 0 1 2 0V6h.4V2.8a1 1 0 0 1 2 0V6h.4V4a1 1 0 0 1 2 0v4.5l.5-.8a1 1 0 0 1 1.7 1l-2 3.5a3.3 3.3 0 0 1-2.9 1.7H8.3a3.3 3.3 0 0 1-2.8-1.6L3.2 8.5a1 1 0 0 1 1.7-1Z" /></svg><span>Move</span></button></div><div class="node-menu"><button class="add-node-button" :disabled="!activeWorkflow" @click="nodeMenuContext = null; nodeMenuOpen = !nodeMenuOpen">+ Add node</button><div v-if="nodeMenuOpen && !nodeMenuContext" class="node-menu-popover canvas-node-menu" @pointerdown.stop>
             <template v-for="category in nodeCategories" :key="category">
               <strong v-if="catalogForMenu().some((item) => item.category === category)">{{ category }}</strong>
               <button v-for="item in catalogForMenu().filter((item) => item.category === category)" :key="item.type" type="button" draggable="true" @dragstart="startNodeDrag($event, item.type)" @click="selectNodeType(item.type)">
                 <span>{{ item.label }}</span><small>{{ item.description }}</small>
               </button>
             </template>
-          </div></div><button :disabled="!activeWorkflow" @click="addNode('frame')">Frame</button><button :disabled="!activeWorkflow" @click="addNode('generate-model')">Gen HD Model</button><button @click="fitView({ padding: .18, duration: 400 })">Fit</button><button :disabled="busy || saving || !nodes.length" @click="autoLayout">Auto layout</button><button class="run-button" :disabled="busy || isRunning || !activeWorkflow" @click="runWorkflow()">{{ isRunning ? 'Running…' : busy ? 'Working…' : run ? 'Run again' : 'Run workflow' }}</button></div>
+          </div></div><button :disabled="!activeWorkflow" @click="addNode('frame')">Frame</button><button :disabled="!activeWorkflow" @click="addNode('generate-model')">Gen HD Model</button><button @click="fitView({ padding: .18, duration: 400 })">Fit</button><button :disabled="busy || saving || !nodes.length" @click="autoLayout">Auto layout</button></template><button class="run-button" :disabled="busy || isRunning || !activeWorkflow" @click="runWorkflow()">{{ isRunning ? 'Running…' : busy ? 'Working…' : run ? 'Run again' : 'Run workflow' }}</button></div>
         </div>
         <div v-if="nodeMenuOpen && nodeMenuContext" ref="contextMenu" class="node-menu-popover canvas-node-menu contextual" :class="{ 'selection-menu': nodeMenuContext.kind === 'selection' }" :style="{ left: `${nodeMenuContext.left}px`, top: `${nodeMenuContext.top}px`, maxWidth: `${nodeMenuContext.maxWidth}px`, maxHeight: `${nodeMenuContext.maxHeight}px` }" @pointerdown.stop>
           <template v-if="nodeMenuContext.kind === 'selection'">
@@ -1844,13 +1880,38 @@ onUnmounted(() => {
             <small v-if="!catalogForMenu().length" class="node-menu-empty">No compatible node types</small>
           </template>
         </div>
-        <VueFlow v-model:nodes="nodes" v-model:edges="edges" class="flow-canvas" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="true" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
+        <VueFlow v-show="canvasView === 'canvas'" v-model:nodes="nodes" v-model:edges="edges" :class="['flow-canvas', `canvas-mode-${canvasMode}`]" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="canvasMode === 'select' ? true : null" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
           <template #node-frame="props"><FrameNode v-bind="props" @update-name="updateNodeName(props.id, $event)" /></template>
           <template #node-workflow="props"><WorkflowNode v-bind="props" :node-run="nodeRuns[props.id] || null" :run-id="run?.id || null" :inbound-type="inboundExportTarget(props.id)" :inbound-image="inboundImage(props.id)" :node-catalog="compatibleNodeTypes(props.data.workflowType)" @update-config="updateNodeConfig(props.id, $event)" @update-name="updateNodeName(props.id, $event)" @open-model-editor="openModelEditor(props.id)" @preview-image="openImagePreview" @add-next="addNode($event, props.id)" @run-workflow="runWorkflow($event, 'downstream')" @run-downstream="runWorkflow($event, 'downstream')" /></template>
           <Background :gap="24" :size="1.2" :pattern-color="resolvedTheme === 'dark' ? '#252b2c' : '#cdd2cf'" />
           <MiniMap position="bottom-right" :width="160" :height="100" :pannable="true" :zoomable="true" :mask-color="resolvedTheme === 'dark' ? 'rgba(10, 12, 12, .7)' : 'rgba(238, 241, 238, .72)'" :node-color="resolvedTheme === 'dark' ? '#606a63' : '#a6afa9'" :node-stroke-color="resolvedTheme === 'dark' ? '#929a94' : '#737d76'" :node-stroke-width="1" :node-border-radius="4" />
           <Controls position="bottom-right" />
         </VueFlow>
+        <div v-if="canvasView === 'assets'" class="asset-library">
+          <div v-if="!assetLibrary.total" class="asset-empty">
+            <strong>No assets yet</strong>
+            <span>References, generated 2D images and 3D models from this workflow collect here.</span>
+          </div>
+          <template v-else>
+            <section v-for="rail in assetRails" :key="rail.key" class="asset-rail">
+              <header class="asset-rail-header">
+                <div><span>{{ rail.title }}</span><b>{{ rail.items.length }}</b></div>
+                <div v-if="rail.items.length" class="asset-rail-nav">
+                  <button type="button" aria-label="Scroll left" @click="scrollRail($event, -1)">‹</button>
+                  <button type="button" aria-label="Scroll right" @click="scrollRail($event, 1)">›</button>
+                </div>
+              </header>
+              <div v-if="rail.items.length" class="asset-rail-track">
+                <article v-for="item in rail.items" :key="item.id" class="asset-card">
+                  <button type="button" class="asset-card-thumb" @click="openImagePreview({ src: item.src, alt: item.label })"><img :src="item.src" :alt="item.label" loading="lazy" /></button>
+                  <div class="asset-card-meta"><strong :title="item.label">{{ item.label }}</strong><span class="asset-card-badge">{{ rail.badge }}</span></div>
+                  <button v-if="rail.key === 'models'" type="button" class="asset-card-open" title="Open in Model Editor" @click="openModelEditor(item.nodeId)">↗</button>
+                </article>
+              </div>
+              <p v-else class="asset-rail-empty">No {{ rail.title.toLowerCase() }} yet</p>
+            </section>
+          </template>
+        </div>
         <aside v-if="runDetails && runSummaryOpen" class="run-log-panel bg-bg-card border-t border-line-strong">
           <header><div><span>RUN LOG</span><b>{{ runDetails.id }} · {{ runDetails.completed }}/{{ runDetails.total }} steps · {{ formatDuration(runDetails.totalDurationMs) }}</b></div><button type="button" aria-label="Close run log" @click="runSummaryOpen = false">×</button></header>
           <div class="run-log-steps">
