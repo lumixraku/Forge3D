@@ -1,7 +1,7 @@
 export const nodeCatalog = [
   { category: 'Annotate', type: 'frame', label: 'Frame', description: 'Group related workflow steps', inputTypes: [], outputType: null },
   { category: 'Input', type: 'reference-image', label: 'Image Upload', description: 'Add an image or asset input', inputTypes: [], outputType: 'image' },
-  { category: 'Output', type: 'generated-image', label: 'Image', description: 'An image created by a workflow step', inputTypes: ['image'], outputType: 'image' },
+  { category: 'Output', type: 'generated-image', label: 'Image', description: 'An image created by a workflow step', inputTypes: ['image'], outputType: 'image', hidden: true },
   { category: 'Input', type: 'prompt', label: 'Text Prompt', description: 'Set creative direction', inputTypes: [], outputType: 'text' },
   { category: '2D', type: 'generate-image', label: 'Gen Image', description: 'Create concept images', inputTypes: ['image', 'text'], outputType: 'image' },
   {
@@ -40,7 +40,7 @@ export const nodeCatalog = [
   { category: '3D', type: 'rigging', label: 'Rigging', description: 'Add a skeleton to a model', inputTypes: ['model'], outputType: 'model' },
   { category: '3D', type: 'split', label: 'Split', description: 'Split a model into parts', inputTypes: ['model'], outputType: 'model' },
   { category: '3D', type: 'model-preview', label: 'Model preview', description: 'Review the 3D result', inputTypes: ['model'], outputType: 'model' },
-  { category: '3D', type: 'export-model', label: 'Export', description: 'Export an image or 3D model', inputTypes: ['image', 'model'], outputType: null },
+  { category: 'Output', type: 'export-model', label: 'Export', description: 'Export an image or 3D model', inputTypes: ['image', 'model'], outputType: null },
 ]
 
 function multiViewPorts() {

@@ -57,3 +57,12 @@ test('returns nodes accepted by a dragged output', () => {
   assert.deepEqual(compatibleNodeTypes('export-model'), [])
   assert.ok(!nodeCatalog.some((node) => ['save-asset'].includes(node.type)))
 })
+
+test('hides Image from node menus and groups Export under Output', () => {
+  const image = nodeCatalog.find((node) => node.type === 'generated-image')
+  const exportNode = nodeCatalog.find((node) => node.type === 'export-model')
+
+  assert.equal(image.hidden, true)
+  assert.equal(exportNode.category, 'Output')
+  assert.ok(!compatibleNodeTypes('generate-image').some((node) => node.type === 'generated-image'))
+})
