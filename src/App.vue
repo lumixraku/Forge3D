@@ -106,6 +106,7 @@ let frameFitQueued = false
 let frameFitShouldSave = false
 let dragging = false
 let marqueeSelecting = false
+let marqueeStartedInFrame = false
 
 // Canvas undo/redo history: each entry is a JSON snapshot of { nodes, edges }.
 const HISTORY_LIMIT = 100
@@ -1275,6 +1276,22 @@ function absoluteNodePosition(node, nodeMap = new Map(nodes.value.map((item) => 
   return { x: parentPosition.x + position.x, y: parentPosition.y + position.y }
 }
 
+function marqueeStartsInFrame(event) {
+  const point = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
+  const nodeMap = new Map(nodes.value.map((node) => [node.id, node]))
+  return nodes.value.some((node) => {
+    if (node.type !== 'frame') return false
+    const position = absoluteNodePosition(node, nodeMap)
+    const width = Number(parseFloat(node.style?.width) || node.width || node.dimensions?.width || 900)
+    const height = Number(parseFloat(node.style?.height) || node.height || node.dimensions?.height || 600)
+    return point.x >= position.x && point.x <= position.x + width && point.y >= position.y && point.y <= position.y + height
+  })
+}
+
+function onCanvasPointerDown(event) {
+  marqueeStartedInFrame = marqueeStartsInFrame(event)
+}
+
 function updateDraggedNodeFrames(draggedNodes = []) {
   const currentNodes = [...nodes.value]
   const nodeMap = new Map(currentNodes.map((node) => [node.id, node]))
@@ -1488,19 +1505,17 @@ function onSelectionStart() {
 
 function onSelectionEnd() {
   marqueeSelecting = false
+  marqueeStartedInFrame = false
 }
 
 function onElementsChange(changes) {
-  // A marquee (box) selection must grab the nodes inside a frame, not the frame
-  // itself: frames are large containers, so Vue Flow's partial hit-test always
-  // includes them. Strip that here, but only while a marquee is in progress —
-  // deliberate frame selection (left/right click, which never run during a
-  // marquee) stays intact so frames can still be dissolved or deleted.
-  if (marqueeSelecting) {
+  // A marquee that begins inside a section selects its contents. A marquee that
+  // begins outside keeps the section selected along with anything it overlaps.
+  if (marqueeSelecting && marqueeStartedInFrame) {
     const frameIds = new Set(nodes.value.filter((node) => node.type === 'frame').map((node) => node.id))
     if (changes.some((change) => change.type === 'select' && change.selected && frameIds.has(change.id))) {
       // Vue Flow applies its selection change around this callback; enforce the
-      // frame exception after that update without disturbing child selection.
+      // inside-section exception after that update without disturbing children.
       queueMicrotask(() => {
         nodes.value = nodes.value.map((node) => node.type === 'frame' && node.selected ? { ...node, selected: false } : node)
       })
@@ -1884,7 +1899,7 @@ onUnmounted(() => {
             <small v-if="!catalogForMenu().length" class="node-menu-empty">No compatible node types</small>
           </template>
         </div>
-        <VueFlow v-show="canvasView === 'canvas'" v-model:nodes="nodes" v-model:edges="edges" :class="['flow-canvas', `canvas-mode-${canvasMode}`]" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="canvasMode === 'select' ? true : null" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
+        <VueFlow v-show="canvasView === 'canvas'" v-model:nodes="nodes" v-model:edges="edges" :class="['flow-canvas', `canvas-mode-${canvasMode}`]" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="canvasMode === 'select' ? true : null" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @pointerdown.capture="onCanvasPointerDown" @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
           <template #node-frame="props"><FrameNode v-bind="props" :running="busy || isRunning" :zoom="viewport.zoom" @update-name="updateNodeName(props.id, $event)" @run-workflow="runWorkflow()" /></template>
           <template #node-workflow="props"><WorkflowNode v-bind="props" :node-run="nodeRuns[props.id] || null" :run-id="run?.id || null" :inbound-type="inboundExportTarget(props.id)" :inbound-image="inboundImage(props.id)" :node-catalog="compatibleNodeTypes(props.data.workflowType)" @update-config="updateNodeConfig(props.id, $event)" @update-name="updateNodeName(props.id, $event)" @open-model-editor="openModelEditor(props.id)" @preview-image="openImagePreview" @add-next="addNode($event, props.id)" @run-workflow="runWorkflow($event, 'downstream')" @run-downstream="runWorkflow($event, 'downstream')" /></template>
           <Background :gap="24" :size="1.2" :pattern-color="resolvedTheme === 'dark' ? '#252b2c' : '#cdd2cf'" />
