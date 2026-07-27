@@ -452,18 +452,19 @@
 .asset-card-open { position: absolute; top: 14px; right: 14px; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 7px; background: color-mix(in srgb, var(--bg-card) 82%, transparent); color: var(--text-secondary); font-size: 13px; line-height: 1; opacity: 0; backdrop-filter: blur(4px); transition: opacity .15s ease, background .15s ease, color .15s ease; }
 .asset-card:hover .asset-card-open { opacity: 1; }
 .asset-card-open:hover { background: var(--acid); color: var(--text-inverse); }
-.workflow-frame { width: 100%; height: 100%; min-width: 100%; min-height: 100%; padding: 17px 20px; border: 1px solid color-mix(in srgb, var(--acid) 44%, transparent); border-radius: 15px; background: color-mix(in srgb, var(--acid) 4.5%, transparent); transition: border-color .15s ease, box-shadow .15s ease; }
+.workflow-frame { position: relative; width: 100%; height: 100%; min-width: 100%; min-height: 100%; padding: 17px 20px; border: 1px solid color-mix(in srgb, var(--acid) 44%, transparent); border-radius: 15px; background: color-mix(in srgb, var(--acid) 4.5%, transparent); transition: border-color .15s ease, box-shadow .15s ease; }
 /* The frame node is configured with pointer-events:none (see its node object in
    App.vue) so its body doesn't steal clicks from the edges/child nodes beneath
    it. Only the header re-enables pointer events, acting as the drag/select handle. */
 .workflow-frame header { pointer-events: auto; cursor: grab; }
 .workflow-frame.selected { border-color: var(--acid); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acid) 25%, transparent); }
-.workflow-frame header { display: flex; align-items: center; gap: 10px; }
+.workflow-frame header { position: absolute; bottom: 100%; left: 0; display: flex; align-items: center; gap: 10px; transform-origin: bottom left; }
 .workflow-frame header span { color: var(--acid); font: 600 8px var(--font-mono); letter-spacing: .14em; }
 .workflow-frame header strong, .frame-name-input { height: 16px; color: var(--text-primary); font-size: 13px; font-weight: 600; line-height: 16px; }
 .frame-name-input, .node-name-input { min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; caret-color: var(--acid); }
 .frame-name-input { width: min(260px, calc(100% - 58px)); }
-.section-run-button { margin-left: auto; padding: 5px 9px; border: 1px solid var(--acid); border-radius: 6px; background: var(--acid); color: var(--text-inverse); font: 600 9px var(--font-mono); cursor: pointer; transition: filter .15s ease, box-shadow .15s ease; }
+.section-run-button { display: grid; flex: 0 0 auto; place-items: center; width: 26px; height: 26px; margin-left: auto; padding: 0; border: 1px solid var(--acid); border-radius: 7px; background: var(--acid); color: var(--text-inverse); cursor: pointer; transition: filter .15s ease, box-shadow .15s ease; }
+.section-run-button svg { width: 13px; height: 13px; fill: currentColor; }
 .section-run-button:hover:not(:disabled) { filter: brightness(1.08); box-shadow: 0 0 0 3px color-mix(in srgb, var(--acid) 18%, transparent); }
 .section-run-button:disabled { cursor: wait; opacity: .55; }
 .workflow-frame p { margin: 5px 0 0 55px; color: var(--text-muted); font-size: 10px; }

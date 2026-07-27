@@ -121,7 +121,7 @@ let historySettleTimer = null
 const canUndo = ref(false)
 const canRedo = ref(false)
 
-const { fitView, screenToFlowCoordinate, updateNodeInternals } = useVueFlow()
+const { fitView, screenToFlowCoordinate, updateNodeInternals, viewport } = useVueFlow()
 const edgeDefaults = { selectable: true }
 const messages = computed(() => conversation.value?.messages || [])
 const composer = useEditor({
@@ -1886,7 +1886,7 @@ onUnmounted(() => {
           </template>
         </div>
         <VueFlow v-show="canvasView === 'canvas'" v-model:nodes="nodes" v-model:edges="edges" :class="['flow-canvas', `canvas-mode-${canvasMode}`]" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="canvasMode === 'select' ? true : null" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
-          <template #node-frame="props"><FrameNode v-bind="props" :running="busy || isRunning" @update-name="updateNodeName(props.id, $event)" @run-workflow="runWorkflow()" /></template>
+          <template #node-frame="props"><FrameNode v-bind="props" :running="busy || isRunning" :zoom="viewport.zoom" @update-name="updateNodeName(props.id, $event)" @run-workflow="runWorkflow()" /></template>
           <template #node-workflow="props"><WorkflowNode v-bind="props" :node-run="nodeRuns[props.id] || null" :run-id="run?.id || null" :inbound-type="inboundExportTarget(props.id)" :inbound-image="inboundImage(props.id)" :node-catalog="compatibleNodeTypes(props.data.workflowType)" @update-config="updateNodeConfig(props.id, $event)" @update-name="updateNodeName(props.id, $event)" @open-model-editor="openModelEditor(props.id)" @preview-image="openImagePreview" @add-next="addNode($event, props.id)" @run-workflow="runWorkflow($event, 'downstream')" @run-downstream="runWorkflow($event, 'downstream')" /></template>
           <Background :gap="24" :size="1.2" :pattern-color="resolvedTheme === 'dark' ? '#252b2c' : '#cdd2cf'" />
           <MiniMap position="bottom-right" :width="160" :height="100" :pannable="true" :zoomable="true" :mask-color="resolvedTheme === 'dark' ? 'rgba(10, 12, 12, .7)' : 'rgba(238, 241, 238, .72)'" :node-color="resolvedTheme === 'dark' ? '#606a63' : '#a6afa9'" :node-stroke-color="resolvedTheme === 'dark' ? '#929a94' : '#737d76'" :node-stroke-width="1" :node-border-radius="4" />
