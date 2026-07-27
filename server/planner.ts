@@ -136,9 +136,29 @@ export function buildWorkflowStructure(message, types, existingWorkflow = null) 
   const normalizedTypes = [...new Set(types.map((type) => type === 'multiview-to-3d' ? 'generate-model' : type))].filter((type) => nodeDefaults[type])
   if (!normalizedTypes.length) return existingWorkflow ? structuredClone(existingWorkflow) : baseWorkflow(message)
 
-  const nodes = [createFrame(message)]
-  for (const type of normalizedTypes) nodes.push(createNode(type, nodes))
-  fitFrame(nodes)
+  const existingNodes = existingWorkflow ? structuredClone(existingWorkflow.nodes) : []
+  const sectionNodes = [createFrame(message, existingNodes)]
+  for (const type of normalizedTypes) {
+    const node = createNode(type, sectionNodes)
+    node.id = slug(type, [...existingNodes, ...sectionNodes])
+    sectionNodes.push(node)
+  }
+  fitFrame(sectionNodes)
+  if (existingNodes.length) {
+    const topLevelNodes = existingNodes.filter((node) => !node.ui.parentFrameId)
+    if (topLevelNodes.length) {
+      const right = Math.max(...topLevelNodes.map((node) => node.ui.position.x + (node.ui.size?.width ?? 260)))
+      sectionNodes[0].ui.position = {
+        x: right + 160,
+        y: Math.min(...topLevelNodes.map((node) => node.ui.position.y)),
+      }
+    }
+  }
+  const nodes = [...existingNodes, ...sectionNodes]
+  const edges = [
+    ...(existingWorkflow ? structuredClone(existingWorkflow.edges) : []),
+    ...rebuildDagEdges(sectionNodes),
+  ]
   const now = new Date().toISOString()
   const workflow = existingWorkflow ? structuredClone(existingWorkflow) : {
     schemaVersion: '1.0',
@@ -154,8 +174,8 @@ export function buildWorkflowStructure(message, types, existingWorkflow = null) 
     revision: existingWorkflow ? existingWorkflow.revision + 1 : 1,
     updatedAt: now,
     nodes,
-    edges: rebuildDagEdges(nodes),
-    viewport: { x: 80, y: 160, zoom: 0.72 },
+    edges,
+    viewport: existingWorkflow?.viewport || { x: 80, y: 160, zoom: 0.72 },
   }
 }
 
@@ -296,11 +316,12 @@ export function planWorkflow(message, existingWorkflow) {
   const lower = message.toLowerCase()
   const requestedTypes = requestedStructure(message)
   if (requestedTypes && existingWorkflow) {
+    const existingNodeIds = new Set(existingWorkflow.nodes.map((node) => node.id))
     const workflow = buildWorkflowStructure(message, requestedTypes, existingWorkflow)
     return {
       workflow,
       reply: `I built a ${requestedTypes.includes('text-to-3d') ? 'text-to-3D' : 'image-first 3D'} workflow with ${requestedTypes.length} stages inside one frame.`,
-      changedNodeIds: workflow.nodes.map((node) => node.id),
+      changedNodeIds: workflow.nodes.filter((node) => !existingNodeIds.has(node.id)).map((node) => node.id),
       structureChanged: true,
     }
   }

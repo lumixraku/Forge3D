@@ -459,8 +459,9 @@
 .workflow-frame header { pointer-events: auto; cursor: grab; }
 .workflow-frame.selected { border-color: var(--acid); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acid) 25%, transparent); }
 .workflow-frame header { position: absolute; bottom: 100%; left: 0; display: flex; align-items: center; gap: 10px; transform-origin: bottom left; }
-.workflow-frame header span { color: var(--acid); font: 600 8px var(--font-mono); letter-spacing: .14em; }
+.workflow-frame header span { flex: 0 0 auto; color: var(--acid); font: 600 8px var(--font-mono); letter-spacing: .14em; }
 .workflow-frame header strong, .frame-name-input { height: 16px; color: var(--text-primary); font-size: 13px; font-weight: 600; line-height: 16px; }
+.workflow-frame header strong { min-width: 0; overflow: hidden; flex: 1; text-overflow: ellipsis; white-space: nowrap; }
 .frame-name-input, .node-name-input { min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; caret-color: var(--acid); }
 .frame-name-input { width: min(260px, calc(100% - 58px)); }
 .section-run-button { display: grid; flex: 0 0 auto; place-items: center; width: 26px; height: 26px; margin-left: auto; padding: 0; border: 1px solid var(--acid); border-radius: 7px; background: var(--acid); color: var(--text-inverse); cursor: pointer; transition: filter .15s ease, box-shadow .15s ease; }

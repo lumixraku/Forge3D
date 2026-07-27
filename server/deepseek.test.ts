@@ -134,8 +134,10 @@ test('applies multiple parameters across multiple tool calls', async () => {
   assert.deepEqual(result.changedNodeIds, ['retopology', 'texture'])
 })
 
-test('uses DeepSeek to rebuild a framed workflow with nodes and connections', async () => {
+test('uses DeepSeek to append a framed workflow with nodes and connections', async () => {
   const workflow = planWorkflow('Create a text-to-3D workflow').workflow
+  const existingNodes = structuredClone(workflow.nodes)
+  const existingEdges = structuredClone(workflow.edges)
   const replies = [
     response({ choices: [{ message: { role: 'assistant', tool_calls: [{
       id: 'call-build',
@@ -155,22 +157,26 @@ test('uses DeepSeek to rebuild a framed workflow with nodes and connections', as
     fetchImpl: async () => replies.shift(),
   })
 
-  const frame = result.workflow.nodes.find((node) => node.type === 'frame')
+  const addedNodes = result.workflow.nodes.slice(existingNodes.length)
+  const frame = addedNodes.find((node) => node.type === 'frame')
   assert.equal(result.structureChanged, true)
-  assert.deepEqual(result.workflow.nodes.filter((node) => node.type !== 'frame').map((node) => node.type), [
+  assert.deepEqual(result.workflow.nodes.slice(0, existingNodes.length), existingNodes)
+  assert.deepEqual(result.workflow.edges.slice(0, existingEdges.length), existingEdges)
+  assert.deepEqual(addedNodes.filter((node) => node.type !== 'frame').map((node) => node.type), [
     'reference-image',
     'prompt',
     'generate-image',
     'generate-model',
     'export-model',
   ])
-  assert.ok(result.workflow.nodes.filter((node) => node.type !== 'frame').every((node) => node.ui.parentFrameId === frame.id))
-  assert.deepEqual(result.workflow.edges.map((edge) => [edge.source.nodeId, edge.target.nodeId]), [
+  assert.ok(addedNodes.filter((node) => node.type !== 'frame').every((node) => node.ui.parentFrameId === frame.id))
+  assert.deepEqual(result.workflow.edges.slice(existingEdges.length).map((edge) => [edge.source.nodeId, edge.target.nodeId]), [
     ['reference-image', 'generate-image'],
-    ['prompt', 'generate-image'],
+    ['prompt-2', 'generate-image'],
     ['generate-image', 'generate-model'],
-    ['generate-model', 'export-model'],
+    ['generate-model', 'export-model-2'],
   ])
+  assert.deepEqual(result.changedNodeIds, addedNodes.map((node) => node.id))
 })
 
 test('applies only parameters selected by DeepSeek without changing workflow structure', async () => {

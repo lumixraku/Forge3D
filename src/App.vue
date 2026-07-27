@@ -207,7 +207,6 @@ async function refreshWorkflow(workflowId, taskId, structureChanged) {
   await toCanvas(data.workflow)
   await loadWorkflowList()
   await nextTick()
-  if (structureChanged) await autoLayout({ persist: true })
 }
 
 function applyAgentEvent(event, pendingAssistantId) {

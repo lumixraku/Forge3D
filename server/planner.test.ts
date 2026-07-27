@@ -75,26 +75,36 @@ test('recognizes Chinese Text to 3D requests', () => {
   assert.ok(!workflow.nodes.some((node) => node.type === 'generate-model'))
 })
 
-test('builds an image-first workflow from a natural language request', () => {
+test('appends an image-first workflow in a new frame without replacing the canvas', () => {
   const existing = planWorkflow('Create a text-to-3D workflow').workflow
+  const existingNodes = structuredClone(existing.nodes)
+  const existingEdges = structuredClone(existing.edges)
+  const existingFrame = existing.nodes.find((node) => node.type === 'frame')
   const { workflow, structureChanged } = planWorkflow('你创建一个常用的3D建模流程，根据文字生成图片，然后再根据图片生成3D', existing)
 
   assert.equal(structureChanged, true)
-  const frame = workflow.nodes.find((node) => node.type === 'frame')
+  assert.deepEqual(workflow.nodes.slice(0, existingNodes.length), existingNodes)
+  assert.deepEqual(workflow.edges.slice(0, existingEdges.length), existingEdges)
+
+  const addedNodes = workflow.nodes.slice(existingNodes.length)
+  const frame = addedNodes.find((node) => node.type === 'frame')
   assert.ok(frame)
-  assert.deepEqual(workflow.nodes.filter((node) => node.type !== 'frame').map((node) => node.type), [
+  assert.ok(frame.ui.position.x > existingFrame.ui.position.x + existingFrame.ui.size.width)
+  assert.deepEqual(addedNodes.filter((node) => node.type !== 'frame').map((node) => node.type), [
     'reference-image',
     'prompt',
     'generate-image',
     'generate-model',
     'export-model',
   ])
-  assert.ok(workflow.nodes.filter((node) => node.type !== 'frame').every((node) => node.ui.parentFrameId === frame.id))
-  assert.deepEqual(workflow.edges.map((edge) => [edge.source.nodeId, edge.target.nodeId]), [
+  assert.ok(addedNodes.filter((node) => node.type !== 'frame').every((node) => node.ui.parentFrameId === frame.id))
+  assert.equal(new Set(workflow.nodes.map((node) => node.id)).size, workflow.nodes.length)
+  assert.equal(new Set(workflow.edges.map((edge) => edge.id)).size, workflow.edges.length)
+  assert.deepEqual(workflow.edges.slice(existingEdges.length).map((edge) => [edge.source.nodeId, edge.target.nodeId]), [
     ['reference-image', 'generate-image'],
-    ['prompt', 'generate-image'],
+    ['prompt-2', 'generate-image'],
     ['generate-image', 'generate-model'],
-    ['generate-model', 'export-model'],
+    ['generate-model', 'export-model-2'],
   ])
 })
 

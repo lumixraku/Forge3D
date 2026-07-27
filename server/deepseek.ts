@@ -215,13 +215,15 @@ export async function runDeepSeekAgent({ apiKey, message, workflow, history = []
         if (!Array.isArray(args.stages) || !args.stages.length || args.stages.some((type) => !workflowStageTypes.includes(type))) {
           throw new DeepSeekError('DeepSeek requested an invalid workflow structure.')
         }
+        const existingNodeIds = new Set(nextWorkflow.nodes.map((node) => node.id))
         nextWorkflow = buildWorkflowStructure(message, args.stages, nextWorkflow)
+        const addedNodes = nextWorkflow.nodes.filter((node) => !existingNodeIds.has(node.id))
         structureChanged = true
-        for (const node of nextWorkflow.nodes) changes.push({ nodeId: node.id, added: true })
+        for (const node of addedNodes) changes.push({ nodeId: node.id, added: true })
         result = {
-          frameId: nextWorkflow.nodes.find((node) => node.type === 'frame')?.id,
-          nodes: nextWorkflow.nodes.filter((node) => node.type !== 'frame').map(({ id, type, name }) => ({ id, type, name })),
-          edges: nextWorkflow.edges.map((edge) => ({ source: edge.source.nodeId, target: edge.target.nodeId })),
+          frameId: addedNodes.find((node) => node.type === 'frame')?.id,
+          nodes: addedNodes.filter((node) => node.type !== 'frame').map(({ id, type, name }) => ({ id, type, name })),
+          edges: nextWorkflow.edges.filter((edge) => addedNodes.some((node) => node.id === edge.source.nodeId)).map((edge) => ({ source: edge.source.nodeId, target: edge.target.nodeId })),
         }
       } else if (call.function.name === 'get_workflow_parameters') {
         result = {

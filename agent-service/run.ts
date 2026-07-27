@@ -107,13 +107,15 @@ export function startPiAgent(opts: RunOptions): LiveRun {
         if (!Array.isArray(params.stages) || !params.stages.length || params.stages.some((type: string) => !workflowStageTypes.includes(type))) {
           return errorResult('Invalid workflow structure requested.')
         }
+        const existingNodeIds = new Set(session.workflow.nodes.map((node: any) => node.id))
         session.workflow = buildWorkflowStructure(opts.message, params.stages, session.workflow)
+        const addedNodes = session.workflow.nodes.filter((node: any) => !existingNodeIds.has(node.id))
         session.structureChanged = true
-        for (const node of session.workflow.nodes) session.changes.push({ nodeId: node.id })
+        for (const node of addedNodes) session.changes.push({ nodeId: node.id })
         return result(JSON.stringify({
-          frameId: session.workflow.nodes.find((node: any) => node.type === 'frame')?.id,
-          nodes: session.workflow.nodes.filter((node: any) => node.type !== 'frame').map((node: any) => ({ id: node.id, type: node.type, name: node.name })),
-          edges: session.workflow.edges.map((edge: any) => ({ source: edge.source.nodeId, target: edge.target.nodeId })),
+          frameId: addedNodes.find((node: any) => node.type === 'frame')?.id,
+          nodes: addedNodes.filter((node: any) => node.type !== 'frame').map((node: any) => ({ id: node.id, type: node.type, name: node.name })),
+          edges: session.workflow.edges.filter((edge: any) => addedNodes.some((node: any) => node.id === edge.source.nodeId)).map((edge: any) => ({ source: edge.source.nodeId, target: edge.target.nodeId })),
         }))
       },
     },
