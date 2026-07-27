@@ -390,8 +390,8 @@
 .canvas-toolbar { z-index: 5; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--line); }
 .canvas-toolbar b { display: block; margin-top: 3px; color: var(--text-secondary); font: 500 10px var(--font-mono); }
 .canvas-toolbar > div:last-child { display: flex; gap: 5px; overflow: visible; }
-.canvas-toolbar button { min-width: 30px; height: 30px; padding: 0 9px; border: 1px solid var(--line-subtle); border-radius: 6px; background: var(--bg-input); color: var(--text-muted); font: 500 10px var(--font-mono); transition: border-color .15s ease, background .15s ease, color .15s ease, transform .15s ease; }
-.canvas-toolbar button:hover:not(:disabled) { border-color: var(--line-strong); background: var(--bg-input-hover); color: var(--acid); transform: translateY(-1px); }
+.canvas-toolbar button { min-width: 30px; height: 30px; padding: 0 9px; border: 1px solid var(--line-subtle); border-radius: 6px; background: var(--bg-input); color: var(--text-muted); font: 500 10px var(--font-mono); transition: border-color .15s ease, background .15s ease, color .15s ease; }
+.canvas-toolbar button:hover:not(:disabled) { border-color: var(--line-strong); background: var(--bg-input-hover); color: var(--acid); }
 .canvas-toolbar button:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--acid) 50%, transparent); }
 .canvas-toolbar .canvas-mode-switch, .canvas-toolbar .canvas-view-switch { display: flex; height: 30px; padding: 0; border: 1px solid var(--line-subtle); border-radius: 6px; background: var(--bg-input); overflow: hidden; }
 .canvas-toolbar .canvas-mode-switch button, .canvas-toolbar .canvas-view-switch button { display: flex; min-width: 58px; height: 100%; align-items: center; justify-content: center; gap: 5px; padding: 0 11px; border: 0; border-radius: 0; background: transparent; }

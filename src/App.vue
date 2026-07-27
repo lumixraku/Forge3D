@@ -1860,7 +1860,7 @@ onUnmounted(() => {
                 <span>{{ item.label }}</span><small>{{ item.description }}</small>
               </button>
             </template>
-          </div></div><button :disabled="!activeWorkflow" @click="addNode('frame')">Section</button><button :disabled="!activeWorkflow" @click="addNode('generate-model')">Gen HD Model</button><button @click="fitView({ padding: .18, duration: 400 })">Fit</button><button :disabled="busy || saving || !nodes.length" @click="autoLayout">Auto layout</button></template><button class="run-button" :disabled="busy || isRunning || !activeWorkflow || !hasSelectedNode" @click="runWorkflow()">{{ isRunning ? 'Running current workflow…' : 'Run current workflow' }}</button></div>
+          </div></div><button :disabled="!activeWorkflow" @click="addNode('frame')">Section</button><button @click="fitView({ padding: .18, duration: 400 })">Fit</button><button :disabled="busy || saving || !nodes.length" @click="autoLayout">Auto layout</button></template><button class="run-button" :disabled="busy || isRunning || !activeWorkflow || !hasSelectedNode" @click="runWorkflow()">{{ isRunning ? 'Running current workflow…' : 'Run current workflow' }}</button></div>
         </div>
         <div v-if="nodeMenuOpen && nodeMenuContext" ref="contextMenu" class="node-menu-popover canvas-node-menu contextual" :class="{ 'selection-menu': nodeMenuContext.kind === 'selection' }" :style="{ left: `${nodeMenuContext.left}px`, top: `${nodeMenuContext.top}px`, maxWidth: `${nodeMenuContext.maxWidth}px`, maxHeight: `${nodeMenuContext.maxHeight}px` }" @pointerdown.stop>
           <template v-if="nodeMenuContext.kind === 'selection'">
