@@ -1,8 +1,8 @@
 <script setup>
 import { nextTick, ref } from 'vue'
 
-const props = defineProps({ data: { type: Object, required: true }, selected: Boolean })
-const emit = defineEmits(['update-name'])
+const props = defineProps({ data: { type: Object, required: true }, selected: Boolean, running: Boolean })
+const emit = defineEmits(['update-name', 'run-workflow'])
 const editingName = ref(false)
 const draftName = ref('')
 const nameInput = ref(null)
@@ -32,9 +32,10 @@ function cancelNameEdit() {
 <template>
   <section class="workflow-frame" :class="{ selected }">
     <header>
-      <span>FRAME</span>
-      <input v-if="editingName" ref="nameInput" v-model="draftName" class="frame-name-input nodrag nopan" aria-label="Frame name" @click.stop @dblclick.stop @pointerdown.stop @keydown.enter.prevent="saveName" @keydown.esc.prevent="cancelNameEdit" @blur="saveName" />
+      <span>SECTION</span>
+      <input v-if="editingName" ref="nameInput" v-model="draftName" class="frame-name-input nodrag nopan" aria-label="Section name" @click.stop @dblclick.stop @pointerdown.stop @keydown.enter.prevent="saveName" @keydown.esc.prevent="cancelNameEdit" @blur="saveName" />
       <strong v-else title="Double-click to rename" @dblclick.stop="startNameEdit">{{ data.label }}</strong>
+      <button type="button" class="section-run-button nodrag nopan" :disabled="running" @pointerdown.stop @click.stop="emit('run-workflow')">{{ running ? 'Running…' : 'Run workflow' }}</button>
     </header>
     <p v-if="data.description">{{ data.description }}</p>
   </section>

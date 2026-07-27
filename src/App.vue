@@ -20,7 +20,7 @@ import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, nodeCatalog,
 const ModelEditor = defineAsyncComponent(() => import('./components/ModelEditor.vue'))
 
 const nodePresentation = {
-  frame: ['FRAME', 'Workflow group', 'slate'],
+  frame: ['SECTION', 'Workflow group', 'slate'],
   'reference-image': ['INPUT', 'Reference source', 'cyan'],
   'generated-image': ['OUTPUT', 'Generated view', 'amber'],
   prompt: ['PROMPT', 'Creative direction', 'violet'],
@@ -359,6 +359,7 @@ const frameableSelectedNodes = computed(() => selectedNodes.value.filter((node) 
 const canFrameSelection = computed(() => frameableSelectedNodes.value.length > 0)
 const canDissolveSelection = computed(() => selectedNodes.value.some((node) => node.type === 'frame'))
 const selectedCount = computed(() => selectedNodes.value.length + selectedEdges.value.length)
+const hasSelectedNode = computed(() => selectedNodes.value.length > 0)
 const hasSelection = computed(() => selectedCount.value > 0)
 const panOnDrag = computed(() => canvasMode.value === 'move')
 
@@ -1138,7 +1139,7 @@ function addNode(type, sourceId, position) {
       height,
       selected: true,
       style: { pointerEvents: 'none' },
-      data: { label: 'New workflow frame', description: '' },
+      data: { label: 'New workflow section', description: '' },
     }
     nodes.value = [frame, ...nodes.value.map((item) => ({ ...item, selected: false }))]
     closeContextMenu()
@@ -1201,7 +1202,7 @@ function makeSelectionFrame() {
     height: bottom - top + padding * 2 + headerHeight,
     selected: true,
     style: { pointerEvents: 'none' },
-    data: { label: 'Workflow frame', description: '' },
+    data: { label: 'Workflow section', description: '' },
   }
   const children = nodes.value.map((node) => selectedIds.has(node.id)
     ? {
@@ -1859,13 +1860,13 @@ onUnmounted(() => {
                 <span>{{ item.label }}</span><small>{{ item.description }}</small>
               </button>
             </template>
-          </div></div><button :disabled="!activeWorkflow" @click="addNode('frame')">Frame</button><button :disabled="!activeWorkflow" @click="addNode('generate-model')">Gen HD Model</button><button @click="fitView({ padding: .18, duration: 400 })">Fit</button><button :disabled="busy || saving || !nodes.length" @click="autoLayout">Auto layout</button></template><button class="run-button" :disabled="busy || isRunning || !activeWorkflow" @click="runWorkflow()">{{ isRunning ? 'Running…' : busy ? 'Working…' : run ? 'Run again' : 'Run workflow' }}</button></div>
+          </div></div><button :disabled="!activeWorkflow" @click="addNode('frame')">Section</button><button :disabled="!activeWorkflow" @click="addNode('generate-model')">Gen HD Model</button><button @click="fitView({ padding: .18, duration: 400 })">Fit</button><button :disabled="busy || saving || !nodes.length" @click="autoLayout">Auto layout</button></template><button class="run-button" :disabled="busy || isRunning || !activeWorkflow || !hasSelectedNode" @click="runWorkflow()">{{ isRunning ? 'Running current workflow…' : 'Run current workflow' }}</button></div>
         </div>
         <div v-if="nodeMenuOpen && nodeMenuContext" ref="contextMenu" class="node-menu-popover canvas-node-menu contextual" :class="{ 'selection-menu': nodeMenuContext.kind === 'selection' }" :style="{ left: `${nodeMenuContext.left}px`, top: `${nodeMenuContext.top}px`, maxWidth: `${nodeMenuContext.maxWidth}px`, maxHeight: `${nodeMenuContext.maxHeight}px` }" @pointerdown.stop>
           <template v-if="nodeMenuContext.kind === 'selection'">
              <strong>Selection</strong>
-             <button type="button" :disabled="!canFrameSelection" @click="runContextMenuAction(makeSelectionFrame)"><span>Make as a frame</span></button>
-             <button type="button" :disabled="!canDissolveSelection" @click="runContextMenuAction(dissolveSelectedFrames)"><span>Dissolve frame</span></button>
+             <button type="button" :disabled="!canFrameSelection" @click="runContextMenuAction(makeSelectionFrame)"><span>Make as a section</span></button>
+             <button type="button" :disabled="!canDissolveSelection" @click="runContextMenuAction(dissolveSelectedFrames)"><span>Dissolve section</span></button>
              <button type="button" @click="runContextMenuAction(createWorkflowFromSelection)"><span>Create workflow</span></button>
              <button type="button" @click="runContextMenuAction(copySelected)"><span>Copy</span></button>
              <button type="button" :disabled="!clipboardFragment" @click="runContextMenuAction(pasteFragment)"><span>Paste</span></button>
@@ -1885,7 +1886,7 @@ onUnmounted(() => {
           </template>
         </div>
         <VueFlow v-show="canvasView === 'canvas'" v-model:nodes="nodes" v-model:edges="edges" :class="['flow-canvas', `canvas-mode-${canvasMode}`]" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="canvasMode === 'select' ? true : null" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
-          <template #node-frame="props"><FrameNode v-bind="props" @update-name="updateNodeName(props.id, $event)" /></template>
+          <template #node-frame="props"><FrameNode v-bind="props" :running="busy || isRunning" @update-name="updateNodeName(props.id, $event)" @run-workflow="runWorkflow()" /></template>
           <template #node-workflow="props"><WorkflowNode v-bind="props" :node-run="nodeRuns[props.id] || null" :run-id="run?.id || null" :inbound-type="inboundExportTarget(props.id)" :inbound-image="inboundImage(props.id)" :node-catalog="compatibleNodeTypes(props.data.workflowType)" @update-config="updateNodeConfig(props.id, $event)" @update-name="updateNodeName(props.id, $event)" @open-model-editor="openModelEditor(props.id)" @preview-image="openImagePreview" @add-next="addNode($event, props.id)" @run-workflow="runWorkflow($event, 'downstream')" @run-downstream="runWorkflow($event, 'downstream')" /></template>
           <Background :gap="24" :size="1.2" :pattern-color="resolvedTheme === 'dark' ? '#252b2c' : '#cdd2cf'" />
           <MiniMap position="bottom-right" :width="160" :height="100" :pannable="true" :zoomable="true" :mask-color="resolvedTheme === 'dark' ? 'rgba(10, 12, 12, .7)' : 'rgba(238, 241, 238, .72)'" :node-color="resolvedTheme === 'dark' ? '#606a63' : '#a6afa9'" :node-stroke-color="resolvedTheme === 'dark' ? '#929a94' : '#737d76'" :node-stroke-width="1" :node-border-radius="4" />

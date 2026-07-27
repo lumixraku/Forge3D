@@ -1,5 +1,5 @@
 export const nodeCatalog = [
-  { category: 'Annotate', type: 'frame', label: 'Frame', description: 'Group related workflow steps', inputTypes: [], outputType: null },
+  { category: 'Annotate', type: 'frame', label: 'Section', description: 'Group related workflow steps', inputTypes: [], outputType: null },
   { category: 'Input', type: 'reference-image', label: 'Image Upload', description: 'Add an image or asset input', inputTypes: [], outputType: 'image' },
   { category: 'Output', type: 'generated-image', label: 'Image', description: 'An image created by a workflow step', inputTypes: ['image'], outputType: 'image', hidden: true },
   { category: 'Input', type: 'prompt', label: 'Text Prompt', description: 'Set creative direction', inputTypes: [], outputType: 'text' },
@@ -24,6 +24,7 @@ export const nodeCatalog = [
     inputTypes: [],
     outputType: 'model',
     inputPorts: multiViewPorts(),
+    hidden: true,
   },
   { category: '3D', type: 'text-to-3d', label: 'Text to 3D', description: 'Turn a text prompt into a model', inputTypes: ['text'], outputType: 'model', hidden: true },
   { category: '3D', type: 'retopology', label: 'Retopology', description: 'Optimize model geometry', inputTypes: ['model'], outputType: 'model' },

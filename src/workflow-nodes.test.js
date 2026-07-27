@@ -59,10 +59,13 @@ test('returns nodes accepted by a dragged output', () => {
 })
 
 test('hides Image from node menus and groups Export under Output', () => {
+  const section = nodeCatalog.find((node) => node.type === 'frame')
   const image = nodeCatalog.find((node) => node.type === 'generated-image')
   const exportNode = nodeCatalog.find((node) => node.type === 'export-model')
 
+  assert.equal(section.label, 'Section')
   assert.equal(image.hidden, true)
   assert.equal(exportNode.category, 'Output')
   assert.ok(!compatibleNodeTypes('generate-image').some((node) => node.type === 'generated-image'))
+  assert.equal(nodeCatalog.find((node) => node.type === 'multiview-to-3d').hidden, true)
 })

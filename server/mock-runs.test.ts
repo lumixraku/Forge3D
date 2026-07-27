@@ -78,6 +78,23 @@ test('emits four named views from a completed multiview generation', async () =>
   })
 })
 
+test('Gen HD Model automatically detects multiple upstream images', async () => {
+  const multiviewWorkflow = {
+    ...workflow,
+    nodes: [
+      { id: 'views', type: 'generate-multiview-images', name: 'Views', config: { viewPreviews: { front: '/front.png', back: '/back.png', left: '/left.png', right: '/right.png' } } },
+      { id: 'model', type: 'generate-model', name: 'Gen HD Model', config: { preview: '/model.png' } },
+    ],
+    edges: [{ source: { nodeId: 'views' }, target: { nodeId: 'model' } }],
+  }
+  const run = createMockRun(multiviewWorkflow)
+  await executeMockRun(run, multiviewWorkflow, { wait: async () => {}, persist: async () => {} })
+
+  assert.equal(run.nodeRuns.model.output.inputMode, 'multi-image')
+  assert.deepEqual(run.nodeRuns.model.output.inputImages, ['/front.png', '/back.png', '/left.png', '/right.png'])
+  assert.equal(run.nodeRuns.model.output.message, 'Gen HD Model generated from 4 images')
+})
+
 test('limits image candidates to the configured count', async () => {
   const countWorkflow = { ...workflow, nodes: [{ id: 'concepts', type: 'generate-image', name: 'Gen Image', config: { count: 2, previews: ['/a.png', '/b.png', '/c.png', '/d.png'] } }], edges: [] }
   const run = createMockRun(countWorkflow)

@@ -2,16 +2,14 @@ import { describeWorkflowParameters, updateNodeParameters, workflowParameterJson
 import { addWorkflowStage, buildWorkflowStructure, nodeDefaults, planWorkflow } from './planner.js'
 
 // Every selectable stage, with what it does and the media it consumes/produces.
-// This is what lets the model pick the right stage (e.g. multiview-to-3d vs
-// generate-model) instead of guessing from a bare type name.
+// This is what lets the model match each stage to the media it consumes.
 const nodeCatalogRows = [
   ['reference-image', 'Upload or reference a single source image.', 'none', 'image'],
   ['prompt', 'A text description / creative direction.', 'none', 'text'],
   ['generate-image', 'Generate concept image candidates from a reference image and/or text.', 'image, text', 'image(s)'],
   ['generate-multiview-images', 'Generate several views (front/back/left/right) of the SAME subject from one reference image and/or text.', 'image, text', 'multiple view images'],
-  ['generate-model', 'Reconstruct a 3D model directly from a single image and/or a text prompt. Use only when there is no multi-view stage.', 'image, text', '3D model'],
+  ['generate-model', 'Reconstruct a 3D model from text, one image, or multiple images. It automatically detects how many images the upstream stage outputs.', 'image(s), text', '3D model'],
   ['smart-mesh', 'Generate a mesh directly from a single image and/or text.', 'image, text', '3D model'],
-  ['multiview-to-3d', 'Reconstruct ONE 3D model from MULTIPLE image views. This is the correct 3D stage after generate-multiview-images.', 'multiple view images', '3D model'],
   ['text-to-3d', 'Reconstruct a 3D model from text only.', 'text', '3D model'],
   ['review', 'Manual checkpoint to approve an image before continuing.', 'image', 'image'],
   ['retopology', 'Optimize / clean up model geometry.', '3D model', '3D model'],
@@ -29,9 +27,9 @@ export const systemPrompt = `You are the builder agent for a 3D production workf
 Node catalog (each stage, what it does, and the media it takes/produces). A stage can only receive what a previous stage produces:
 ${nodeCatalogText}
 
-Choose stages by matching outputs to inputs. Key rule: generate-multiview-images outputs MULTIPLE views, which only multiview-to-3d consumes — so any "one image → multiple views → 3D" request (e.g. 单图生成多图再生成3D, 多视图/多角度生成3D) MUST use multiview-to-3d as the 3D stage, never generate-model or smart-mesh. Use generate-model / smart-mesh only for a single image (or text) straight to 3D, with no multi-view stage.
+Choose stages by matching outputs to inputs. Key rule: generate-model is the unified 3D generation stage. It accepts text, a single image, or multiple images and automatically selects single-image or multi-image reconstruction from the upstream output. Any "one image → multiple views → 3D" request must use generate-multiview-images followed by generate-model.
 
-When the user asks to create, build, rebuild, or design a workflow, call build_workflow with the complete ordered list of stages. The server automatically creates one frame, places all stages inside it, connects compatible ports, and lays out the result. Common shapes: text-to-image-to-3D = reference-image, prompt, generate-image, generate-model, export-model; direct text-to-3D = prompt, text-to-3d, export-model; single image to multi-view to 3D = reference-image, generate-multiview-images, multiview-to-3d, export-model. Add retopology, texture, rigging, and split before export-model when requested.
+When the user asks to create, build, rebuild, or design a workflow, call build_workflow with the complete ordered list of stages. The server automatically creates one frame, places all stages inside it, connects compatible ports, and lays out the result. Common shapes: text-to-image-to-3D = reference-image, prompt, generate-image, generate-model, export-model; direct text-to-3D = prompt, text-to-3d, export-model; single image to multi-view to 3D = reference-image, generate-multiview-images, generate-model, export-model. Add retopology, texture, rigging, and split before export-model when requested.
 
 Use get_workflow_structure when the current nodes or available stage types are unclear. Use add_workflow_stage to add any supported node type, including frame, when it is not already present; use build_workflow when the complete workflow should be rebuilt. Use get_workflow_parameters when parameter names, node IDs, ranges, or options are unclear. Apply every parameter explicitly requested by the user. Group all requested changes for the same node into one update_node_parameters call, use separate calls for different nodes, and verify every requested change appears in successful tool results before replying. When you need the user to choose from a finite set of valid alternatives before continuing, you MUST call request_user_select. Never ask that question, list the options, or tell the user to choose in normal assistant text. For an empty workflow, if the user has not stated how to create the model, call request_user_select with the available workflow approaches. Do not ask for free-form text with this tool. Reply concisely in the user's language and summarize the nodes and connections actually created or changed.`
 

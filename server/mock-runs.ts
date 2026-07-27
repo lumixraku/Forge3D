@@ -26,6 +26,23 @@ function sourceOutputImage(sourceNode, run) {
   return output?.image || output?.preview || sourceNode.config?.selectedPreview || sourceNode.config?.preview || sourceNode.config?.previews?.[0] || null
 }
 
+function sourceOutputImages(sourceNode, run) {
+  const output = run.nodeRuns[sourceNode.id]?.output
+  const images = [
+    ...(Array.isArray(output?.previews) ? output.previews : []),
+    ...Object.values(output?.viewPreviews || {}),
+  ].filter(Boolean)
+  if (images.length) return [...new Set(images)]
+  const image = sourceOutputImage(sourceNode, run)
+  return image ? [image] : []
+}
+
+function resolveInputImages(node, workflow, run) {
+  return [...new Set(inboundSources(node, workflow)
+    .filter((source) => !modelProducingTypes.has(source.type))
+    .flatMap((source) => sourceOutputImages(source, run)))]
+}
+
 function resolveInputImage(node, workflow, run) {
   for (const source of inboundSources(node, workflow)) {
     if (modelProducingTypes.has(source.type)) continue
@@ -55,6 +72,10 @@ function nodeOutput(node, workflow, run) {
     return { message: node.config?.approved ? 'Image approved' : 'Awaiting image approval', image, preview: image }
   }
   if (['generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'bake', 'texture', 'rigging', 'split', 'model-preview'].includes(node.type)) {
+    if (node.type === 'generate-model') {
+      const inputImages = resolveInputImages(node, workflow, run)
+      return { message: `${node.name} generated from ${inputImages.length > 1 ? `${inputImages.length} images` : inputImages.length === 1 ? '1 image' : 'text'}`, preview: node.config?.preview || null, inputMode: inputImages.length > 1 ? 'multi-image' : inputImages.length === 1 ? 'single-image' : 'text', inputImages }
+    }
     return node.type === 'texture'
       ? { message: 'UV texture generated', preview: node.config?.preview || null, textureQuality: node.config?.textureQuality || '2K', pbr: Boolean(node.config?.pbr) }
       : { message: `${node.name} generated`, preview: node.config?.preview || null }

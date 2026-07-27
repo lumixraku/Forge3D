@@ -133,7 +133,7 @@ export function rebuildDagEdges(nodes) {
 }
 
 export function buildWorkflowStructure(message, types, existingWorkflow = null) {
-  const normalizedTypes = [...new Set(types)].filter((type) => nodeDefaults[type])
+  const normalizedTypes = [...new Set(types.map((type) => type === 'multiview-to-3d' ? 'generate-model' : type))].filter((type) => nodeDefaults[type])
   if (!normalizedTypes.length) return existingWorkflow ? structuredClone(existingWorkflow) : baseWorkflow(message)
 
   const nodes = [createFrame(message)]
@@ -202,6 +202,7 @@ function insertBefore(workflow, type, beforeTypes) {
 
 export function addWorkflowStage(workflow, type, message = '') {
   const nextWorkflow = structuredClone(workflow)
+  type = type === 'multiview-to-3d' ? 'generate-model' : type
   const allowedTypes = new Set(['frame', ...Object.keys(nodeDefaults)])
   if (!allowedTypes.has(type)) throw new Error(`Unsupported workflow stage: ${type}`)
 
@@ -231,7 +232,7 @@ function parameterHelpType(message) {
   if (/retopo|拓扑|减面/i.test(message)) return 'retopology'
   if (/texture|贴图|纹理/i.test(message)) return 'texture'
   if (/text[ -]?to[ -]?3d|文生3d/i.test(message)) return 'text-to-3d'
-  if (/multi[ -]?view|多视角|四视图/i.test(message)) return 'multiview-to-3d'
+  if (/multi[ -]?view|多视角|四视图/i.test(message)) return 'generate-model'
   if (/image[ -]?to[ -]?3d|图生3d/i.test(message)) return 'generate-model'
   if (/prompt|提示词/i.test(message)) return 'prompt'
   return null

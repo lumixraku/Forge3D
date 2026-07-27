@@ -458,11 +458,14 @@
    it. Only the header re-enables pointer events, acting as the drag/select handle. */
 .workflow-frame header { pointer-events: auto; cursor: grab; }
 .workflow-frame.selected { border-color: var(--acid); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acid) 25%, transparent); }
-.workflow-frame header { display: flex; align-items: baseline; gap: 10px; }
+.workflow-frame header { display: flex; align-items: center; gap: 10px; }
 .workflow-frame header span { color: var(--acid); font: 600 8px var(--font-mono); letter-spacing: .14em; }
 .workflow-frame header strong, .frame-name-input { height: 16px; color: var(--text-primary); font-size: 13px; font-weight: 600; line-height: 16px; }
 .frame-name-input, .node-name-input { min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; caret-color: var(--acid); }
 .frame-name-input { width: min(260px, calc(100% - 58px)); }
+.section-run-button { margin-left: auto; padding: 5px 9px; border: 1px solid var(--acid); border-radius: 6px; background: var(--acid); color: var(--text-inverse); font: 600 9px var(--font-mono); cursor: pointer; transition: filter .15s ease, box-shadow .15s ease; }
+.section-run-button:hover:not(:disabled) { filter: brightness(1.08); box-shadow: 0 0 0 3px color-mix(in srgb, var(--acid) 18%, transparent); }
+.section-run-button:disabled { cursor: wait; opacity: .55; }
 .workflow-frame p { margin: 5px 0 0 55px; color: var(--text-muted); font-size: 10px; }
 .vue-flow__node-frame { z-index: 0 !important; }
 .vue-flow__node-workflow { z-index: 1 !important; }

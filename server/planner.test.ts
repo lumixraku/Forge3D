@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { addWorkflowStage, planWorkflow, rebuildDagEdges } from './planner.js'
+import { addWorkflowStage, buildWorkflowStructure, planWorkflow, rebuildDagEdges } from './planner.js'
 
 test('creates a reusable workflow', () => {
   const { workflow } = planWorkflow('Create a game character workflow')
@@ -219,18 +219,24 @@ test('adds any supported workflow node type without duplicating it', () => {
   assert.ok(children.every((node) => node.ui.position.y + 430 <= frame.ui.size.height - 70))
 })
 
-test('wires a single-image to multi-view to 3D reconstruction chain', () => {
+test('normalizes the legacy multi-view 3D stage to Gen HD Model', () => {
+  const workflow = buildWorkflowStructure('Multi-view model', ['reference-image', 'generate-multiview-images', 'multiview-to-3d', 'export-model'])
+  assert.ok(workflow.nodes.some((node) => node.type === 'generate-model'))
+  assert.ok(!workflow.nodes.some((node) => node.type === 'multiview-to-3d'))
+})
+
+test('wires a single-image to multi-view to unified 3D reconstruction chain', () => {
   const nodes = [
     { id: 'reference-image', type: 'reference-image' },
     { id: 'generate-multiview-images', type: 'generate-multiview-images' },
-    { id: 'multiview-to-3d', type: 'multiview-to-3d' },
+    { id: 'generate-model', type: 'generate-model' },
     { id: 'export-model', type: 'export-model' },
   ]
   const edges = rebuildDagEdges(nodes).map((edge) => [edge.source.nodeId, edge.target.nodeId])
   assert.deepEqual(edges, [
     ['reference-image', 'generate-multiview-images'],
-    ['generate-multiview-images', 'multiview-to-3d'],
-    ['multiview-to-3d', 'export-model'],
+    ['generate-multiview-images', 'generate-model'],
+    ['generate-model', 'export-model'],
   ])
 })
 
