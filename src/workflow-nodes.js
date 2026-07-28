@@ -4,6 +4,7 @@ export const nodeCatalog = [
   { category: 'Output', type: 'generated-image', label: 'Image', description: 'An image created by a workflow step', inputTypes: ['image'], outputType: 'image', hidden: true },
   { category: 'Input', type: 'prompt', label: 'Text Prompt', description: 'Set creative direction', inputTypes: [], outputType: 'text' },
   { category: '2D', type: 'generate-image', label: 'Gen Image', description: 'Create concept images', inputTypes: ['image', 'text'], outputType: 'image' },
+  { category: '2D', type: 'image-decomposition', label: 'Image Decomposition', description: 'Break an image into editable visual parts', inputTypes: ['image'], outputType: 'image' },
   {
     category: '2D',
     type: 'generate-multiview-images',
@@ -68,6 +69,7 @@ const lycheeNodeNames = new Map([
   ['generated-image', 'Image'],
   ['prompt', 'Text Prompt'],
   ['generate-image', 'Gen Image'],
+  ['image-decomposition', 'Image Decomposition'],
   ['generate-multiview-images', 'Generate Multi-view Images'],
   ['generate-model', 'Gen HD Model'],
   ['smart-mesh', 'Smart Mesh'],

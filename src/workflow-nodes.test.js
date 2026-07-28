@@ -69,3 +69,12 @@ test('hides Image from node menus and groups Export under Output', () => {
   assert.ok(!compatibleNodeTypes('generate-image').some((node) => node.type === 'generated-image'))
   assert.equal(nodeCatalog.find((node) => node.type === 'multiview-to-3d').hidden, true)
 })
+
+test('registers the image decomposition demo as an image node', () => {
+  const decomposition = nodeCatalog.find((node) => node.type === 'image-decomposition')
+
+  assert.equal(decomposition.category, '2D')
+  assert.deepEqual(nodeInputPorts(decomposition.type), [{ id: 'input', label: 'Input', type: 'any' }])
+  assert.deepEqual(nodeOutputPorts(decomposition.type), [{ id: 'output', label: 'Output', type: 'image' }])
+  assert.ok(compatibleNodeTypes('reference-image').some((node) => node.type === decomposition.type))
+})
