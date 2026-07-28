@@ -3,7 +3,8 @@ import { Type } from '@earendil-works/pi-ai'
 import { streamSimple } from '@earendil-works/pi-ai/api/openai-completions'
 import { addWorkflowStage, buildWorkflowStructure } from '../server/planner.js'
 import { describeWorkflowParameters, updateNodeParameters } from '../server/workflow-parameters.js'
-import { systemPrompt, workflowStageTypes } from '../server/deepseek.js'
+import { systemPrompt } from '../server/deepseek.js'
+import { workflowStageTypes, workflowToolDefinition } from '../server/workflow-tools.js'
 
 // Mirrors the contract of runDeepSeekAgent in server/deepseek.ts, but drives the
 // loop with the Pi agent framework (@earendil-works/pi-*). DeepSeek is reached
@@ -52,6 +53,7 @@ const progressLabelByTool: Record<string, string> = {
 
 const result = (text: string, details?: unknown) => ({ content: [{ type: 'text', text }], details })
 const errorResult = (text: string) => ({ content: [{ type: 'text', text }], isError: true })
+const toolSchema = (name: string) => Type.Unsafe(workflowToolDefinition(name)?.parameters)
 
 // A run that is still alive: the caller holds the Pi Agent so it can inject
 // steering messages mid-flight, and awaits `done` for the final plan.
@@ -90,8 +92,8 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     {
       name: 'get_workflow_structure',
       label: 'Inspect workflow',
-      description: 'Inspect the current workflow nodes and connections, plus every stage type that can be created.',
-      parameters: Type.Object({}),
+      description: workflowToolDefinition('get_workflow_structure')!.description,
+      parameters: toolSchema('get_workflow_structure'),
       execute: async () => {
         await emit('get_workflow_structure')
         return result(JSON.stringify({ nodes: nodeSummary(), edges: session.workflow.edges, availableStageTypes: workflowStageTypes }))
@@ -100,8 +102,8 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     {
       name: 'build_workflow',
       label: 'Build workflow',
-      description: 'Build or rebuild the current workflow from an ordered list of stages. All stages are placed inside one frame and compatible stages are connected automatically.',
-      parameters: Type.Object({ stages: Type.Array(Type.String(), { description: 'Complete ordered stage list. Do not include frame; it is created automatically.' }) }),
+      description: workflowToolDefinition('build_workflow')!.description,
+      parameters: toolSchema('build_workflow'),
       execute: async (_id: string, params: any) => {
         await emit('build_workflow')
         if (!Array.isArray(params.stages) || !params.stages.length || params.stages.some((type: string) => !workflowStageTypes.includes(type))) {
@@ -122,8 +124,8 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     {
       name: 'get_workflow_parameters',
       label: 'Inspect parameters',
-      description: 'List current workflow nodes and their adjustable parameters, valid ranges, and options.',
-      parameters: Type.Object({}),
+      description: workflowToolDefinition('get_workflow_parameters')!.description,
+      parameters: toolSchema('get_workflow_parameters'),
       execute: async () => {
         await emit('get_workflow_parameters')
         return result(JSON.stringify({ nodes: nodeSummary(), parameters: describeWorkflowParameters(session.workflow) }))
@@ -132,8 +134,8 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     {
       name: 'update_node_parameters',
       label: 'Update parameters',
-      description: 'Update validated parameters on one existing workflow node. Use the exact nodeId returned by get_workflow_structure; not a display name or node type.',
-      parameters: Type.Object({ nodeId: Type.String(), parameters: Type.Record(Type.String(), Type.Any()) }),
+      description: workflowToolDefinition('update_node_parameters')!.description,
+      parameters: toolSchema('update_node_parameters'),
       execute: async (_id: string, params: any) => {
         await emit('update_node_parameters')
         try {
@@ -148,8 +150,8 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     {
       name: 'add_workflow_stage',
       label: 'Add stage',
-      description: 'Add one workflow node of the requested type when that node type does not already exist. Frame can also be added as a separate workflow container.',
-      parameters: Type.Object({ type: Type.String() }),
+      description: workflowToolDefinition('add_workflow_stage')!.description,
+      parameters: toolSchema('add_workflow_stage'),
       execute: async (_id: string, params: any) => {
         await emit('add_workflow_stage')
         try {
@@ -166,13 +168,8 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     {
       name: 'request_user_select',
       label: 'Request selection',
-      description: 'Pause the task and ask the user to select one or more options before continuing.',
-      parameters: Type.Object({
-        prompt: Type.String(),
-        options: Type.Array(Type.Object({ id: Type.String(), label: Type.String() })),
-        min: Type.Integer(),
-        max: Type.Integer(),
-      }),
+      description: workflowToolDefinition('request_user_select')!.description,
+      parameters: toolSchema('request_user_select'),
       execute: async (_id: string, params: any) => {
         await emit('request_user_select')
         const optionIds = new Set((params.options || []).map((option: any) => option.id))

@@ -1,5 +1,6 @@
-import { describeWorkflowParameters, updateNodeParameters, workflowParameterJsonSchema } from './workflow-parameters.js'
-import { addWorkflowStage, buildWorkflowStructure, nodeDefaults, planWorkflow } from './planner.js'
+import { describeWorkflowParameters, updateNodeParameters } from './workflow-parameters.js'
+import { addWorkflowStage, buildWorkflowStructure, planWorkflow } from './planner.js'
+import { workflowStageTypes, workflowToolDefinitions } from './workflow-tools.js'
 
 // Every selectable stage, with what it does and the media it consumes/produces.
 // This is what lets the model match each stage to the media it consumes.
@@ -29,11 +30,11 @@ ${nodeCatalogText}
 
 Choose stages by matching outputs to inputs. Key rule: generate-model is the unified 3D generation stage. It accepts text, a single image, or multiple images and automatically selects single-image or multi-image reconstruction from the upstream output. Any "one image → multiple views → 3D" request must use generate-multiview-images followed by generate-model.
 
-When the user asks to create, build, rebuild, or design a workflow, call build_workflow with the complete ordered list of stages. The server automatically creates one frame, places all stages inside it, connects compatible ports, and lays out the result. Common shapes: text-to-image-to-3D = reference-image, prompt, generate-image, generate-model, export-model; direct text-to-3D = prompt, text-to-3d, export-model; single image to multi-view to 3D = reference-image, generate-multiview-images, generate-model, export-model. Add retopology, texture, rigging, and split before export-model when requested.
+When the user asks to create, build, or design a workflow, call build_workflow with the complete ordered list of stages. The server appends one new frame without replacing existing canvas content, places all new stages inside it, connects compatible ports, and lays out the new section. Common shapes: text-to-image-to-3D = reference-image, prompt, generate-image, generate-model, export-model; direct text-to-3D = prompt, text-to-3d, export-model; single image to multi-view to 3D = reference-image, generate-multiview-images, generate-model, export-model. Add retopology, texture, rigging, and split before export-model when requested.
 
-Use get_workflow_structure when the current nodes or available stage types are unclear. Use add_workflow_stage to add any supported node type, including frame, when it is not already present; use build_workflow when the complete workflow should be rebuilt. Use get_workflow_parameters when parameter names, node IDs, ranges, or options are unclear. Apply every parameter explicitly requested by the user. Group all requested changes for the same node into one update_node_parameters call, use separate calls for different nodes, and verify every requested change appears in successful tool results before replying. When you need the user to choose from a finite set of valid alternatives before continuing, you MUST call request_user_select. Never ask that question, list the options, or tell the user to choose in normal assistant text. For an empty workflow, if the user has not stated how to create the model, call request_user_select with the available workflow approaches. Do not ask for free-form text with this tool. Reply concisely in the user's language and summarize the nodes and connections actually created or changed.`
+Use get_workflow_structure when the current nodes or available stage types are unclear. Use add_workflow_stage to add any supported node type, including frame, when it is not already present; use build_workflow to append a complete workflow section. Use get_workflow_parameters when parameter names, node IDs, ranges, or options are unclear. Apply every parameter explicitly requested by the user. Group all requested changes for the same node into one update_node_parameters call, use separate calls for different nodes, and verify every requested change appears in successful tool results before replying. When you need the user to choose from a finite set of valid alternatives before continuing, you MUST call request_user_select. Never ask that question, list the options, or tell the user to choose in normal assistant text. For an empty workflow, if the user has not stated how to create the model, call request_user_select with the available workflow approaches. Do not ask for free-form text with this tool. Reply concisely in the user's language and summarize the nodes and connections actually created or changed.`
 
-export const workflowStageTypes = Object.keys(nodeDefaults)
+export { workflowStageTypes } from './workflow-tools.js'
 const progressLabelByTool = {
   get_workflow_structure: 'Inspecting workflow structure',
   get_workflow_parameters: 'Inspecting adjustable parameters',
@@ -43,103 +44,7 @@ const progressLabelByTool = {
   request_user_select: 'Waiting for your selection',
 }
 
-const tools = [
-  {
-    type: 'function',
-    function: {
-      name: 'get_workflow_structure',
-      description: 'Inspect the current workflow nodes and connections, plus every stage type that can be created.',
-      parameters: { type: 'object', properties: {}, additionalProperties: false },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'build_workflow',
-      description: 'Build or rebuild the current workflow from an ordered list of stages. All stages are placed inside one frame and compatible stages are connected automatically.',
-      parameters: {
-        type: 'object',
-        properties: {
-          stages: {
-            type: 'array',
-            description: 'Complete ordered stage list. Do not include frame; it is created automatically.',
-            items: { type: 'string', enum: workflowStageTypes },
-            minItems: 1,
-          },
-        },
-        required: ['stages'],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'get_workflow_parameters',
-      description: 'List current workflow nodes and their adjustable parameters, valid ranges, and options.',
-      parameters: { type: 'object', properties: {}, additionalProperties: false },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'update_node_parameters',
-      description: 'Update validated parameters on one existing workflow node. You must use the exact nodeId returned by get_workflow_structure; do not use a display name or node type.',
-      parameters: {
-        type: 'object',
-        properties: {
-          nodeId: { type: 'string', description: 'Exact node ID from the current workflow.' },
-          parameters: workflowParameterJsonSchema(),
-        },
-        required: ['nodeId', 'parameters'],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'add_workflow_stage',
-      description: 'Add one workflow node of the requested type when that node type does not already exist. Frame can also be added as a separate workflow container.',
-      parameters: {
-        type: 'object',
-        properties: { type: { type: 'string', enum: ['frame', ...workflowStageTypes] } },
-        required: ['type'],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'request_user_select',
-      description: 'Pause the task and ask the user to select one or more options before continuing.',
-      parameters: {
-        type: 'object',
-        properties: {
-          prompt: { type: 'string', minLength: 1 },
-          options: {
-            type: 'array',
-            minItems: 1,
-            items: {
-              type: 'object',
-              properties: {
-                id: { type: 'string', minLength: 1 },
-                label: { type: 'string', minLength: 1 },
-              },
-              required: ['id', 'label'],
-              additionalProperties: false,
-            },
-          },
-          min: { type: 'integer', minimum: 1 },
-          max: { type: 'integer', minimum: 1 },
-        },
-        required: ['prompt', 'options', 'min', 'max'],
-        additionalProperties: false,
-      },
-    },
-  },
-]
+const tools = workflowToolDefinitions.map((definition) => ({ type: 'function', function: definition }))
 
 export class DeepSeekError extends Error {
   constructor(message, status = 502) {
