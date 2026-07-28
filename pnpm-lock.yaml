@@ -44,6 +44,9 @@ importers:
       '@vue-flow/minimap':
         specifier: ^1.5.4
         version: 1.5.4(@vue-flow/core@1.48.2(vue@3.5.40(typescript@7.0.2)))(vue@3.5.40(typescript@7.0.2))
+      '@vue-flow/node-resizer':
+        specifier: 1.5.1
+        version: 1.5.1(@vue-flow/core@1.48.2(vue@3.5.40(typescript@7.0.2)))(vue@3.5.40(typescript@7.0.2))
       dompurify:
         specifier: ^3.4.12
         version: 3.4.12
@@ -1069,6 +1072,12 @@ packages:
 
   '@vue-flow/minimap@1.5.4':
     resolution: {integrity: sha512-l4C+XTAXnRxsRpUdN7cAVFBennC1sVRzq4bDSpVK+ag7tdMczAnhFYGgbLkUw3v3sY6gokyWwMl8CDonp8eB2g==}
+    peerDependencies:
+      '@vue-flow/core': ^1.23.0
+      vue: ^3.3.0
+
+  '@vue-flow/node-resizer@1.5.1':
+    resolution: {integrity: sha512-DNYgXTF39GXPAygVMFmgn5azgFztaWfqbWvv8D/X0HGgeunRrexJ0W94DyXH1rnndGyYAJ0KexEjyelsb+Nlbg==}
     peerDependencies:
       '@vue-flow/core': ^1.23.0
       vue: ^3.3.0
@@ -2709,6 +2718,13 @@ snapshots:
       '@vue-flow/core': 1.48.2(vue@3.5.40(typescript@7.0.2))
       d3-selection: 3.0.0
       d3-zoom: 3.0.0
+      vue: 3.5.40(typescript@7.0.2)
+
+  '@vue-flow/node-resizer@1.5.1(@vue-flow/core@1.48.2(vue@3.5.40(typescript@7.0.2)))(vue@3.5.40(typescript@7.0.2))':
+    dependencies:
+      '@vue-flow/core': 1.48.2(vue@3.5.40(typescript@7.0.2))
+      d3-drag: 3.0.0
+      d3-selection: 3.0.0
       vue: 3.5.40(typescript@7.0.2)
 
   '@vue/compiler-core@3.5.40':

@@ -4,6 +4,7 @@ import { SelectionMode, VueFlow, addEdge, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
+import '@vue-flow/node-resizer/dist/style.css'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
@@ -105,6 +106,7 @@ let pendingSaveSnapshot = null
 let frameFitQueued = false
 let frameFitShouldSave = false
 let dragging = false
+let resizingFrameId = null
 let marqueeSelecting = false
 let marqueeStartedInFrame = false
 
@@ -426,7 +428,7 @@ async function toCanvas(workflow) {
         // Let the frame body pass clicks through to the edges/child nodes beneath
         // it; the header (see FrameNode.vue) re-enables pointer events as the handle.
         style: { pointerEvents: 'none' },
-        data: { label: node.name, description: node.config?.description || '' },
+        data: { label: node.name, description: node.config?.description || '', manualSize: Boolean(node.config?.manualSize) },
       }
     }
     // Image to 3D and Text to 3D are merged into one "Gen Model" node; display
@@ -514,7 +516,7 @@ function fromCanvas() {
   return {
     ...activeWorkflow.value,
     nodes: nodes.value.map((node) => node.type === 'frame'
-      ? { ...nodeMap.get(node.id), id: node.id, type: 'frame', name: node.data.label, config: nodeMap.get(node.id)?.config || {}, ui: { position: node.position, size: { width: Number(node.dimensions?.width || node.width || 900), height: Number(node.dimensions?.height || node.height || 600) } } }
+      ? { ...nodeMap.get(node.id), id: node.id, type: 'frame', name: node.data.label, config: { ...nodeMap.get(node.id)?.config, description: node.data.description || '', manualSize: Boolean(node.data.manualSize) }, ui: { position: node.position, size: { width: Number(node.dimensions?.width || node.width || 900), height: Number(node.dimensions?.height || node.height || 600) } } }
       : { ...nodeMap.get(node.id), id: node.id, name: node.data.label, type: node.data.workflowType, config: node.data.config, ui: { position: node.position, parentFrameId: node.parentNode } }),
     edges: edges.value.map((edge) => ({
       id: edge.id,
@@ -1226,6 +1228,7 @@ function fitFrames() {
   const nodeIndexes = new Map(nextNodes.map((node, index) => [node.id, index]))
 
   for (const frame of nextNodes.filter((node) => node.type === 'frame')) {
+    if (frame.data?.manualSize) continue
     const children = nextNodes.filter((node) => node.parentNode === frame.id)
     if (!children.length) continue
     const left = Math.min(...children.map((node) => node.position.x))
@@ -1521,7 +1524,7 @@ function onElementsChange(changes) {
       })
     }
   }
-  const hasDimensions = changes.some((change) => change.type === 'dimensions')
+  const hasDimensions = changes.some((change) => change.type === 'dimensions' && change.id !== resizingFrameId)
   // Resize frames to their children only once settled: on a node's own size change,
   // or on a position change that is NOT part of an in-flight drag. While the mouse is
   // down we leave the frame untouched; onNodeDragStop refits on release.
@@ -1529,6 +1532,16 @@ function onElementsChange(changes) {
     queueFrameFit({ persist: hasDimensions })
   }
   if (changes.some((change) => change.type === 'remove')) scheduleSave()
+}
+
+function onFrameResizeStart(id) {
+  resizingFrameId = id
+  nodes.value = nodes.value.map((node) => node.id === id ? { ...node, data: { ...node.data, manualSize: true } } : node)
+}
+
+function onFrameResizeEnd() {
+  resizingFrameId = null
+  scheduleSave()
 }
 
 function onNodeDragStart() {
@@ -1900,7 +1913,7 @@ onUnmounted(() => {
           </template>
         </div>
         <VueFlow v-show="canvasView === 'canvas'" v-model:nodes="nodes" v-model:edges="edges" :class="['flow-canvas', `canvas-mode-${canvasMode}`]" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="canvasMode === 'select' ? true : null" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @pointerdown.capture="onCanvasPointerDown" @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
-          <template #node-frame="props"><FrameNode v-bind="props" :running="busy || isRunning" :zoom="viewport.zoom" @update-name="updateNodeName(props.id, $event)" @run-workflow="runWorkflow()" /></template>
+          <template #node-frame="props"><FrameNode v-bind="props" :running="busy || isRunning" :zoom="viewport.zoom" @update-name="updateNodeName(props.id, $event)" @run-workflow="runWorkflow()" @resize-start="onFrameResizeStart(props.id)" @resize-end="onFrameResizeEnd" /></template>
           <template #node-workflow="props"><WorkflowNode v-bind="props" :node-run="nodeRuns[props.id] || null" :run-id="run?.id || null" :inbound-type="inboundExportTarget(props.id)" :inbound-image="inboundImage(props.id)" :node-catalog="compatibleNodeTypes(props.data.workflowType)" @update-config="updateNodeConfig(props.id, $event)" @update-name="updateNodeName(props.id, $event)" @open-model-editor="openModelEditor(props.id)" @preview-image="openImagePreview" @add-next="addNode($event, props.id)" @run-workflow="runWorkflow($event, 'downstream')" @run-downstream="runWorkflow($event, 'downstream')" /></template>
           <Background :gap="24" :size="1.2" :pattern-color="resolvedTheme === 'dark' ? '#252b2c' : '#cdd2cf'" />
           <MiniMap position="bottom-right" :width="160" :height="100" :pannable="true" :zoomable="true" :mask-color="resolvedTheme === 'dark' ? 'rgba(10, 12, 12, .7)' : 'rgba(238, 241, 238, .72)'" :node-color="resolvedTheme === 'dark' ? '#606a63' : '#a6afa9'" :node-stroke-color="resolvedTheme === 'dark' ? '#929a94' : '#737d76'" :node-stroke-width="1" :node-border-radius="4" />

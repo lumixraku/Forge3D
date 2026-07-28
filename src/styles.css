@@ -419,12 +419,15 @@
 .canvas-node-menu.contextual { position: fixed; top: 0; left: 0; max-height: calc(100vh - 16px); }
 .canvas-node-menu.selection-menu button { min-height: 34px; cursor: pointer; }
 .canvas-node-menu strong { padding: 8px 9px 4px; color: var(--text-muted); font: 600 8px var(--font-mono); letter-spacing: .12em; text-transform: uppercase; }
-.canvas-node-menu button { display: grid; width: 100%; height: auto; min-height: 45px; padding: 7px 9px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: inherit; text-align: left; cursor: grab; transition: border-color .15s ease, background .15s ease; }
+.canvas-node-menu button { display: grid; width: 100%; height: auto; min-height: 45px; padding: 7px 9px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: inherit; text-align: left; cursor: pointer; transition: border-color .15s ease, background .15s ease; }
 .canvas-node-menu button:hover { border-color: var(--line-strong); background: var(--bg-input-hover); }
 .canvas-node-menu .node-menu-empty { padding: 12px 9px; color: var(--text-muted); }
 .flow-canvas { background: var(--bg-primary); transition: background .2s ease; }
-.flow-canvas.canvas-mode-move .vue-flow__pane { cursor: grab; }
+.flow-canvas .vue-flow__pane, .flow-canvas .vue-flow__node.draggable, .flow-canvas .vue-flow__nodesselection-rect { cursor: default; }
+.flow-canvas.canvas-mode-select .vue-flow__pane.selection { cursor: default; }
+.flow-canvas.canvas-mode-move .vue-flow__pane { cursor: default; }
 .flow-canvas.canvas-mode-move .vue-flow__pane.dragging { cursor: grabbing; }
+.flow-canvas .vue-flow__node.draggable.dragging, .flow-canvas .vue-flow__nodesselection-rect.dragging { cursor: grabbing; }
 
 /* Asset library — a console-style stack of horizontal rails that replaces the
    canvas region (grid-row 2) without touching the flow data. */
@@ -456,8 +459,9 @@
 /* The frame node is configured with pointer-events:none (see its node object in
    App.vue) so its body doesn't steal clicks from the edges/child nodes beneath
    it. Only the header re-enables pointer events, acting as the drag/select handle. */
-.workflow-frame header { pointer-events: auto; cursor: grab; }
+.workflow-frame header { pointer-events: auto; cursor: pointer; }
 .workflow-frame.selected { border-color: var(--acid); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acid) 25%, transparent); }
+.frame-resize-handle.vue-flow__resize-control { z-index: 8; width: 14px; height: 14px; border: 2px solid var(--bg-input); border-radius: 50%; background: var(--acid); box-shadow: 0 0 0 1px color-mix(in srgb, var(--acid) 65%, transparent); pointer-events: auto; }
 .workflow-frame header { position: absolute; bottom: 100%; left: 0; display: flex; align-items: center; gap: 10px; transform-origin: bottom left; }
 .workflow-frame header span { flex: 0 0 auto; color: var(--acid); font: 600 8px var(--font-mono); letter-spacing: .14em; }
 .workflow-frame header strong, .frame-name-input { height: 16px; color: var(--text-primary); font-size: 13px; font-weight: 600; line-height: 16px; }
@@ -483,6 +487,8 @@
 .workflow-node.is-running { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--node-accent) 45%, transparent), var(--shadow-lg); }
 .workflow-node.is-failed { border-color: var(--status-failed); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-failed) 30%, transparent), var(--shadow-lg), 0 0 22px color-mix(in srgb, var(--status-failed) 14%, transparent); }
 .workflow-node.is-failed::after { position: absolute; z-index: 3; top: -7px; right: -7px; display: grid; width: 18px; height: 18px; place-items: center; border: 2px solid var(--bg-primary); border-radius: 50%; background: var(--status-failed); color: var(--bg-primary); content: '!'; font: 700 11px/1 var(--font-mono); }
+.node-external-title { position: absolute; z-index: 7; bottom: calc(100% + 6px); left: 0; width: 100%; }
+.node-external-title h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .node-title { display: flex; align-items: center; gap: 10px; margin: 13px 0 12px; }
 .node-title-copy { min-width: 0; flex: 1; }
 .node-icon { display: grid; flex: 0 0 auto; width: 30px; height: 30px; place-items: center; border: 1px solid color-mix(in srgb, var(--node-accent) 55%, var(--line-strong)); border-radius: 8px; color: var(--node-accent); font: 600 11px var(--font-mono); transition: box-shadow .15s ease, transform .15s ease; }

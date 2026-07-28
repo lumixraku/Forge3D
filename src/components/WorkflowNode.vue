@@ -99,6 +99,10 @@ const countOptions = [1, 2, 4].map((value) => ({ value, label: String(value) }))
 
 <template>
   <article class="workflow-node" :class="[`tone-${data.tone}`, `is-${runtimeStatus}`, { selected, 'dense-ports': densePorts }]">
+    <div class="node-external-title">
+      <input v-if="editingName" ref="nameInput" v-model="draftName" class="node-name-input nodrag nopan" aria-label="Node name" @click.stop @dblclick.stop @pointerdown.stop @keydown.enter.prevent="saveName" @keydown.esc.prevent="cancelNameEdit" @blur="saveName" />
+      <h3 v-else title="Double-click to rename" @dblclick.stop="startNameEdit">{{ data.label }}</h3>
+    </div>
     <template v-for="(port, index) in data.inputPorts" :key="`input-${port.id}`">
       <span class="port-label input-port-label" :style="{ top: `${28 + (index + 1) * 52}px` }">{{ port.label }}</span>
       <Handle :id="port.id" class="workflow-handle input-handle" type="target" :position="Position.Left" :style="{ top: `${28 + (index + 1) * 52}px` }" :title="`Accepts ${port.type}`" />
@@ -107,8 +111,6 @@ const countOptions = [1, 2, 4].map((value) => ({ value, label: String(value) }))
     <div class="node-title">
       <span class="node-icon">{{ data.kind.slice(0, 1) }}</span>
       <div class="node-title-copy">
-        <input v-if="editingName" ref="nameInput" v-model="draftName" class="node-name-input nodrag nopan" aria-label="Node name" @click.stop @dblclick.stop @pointerdown.stop @keydown.enter.prevent="saveName" @keydown.esc.prevent="cancelNameEdit" @blur="saveName" />
-        <h3 v-else title="Double-click to rename" @dblclick.stop="startNameEdit">{{ data.label }}</h3>
         <p>{{ data.detail }}</p>
       </div>
     </div>
