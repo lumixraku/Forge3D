@@ -1,5 +1,7 @@
 const DEFAULT_WIDTH = 290
 const DEFAULT_HEIGHT = 430
+export const FRAME_PADDING = 64
+export const FRAME_TITLE_SCREEN_HEIGHT = 42
 let elkPromise
 
 function getElk() {
@@ -14,7 +16,22 @@ function sizeOf(node) {
   }
 }
 
-export async function layoutWorkflow(nodes, edges, { originX = 0, originY = 120, columnGap = 100, rowGap = 80 } = {}) {
+export function frameInsets(zoom = 1) {
+  const safeZoom = Math.max(Number(zoom) || 1, 0.01)
+  return {
+    left: FRAME_PADDING,
+    right: FRAME_PADDING,
+    top: FRAME_PADDING + FRAME_TITLE_SCREEN_HEIGHT / safeZoom,
+    bottom: FRAME_PADDING,
+  }
+}
+
+export function frameComponentGap(zoom = 1, spacing = 32) {
+  const insets = frameInsets(zoom)
+  return insets.bottom + insets.top + FRAME_TITLE_SCREEN_HEIGHT / Math.max(Number(zoom) || 1, 0.01) + spacing
+}
+
+export async function layoutWorkflow(nodes, edges, { originX = 0, originY = 120, columnGap = 100, rowGap = 80, componentGap = rowGap * 1.5 } = {}) {
   if (!nodes.length) return new Map()
 
   const nodeIds = new Set(nodes.map((node) => node.id))
@@ -57,7 +74,7 @@ export async function layoutWorkflow(nodes, edges, { originX = 0, originY = 120,
       'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
       'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
       'elk.separateConnectedComponents': 'true',
-      'elk.spacing.componentComponent': String(rowGap * 1.5),
+      'elk.spacing.componentComponent': String(componentGap),
       'elk.padding': '[top=0,left=0,bottom=0,right=0]',
     },
     children,

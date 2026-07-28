@@ -10,7 +10,9 @@ const nameInput = ref(null)
 const resizeCorners = ['top-left', 'top-right', 'bottom-left', 'bottom-right']
 const headerStyle = computed(() => ({
   transform: `translateY(${-8 / props.zoom}px) scale(${1 / props.zoom})`,
-  width: `${props.zoom * 100}%`,
+}))
+const resizeHandleStyle = computed(() => ({
+  transform: `translate(-50%, -50%) scale(${1 / props.zoom})`,
 }))
 
 function startNameEdit() {
@@ -37,9 +39,9 @@ function cancelNameEdit() {
 
 <template>
   <section class="workflow-frame" :class="{ selected }">
-    <NodeResizeControl v-for="position in resizeCorners" :key="position" class="frame-resize-handle nodrag nopan" :node-id="id" :position="position" :min-width="260" :min-height="180" @resize-start="emit('resize-start')" @resize-end="emit('resize-end')" />
+    <NodeResizeControl v-for="position in resizeCorners" :key="position" class="frame-resize-handle nodrag nopan" :node-id="id" :position="position" :min-width="260" :min-height="180" :auto-scale="false" :style="resizeHandleStyle" @resize-start="emit('resize-start')" @resize-end="emit('resize-end')" />
     <header :style="headerStyle">
-      <span>SECTION</span>
+      <span class="frame-icon">S</span>
       <input v-if="editingName" ref="nameInput" v-model="draftName" class="frame-name-input nodrag nopan" aria-label="Section name" @click.stop @dblclick.stop @pointerdown.stop @keydown.enter.prevent="saveName" @keydown.esc.prevent="cancelNameEdit" @blur="saveName" />
       <strong v-else title="Double-click to rename" @dblclick.stop="startNameEdit">{{ data.label }}</strong>
       <button type="button" class="section-run-button nodrag nopan" :disabled="running" :aria-label="running ? 'Running workflow' : 'Run workflow'" :title="running ? 'Running workflow' : 'Run workflow'" @pointerdown.stop @click.stop="emit('run-workflow')">

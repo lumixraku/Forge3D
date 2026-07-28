@@ -461,14 +461,16 @@
    it. Only the header re-enables pointer events, acting as the drag/select handle. */
 .workflow-frame header { pointer-events: auto; cursor: pointer; }
 .workflow-frame.selected { border-color: var(--acid); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acid) 25%, transparent); }
-.frame-resize-handle.vue-flow__resize-control { z-index: 8; width: 14px; height: 14px; border: 2px solid var(--bg-input); border-radius: 50%; background: var(--acid); box-shadow: 0 0 0 1px color-mix(in srgb, var(--acid) 65%, transparent); pointer-events: auto; }
-.workflow-frame header { position: absolute; bottom: 100%; left: 0; display: flex; align-items: center; gap: 10px; transform-origin: bottom left; }
-.workflow-frame header span { flex: 0 0 auto; color: var(--acid); font: 600 8px var(--font-mono); letter-spacing: .14em; }
+.frame-resize-handle.vue-flow__resize-control { z-index: 8; width: 28px; height: 28px; border: 0; background: transparent; pointer-events: auto; }
+.frame-resize-handle.vue-flow__resize-control::after { position: absolute; inset: 7px; border: 2px solid var(--bg-input); border-radius: 50%; background: var(--acid); box-shadow: 0 0 0 1px color-mix(in srgb, var(--acid) 65%, transparent); content: ''; opacity: 0; transition: opacity .12s ease; }
+.frame-resize-handle.vue-flow__resize-control:hover::after, .frame-resize-handle.vue-flow__resize-control:active::after { opacity: 1; }
+.workflow-frame header { position: absolute; bottom: 100%; left: 0; display: inline-flex; width: max-content; max-width: 100%; height: 34px; align-items: center; gap: 10px; padding: 5px 8px; border: 1px solid color-mix(in srgb, var(--acid) 48%, var(--line-strong)); border-radius: 8px; background: color-mix(in srgb, var(--acid) 16%, var(--bg-input)); box-shadow: var(--shadow-sm); transform-origin: bottom left; }
+.workflow-frame header .frame-icon { display: grid; flex: 0 0 auto; width: 20px; height: 20px; place-items: center; border: 1px solid color-mix(in srgb, var(--acid) 65%, var(--line-strong)); border-radius: 5px; background: color-mix(in srgb, var(--acid) 10%, var(--bg-input)); color: var(--acid); font: 600 9px var(--font-mono); }
 .workflow-frame header strong, .frame-name-input { height: 16px; color: var(--text-primary); font-size: 13px; font-weight: 600; line-height: 16px; }
-.workflow-frame header strong { min-width: 0; overflow: hidden; flex: 1; text-overflow: ellipsis; white-space: nowrap; }
+.workflow-frame header strong { min-width: 0; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .frame-name-input, .node-name-input { min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; caret-color: var(--acid); }
 .frame-name-input { width: min(260px, calc(100% - 58px)); }
-.section-run-button { display: grid; flex: 0 0 auto; place-items: center; width: 26px; height: 26px; margin-left: auto; padding: 0; border: 1px solid var(--acid); border-radius: 7px; background: var(--acid); color: var(--text-inverse); cursor: pointer; transition: filter .15s ease, box-shadow .15s ease; }
+.section-run-button { display: grid; flex: 0 0 auto; place-items: center; width: 24px; height: 24px; padding: 0; border: 1px solid var(--acid); border-radius: 6px; background: var(--acid); color: var(--text-inverse); cursor: pointer; transition: filter .15s ease, box-shadow .15s ease; }
 .section-run-button svg { width: 13px; height: 13px; fill: currentColor; }
 .section-run-button:hover:not(:disabled) { filter: brightness(1.08); box-shadow: 0 0 0 3px color-mix(in srgb, var(--acid) 18%, transparent); }
 .section-run-button:disabled { cursor: wait; opacity: .55; }
@@ -480,20 +482,22 @@
 .workflow-node.selected { box-shadow: inset 0 0 0 1px var(--node-accent), var(--shadow-lg); }
 .vue-flow__node-workflow:focus, .vue-flow__node-workflow:focus-visible { outline: none; }
 .tone-cyan { --node-accent: #68d9d0; }.tone-violet { --node-accent: #a78bfa; }.tone-amber { --node-accent: #f0ba62; }.tone-green { --node-accent: #82d68c; }.tone-rose { --node-accent: #ef8290; }
-.workflow-node header, .workflow-node footer { display: flex; align-items: center; justify-content: space-between; }
-.node-kind { color: var(--node-accent); font: 600 8px var(--font-mono); letter-spacing: .12em; }
-.node-status { color: var(--text-muted); font: 500 8px var(--font-mono); text-transform: uppercase; }
-.node-status.running { color: var(--status-running); }.node-status.succeeded { color: var(--acid); }.node-status.failed { color: var(--status-failed); }
+.workflow-node footer { display: flex; align-items: center; justify-content: space-between; }
+.node-status { flex: 0 0 auto; width: 8px; height: 8px; border: 1px solid color-mix(in srgb, var(--text-muted) 72%, transparent); border-radius: 50%; background: var(--text-muted); box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-muted) 12%, transparent); }
+.node-status.queued, .node-status.running { border-color: var(--status-running); background: var(--status-running); box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-running) 16%, transparent); }
+.node-status.succeeded { border-color: var(--acid); background: var(--acid); box-shadow: 0 0 0 3px color-mix(in srgb, var(--acid) 16%, transparent); }
+.node-status.failed { border-color: var(--status-failed); background: var(--status-failed); box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-failed) 16%, transparent); }
+.node-status.waiting_review { border-color: #a78bfa; background: #a78bfa; box-shadow: 0 0 0 3px color-mix(in srgb, #a78bfa 16%, transparent); }
 .workflow-node.is-running { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--node-accent) 45%, transparent), var(--shadow-lg); }
 .workflow-node.is-failed { border-color: var(--status-failed); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-failed) 30%, transparent), var(--shadow-lg), 0 0 22px color-mix(in srgb, var(--status-failed) 14%, transparent); }
 .workflow-node.is-failed::after { position: absolute; z-index: 3; top: -7px; right: -7px; display: grid; width: 18px; height: 18px; place-items: center; border: 2px solid var(--bg-primary); border-radius: 50%; background: var(--status-failed); color: var(--bg-primary); content: '!'; font: 700 11px/1 var(--font-mono); }
-.node-external-title { position: absolute; z-index: 7; bottom: calc(100% + 6px); left: 0; width: 100%; }
+.node-external-title { position: absolute; z-index: 7; bottom: calc(100% + 7px); left: 0; display: inline-flex; width: max-content; max-width: 100%; height: 34px; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid color-mix(in srgb, var(--node-accent) 48%, var(--line-strong)); border-radius: 8px; background: color-mix(in srgb, var(--node-accent) 16%, var(--bg-input)); box-shadow: var(--shadow-sm); }
+.node-external-title h3, .node-external-title .node-name-input { min-width: 0; max-width: 210px; }
 .node-external-title h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
-.node-title { display: flex; align-items: center; gap: 10px; margin: 13px 0 12px; }
-.node-title-copy { min-width: 0; flex: 1; }
-.node-icon { display: grid; flex: 0 0 auto; width: 30px; height: 30px; place-items: center; border: 1px solid color-mix(in srgb, var(--node-accent) 55%, var(--line-strong)); border-radius: 8px; color: var(--node-accent); font: 600 11px var(--font-mono); transition: box-shadow .15s ease, transform .15s ease; }
+.node-icon { display: grid; flex: 0 0 auto; width: 20px; height: 20px; place-items: center; border: 1px solid color-mix(in srgb, var(--node-accent) 65%, var(--line-strong)); border-radius: 5px; background: color-mix(in srgb, var(--node-accent) 10%, var(--bg-input)); color: var(--node-accent); font: 600 9px var(--font-mono); transition: box-shadow .15s ease, transform .15s ease; }
 .workflow-node:hover .node-icon { box-shadow: 0 0 0 3px color-mix(in srgb, var(--node-accent) 12%, transparent); transform: scale(1.04); }
 .workflow-node h3, .node-name-input { display: block; width: 100%; height: 16px; margin: 0 0 2px; color: inherit; font-size: 13px; font-weight: 600; line-height: 16px; }
+.node-detail { margin-bottom: 12px !important; }
 .workflow-node p { margin: 0; color: var(--text-muted); font-size: 9px; }
 .node-output { position: relative; display: block; width: 100%; height: 146px; margin: 0 0 11px; padding: 0; overflow: hidden; border: 1px solid var(--line-subtle); border-radius: 8px; background: radial-gradient(circle at 50% 45%, #30352f, #111412 72%); color: inherit; text-align: initial; transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
 .node-output:is(button):hover { border-color: var(--node-accent); transform: translateY(-1px); }

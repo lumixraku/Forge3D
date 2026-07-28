@@ -100,20 +100,16 @@ const countOptions = [1, 2, 4].map((value) => ({ value, label: String(value) }))
 <template>
   <article class="workflow-node" :class="[`tone-${data.tone}`, `is-${runtimeStatus}`, { selected, 'dense-ports': densePorts }]">
     <div class="node-external-title">
+      <span class="node-icon">{{ data.kind.slice(0, 1) }}</span>
       <input v-if="editingName" ref="nameInput" v-model="draftName" class="node-name-input nodrag nopan" aria-label="Node name" @click.stop @dblclick.stop @pointerdown.stop @keydown.enter.prevent="saveName" @keydown.esc.prevent="cancelNameEdit" @blur="saveName" />
       <h3 v-else title="Double-click to rename" @dblclick.stop="startNameEdit">{{ data.label }}</h3>
+      <span class="node-status" :class="runtimeStatus" role="status" :aria-label="runtimeStatus" :title="runtimeStatus" />
     </div>
     <template v-for="(port, index) in data.inputPorts" :key="`input-${port.id}`">
       <span class="port-label input-port-label" :style="{ top: `${28 + (index + 1) * 52}px` }">{{ port.label }}</span>
       <Handle :id="port.id" class="workflow-handle input-handle" type="target" :position="Position.Left" :style="{ top: `${28 + (index + 1) * 52}px` }" :title="`Accepts ${port.type}`" />
     </template>
-    <header><span class="node-kind">{{ data.kind }}</span><span class="node-status" :class="runtimeStatus">{{ runtimeStatus }}</span></header>
-    <div class="node-title">
-      <span class="node-icon">{{ data.kind.slice(0, 1) }}</span>
-      <div class="node-title-copy">
-        <p>{{ data.detail }}</p>
-      </div>
-    </div>
+    <p class="node-detail">{{ data.detail }}</p>
 
     <div v-if="data.workflowType === 'generate-image' && showResult" class="node-output image-grid" aria-label="Generated image candidates">
       <button v-for="(image, index) in runtimePreviews" :key="`${image}-${index}`" type="button" class="image-candidate nodrag nopan" :class="{ selected: data.config.selectedPreview === image }" :aria-label="`Select and preview generated concept ${index + 1}`" :aria-pressed="data.config.selectedPreview === image" @click.stop="selectGeneratedImage(image, index)">

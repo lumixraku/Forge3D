@@ -15,7 +15,7 @@ import FrameNode from './components/FrameNode.vue'
 import { Attachment } from './editor/attachment.js'
 import { mergeNodeRuns } from './node-runs.js'
 import { summarizeRun } from './run-summary.js'
-import { layoutWorkflow } from './workflow-layout.js'
+import { frameComponentGap, frameInsets, layoutWorkflow } from './workflow-layout.js'
 import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeCategories, nodeDefinition, nodeDisplayName, nodeInputPorts, nodeOutputPorts } from './workflow-nodes.js'
 
 const ModelEditor = defineAsyncComponent(() => import('./components/ModelEditor.vue'))
@@ -1187,21 +1187,20 @@ function makeSelectionFrame() {
   const selected = frameableSelectedNodes.value
   if (!selected.length) return
 
-  const padding = 64
-  const headerHeight = 44
+  const insets = frameInsets(viewport.value.zoom)
   const left = Math.min(...selected.map((node) => node.position.x))
   const top = Math.min(...selected.map((node) => node.position.y))
   const right = Math.max(...selected.map((node) => node.position.x + Number(node.dimensions?.width || node.width || 260)))
   const bottom = Math.max(...selected.map((node) => node.position.y + Number(node.dimensions?.height || node.height || 430)))
   const frameId = nextNodeId('frame')
-  const framePosition = { x: left - padding, y: top - padding - headerHeight }
+  const framePosition = { x: left - insets.left, y: top - insets.top }
   const selectedIds = new Set(selected.map((node) => node.id))
   const frame = {
     id: frameId,
     type: 'frame',
     position: framePosition,
-    width: right - left + padding * 2,
-    height: bottom - top + padding * 2 + headerHeight,
+    width: right - left + insets.left + insets.right,
+    height: bottom - top + insets.top + insets.bottom,
     selected: true,
     style: { pointerEvents: 'none' },
     data: { label: 'Workflow section', description: '' },
@@ -1222,7 +1221,7 @@ function makeSelectionFrame() {
 }
 
 function fitFrames() {
-  const padding = { x: 64, y: 108 }
+  const insets = frameInsets(viewport.value.zoom)
   let changed = false
   const nextNodes = [...nodes.value]
   const nodeIndexes = new Map(nextNodes.map((node, index) => [node.id, index]))
@@ -1235,15 +1234,15 @@ function fitFrames() {
     const top = Math.min(...children.map((node) => node.position.y))
     const right = Math.max(...children.map((node) => node.position.x + Number(node.dimensions?.width || node.width || 260)))
     const bottom = Math.max(...children.map((node) => node.position.y + Number(node.dimensions?.height || node.height || 430)))
-    const width = right - left + padding.x * 2
-    const height = bottom - top + padding.y * 2
+    const width = right - left + insets.left + insets.right
+    const height = bottom - top + insets.top + insets.bottom
     // Vue Flow renders a node's size from style.width/height when present (it
     // prioritises that over node.width), so read the current size from there and
     // write the fitted size back the same way — otherwise a stale style.width
     // (e.g. left behind by expandParent) freezes the frame and leaves dead space.
     const frameWidth = Number(parseFloat(frame.style?.width) || frame.width || frame.dimensions?.width || 900)
     const frameHeight = Number(parseFloat(frame.style?.height) || frame.height || frame.dimensions?.height || 600)
-    const offset = { x: padding.x - left, y: padding.y - top }
+    const offset = { x: insets.left - left, y: insets.top - top }
     if (Math.abs(frameWidth - width) < 0.5 && Math.abs(frameHeight - height) < 0.5 && Math.abs(offset.x) < 0.5 && Math.abs(offset.y) < 0.5) continue
 
     changed = true
@@ -1557,8 +1556,10 @@ function onNodeDragStop({ nodes: draggedNodes = [] } = {}) {
 
 async function autoLayout({ persist = true } = {}) {
   const workflowNodes = nodes.value.filter((node) => node.type !== 'frame')
-  const positions = await layoutWorkflow(workflowNodes, edges.value)
-  const padding = 70
+  const insets = frameInsets(viewport.value.zoom)
+  const positions = await layoutWorkflow(workflowNodes, edges.value, {
+    componentGap: frameComponentGap(viewport.value.zoom),
+  })
   const frameBounds = new Map()
   for (const node of workflowNodes) {
     if (!node.parentNode) continue
@@ -1576,15 +1577,15 @@ async function autoLayout({ persist = true } = {}) {
   // its (padded) children, then convert children back into that local space.
   const frameOrigins = new Map()
   for (const [frameId, bounds] of frameBounds) {
-    frameOrigins.set(frameId, { x: bounds.left - padding, y: bounds.top - padding })
+    frameOrigins.set(frameId, { x: bounds.left - insets.left, y: bounds.top - insets.top })
   }
   nodes.value = nodes.value.map((node) => {
     if (node.type === 'frame') {
       const bounds = frameBounds.get(node.id)
       if (!bounds) return node
       const origin = frameOrigins.get(node.id)
-      const width = bounds.right - bounds.left + padding * 2
-      const height = bounds.bottom - bounds.top + padding * 2
+      const width = bounds.right - bounds.left + insets.left + insets.right
+      const height = bounds.bottom - bounds.top + insets.top + insets.bottom
       return { ...node, position: origin, width, height, style: { ...node.style, width: `${width}px`, height: `${height}px` } }
     }
     const position = positions.get(node.id)

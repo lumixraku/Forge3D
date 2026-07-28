@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { layoutWorkflow } from './workflow-layout.js'
+import { FRAME_PADDING, FRAME_TITLE_SCREEN_HEIGHT, frameComponentGap, frameInsets, layoutWorkflow } from './workflow-layout.js'
 
 function overlaps(a, b, positions) {
   const first = positions.get(a.id)
@@ -58,6 +58,15 @@ test('separates independent workflow components', async () => {
   assert.ok(positions.get('a1').x < positions.get('a2').x)
   assert.ok(positions.get('b1').x < positions.get('b2').x)
   assert.equal(overlaps(nodes[0], nodes[2], positions), false)
+})
+
+test('keeps frame title space constant across viewport zoom levels', () => {
+  for (const zoom of [0.5, 1, 2]) {
+    const insets = frameInsets(zoom)
+    assert.equal((insets.top - FRAME_PADDING) * zoom, FRAME_TITLE_SCREEN_HEIGHT)
+    assert.equal(insets.bottom, FRAME_PADDING)
+    assert.equal((frameComponentGap(zoom) - insets.top - insets.bottom - 32) * zoom, FRAME_TITLE_SCREEN_HEIGHT)
+  }
 })
 
 test('ignores missing endpoints and handles cycles deterministically', async () => {
