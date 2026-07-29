@@ -47,8 +47,10 @@ const workflowNameDraft = ref('')
 const contextMenu = ref(null)
 const nodeMenuOpen = ref(false)
 const nodeMenuContext = ref(null)
+const viewportDismissVersion = ref(0)
 const workflowMenu = ref(null)
 const workflowSwitcherOpen = ref(false)
+const workflowSwitcherAnchor = ref(null)
 const theme = ref(localStorage.getItem('forge3d-theme') || 'system')
 const workspaceMode = ref('workflow')
 const canvasMode = ref('select')
@@ -791,18 +793,42 @@ async function importWorkflowFile(file) {
 
   try {
     const input = JSON.parse(await file.text())
-    const workflow = await request('/api/workflows', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        ...input,
-        id: undefined,
-        revision: undefined,
-        createdAt: undefined,
-        updatedAt: undefined,
-      }),
-    })
-    await loadWorkflows(workflow.id)
+    if (!activeWorkflow.value) throw new Error('Open a workflow before importing')
+    if (!Array.isArray(input.nodes) || !Array.isArray(input.edges || [])) {
+      throw new Error('Workflow JSON must include nodes and edges arrays')
+    }
+    if (input.nodes.some((node) => (
+      typeof node?.id !== 'string'
+      || !node.id
+      || !Number.isFinite(node.ui?.position?.x)
+      || !Number.isFinite(node.ui?.position?.y)
+    ))) {
+      throw new Error('Imported nodes must have IDs and valid positions')
+    }
+    const nodeIds = new Set(input.nodes.map((node) => node.id))
+    if (nodeIds.size !== input.nodes.length) {
+      throw new Error('Imported nodes must have unique IDs')
+    }
+    if (input.nodes.some((node) => node.ui?.parentFrameId && !nodeIds.has(node.ui.parentFrameId))) {
+      throw new Error('Imported nodes must include their parent frames')
+    }
+    if ((input.edges || []).some((edge) => !nodeIds.has(edge.source?.nodeId) || !nodeIds.has(edge.target?.nodeId))) {
+      throw new Error('Imported edges must connect imported nodes')
+    }
+
+    const currentRoots = nodes.value.filter((node) => !node.parentNode)
+    const currentRight = currentRoots.length
+      ? Math.max(...currentRoots.map((node) => node.position.x + (node.dimensions?.width || node.width || 260)))
+      : 0
+    const importedRoots = input.nodes.filter((node) => !node.ui?.parentFrameId)
+    const importedLeft = importedRoots.length
+      ? Math.min(...importedRoots.map((node) => Number(node.ui?.position?.x) || 0))
+      : 0
+    await pasteFragment(
+      { nodes: input.nodes, edges: input.edges || [] },
+      { offset: { x: currentRight + 80 - importedLeft, y: 0 }, translateRoots: true },
+    )
+    closeWorkflowSwitcher()
   } catch (caught) {
     error.value = `Workflow import failed: ${caught.message}`
   }
@@ -1331,6 +1357,11 @@ function closeContextMenu() {
   nodeMenuContext.value = null
 }
 
+function dismissCanvasPopups() {
+  closeContextMenu()
+  viewportDismissVersion.value += 1
+}
+
 function openWorkflowMenu(event, workflow) {
   event.preventDefault()
   const width = 164
@@ -1353,6 +1384,11 @@ function toggleWorkflowSwitcher() {
 
 function closeWorkflowSwitcher() {
   workflowSwitcherOpen.value = false
+}
+
+function dismissWorkflowSwitcher(event) {
+  if (!workflowSwitcherOpen.value || workflowSwitcherAnchor.value?.contains(event.target)) return
+  closeWorkflowSwitcher()
 }
 
 function runWorkflowMenuAction(action) {
@@ -1583,7 +1619,7 @@ async function copySelected() {
 
 async function pasteFragment(fragment = clipboardFragment.value, options = {}) {
   if (!fragment?.nodes?.length) return
-  const suffix = Date.now().toString(36)
+  const suffix = crypto.randomUUID()
   const idMap = new Map(fragment.nodes.map((node, index) => [node.id, `${node.id}-${suffix}-${index}`]))
   const maxX = nodes.value.length ? Math.max(...nodes.value.map((node) => node.position.x)) : 0
   const offset = options.offset || { x: maxX + 310, y: 120 }
@@ -1592,16 +1628,21 @@ async function pasteFragment(fragment = clipboardFragment.value, options = {}) {
     id: idMap.get(node.id),
     ui: {
       ...node.ui,
-      position: { x: node.ui.position.x + (node.type === 'frame' ? offset.x : 0), y: node.ui.position.y + (node.type === 'frame' ? offset.y : 0) },
+      position: {
+        x: node.ui.position.x + ((options.translateRoots ? !node.ui.parentFrameId : node.type === 'frame') ? offset.x : 0),
+        y: node.ui.position.y + ((options.translateRoots ? !node.ui.parentFrameId : node.type === 'frame') ? offset.y : 0),
+      },
       ...(node.ui.parentFrameId ? { parentFrameId: idMap.get(node.ui.parentFrameId) } : {}),
     },
   }))
-  const domainEdges = fragment.edges.map((edge, index) => ({
-    ...JSON.parse(JSON.stringify(edge)),
-    id: `${edge.id}-${suffix}-${index}`,
-    source: { ...edge.source, nodeId: idMap.get(edge.source.nodeId) },
-    target: { ...edge.target, nodeId: idMap.get(edge.target.nodeId) },
-  }))
+  const domainEdges = (fragment.edges || [])
+    .filter((edge) => idMap.has(edge.source?.nodeId) && idMap.has(edge.target?.nodeId))
+    .map((edge, index) => ({
+      ...JSON.parse(JSON.stringify(edge)),
+      id: `${edge.id || 'edge'}-${suffix}-${index}`,
+      source: { ...edge.source, nodeId: idMap.get(edge.source.nodeId) },
+      target: { ...edge.target, nodeId: idMap.get(edge.target.nodeId) },
+    }))
   activeWorkflow.value = {
     ...fromCanvas(),
     nodes: [...fromCanvas().nodes, ...domainNodes],
@@ -1662,6 +1703,11 @@ function handleKeyboard(event) {
     closeModelEditor()
     return
   }
+  if (event.key === 'Escape' && workflowSwitcherOpen.value) {
+    event.preventDefault()
+    closeWorkflowSwitcher()
+    return
+  }
   const modifier = event.metaKey || event.ctrlKey
   if (event.key === 'Escape' && (nodeMenuOpen.value || workflowMenu.value)) {
     closeContextMenu()
@@ -1714,7 +1760,7 @@ function handleKeyboard(event) {
 onMounted(async () => {
   window.addEventListener('keydown', handleKeyboard, true)
   window.addEventListener('pointerdown', closeWorkflowMenu)
-  window.addEventListener('pointerdown', closeWorkflowSwitcher)
+  window.addEventListener('pointerdown', dismissWorkflowSwitcher, true)
   systemTheme.addEventListener('change', handleSystemThemeChange)
   applyTheme()
   try {
@@ -1728,7 +1774,7 @@ onUnmounted(() => {
   composer.value?.destroy()
   window.removeEventListener('keydown', handleKeyboard, true)
   window.removeEventListener('pointerdown', closeWorkflowMenu)
-  window.removeEventListener('pointerdown', closeWorkflowSwitcher)
+  window.removeEventListener('pointerdown', dismissWorkflowSwitcher, true)
   systemTheme.removeEventListener('change', handleSystemThemeChange)
 })
 </script>
@@ -1746,24 +1792,28 @@ onUnmounted(() => {
         <template v-else-if="workspaceMode === 'workflow'">
           <div class="workflow-title-bar">
             <strong class="workflow-title-name truncate" title="Double-click to rename" @dblclick="startRenameWorkflow">{{ activeWorkflow.name }}</strong>
-            <div class="workflow-button-group" :class="{ open: workflowSwitcherOpen }">
-              <button type="button" class="wbg-label" :aria-expanded="workflowSwitcherOpen" @click="toggleWorkflowSwitcher">
-                <span>Workflows</span>
-                <svg class="chevron-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
-              </button>
-              <button type="button" class="wbg-new" :disabled="busy" @click="createWorkflow">New</button>
+            <div class="workflow-title-actions">
+              <div ref="workflowSwitcherAnchor" class="workflow-switcher-anchor">
+                <div class="workflow-button-group" :class="{ open: workflowSwitcherOpen }">
+                  <button type="button" class="wbg-label" :aria-expanded="workflowSwitcherOpen" @click="toggleWorkflowSwitcher">
+                    <span>Workflows</span>
+                    <svg class="chevron-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                  </button>
+                  <button type="button" class="wbg-new" :disabled="busy" @click="createWorkflow">New</button>
+                </div>
+                <div v-if="workflowSwitcherOpen" class="workflow-switcher-panel">
+                  <div class="workflow-switcher-head"><span>WORKFLOWS · {{ workflows.length }}</span></div>
+                  <div class="workflow-switcher-list">
+                    <button v-for="workflow in workflows" :key="workflow.id" class="workflow-list-item" :class="{ active: activeWorkflow?.id === workflow.id }" @click="openWorkflow(workflow.id)" @contextmenu="openWorkflowMenu($event, workflow)">
+                      <span>{{ workflow.name }}</span><small>{{ workflow.nodeCount }} nodes · v{{ workflow.revision }}</small>
+                    </button>
+                  </div>
+                  <p class="workflow-switcher-note">Right-click a workflow for export, duplicate, or delete.</p>
+                </div>
+              </div>
+              <button class="wbg-import" :class="{ dragging: workflowImportDragging }" type="button" :disabled="busy" @click="workflowImportInput.click()" @dragover="onWorkflowImportDragOver" @dragleave="onWorkflowImportDragLeave" @drop="onWorkflowImportDrop">{{ workflowImportDragging ? 'Drop JSON' : 'Import JSON' }}</button>
+              <input ref="workflowImportInput" class="file-input" type="file" accept="application/json,.json" @change="importWorkflow" />
             </div>
-          </div>
-          <div v-if="workflowSwitcherOpen" class="workflow-switcher-panel">
-            <div class="workflow-switcher-head"><span>WORKFLOWS · {{ workflows.length }}</span></div>
-            <button class="workflow-import-button" :class="{ dragging: workflowImportDragging }" type="button" :disabled="busy" @click="workflowImportInput.click()" @dragover="onWorkflowImportDragOver" @dragleave="onWorkflowImportDragLeave" @drop="onWorkflowImportDrop">{{ workflowImportDragging ? 'Drop to import' : 'Import JSON' }}</button>
-            <div class="workflow-switcher-list">
-              <button v-for="workflow in workflows" :key="workflow.id" class="workflow-list-item" :class="{ active: activeWorkflow?.id === workflow.id }" @click="openWorkflow(workflow.id)" @contextmenu="openWorkflowMenu($event, workflow)">
-                <span>{{ workflow.name }}</span><small>{{ workflow.nodeCount }} nodes · v{{ workflow.revision }}</small>
-              </button>
-            </div>
-            <p class="workflow-switcher-note">Right-click a workflow for export, duplicate, or delete.</p>
-            <input ref="workflowImportInput" class="file-input" type="file" accept="application/json,.json" @change="importWorkflow" />
           </div>
         </template>
         <strong v-else class="block mt-[3px] text-sm truncate">{{ activeWorkflow.name }}</strong>
@@ -1852,9 +1902,9 @@ onUnmounted(() => {
             <small v-if="!catalogForMenu().length" class="node-menu-empty">No compatible node types</small>
           </template>
         </div>
-        <VueFlow v-show="canvasView === 'canvas'" v-model:nodes="nodes" v-model:edges="edges" :class="['flow-canvas', `canvas-mode-${canvasMode}`]" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="canvasMode === 'select' ? true : null" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @pointerdown.capture="onCanvasPointerDown" @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
+        <VueFlow v-show="canvasView === 'canvas'" v-model:nodes="nodes" v-model:edges="edges" :class="['flow-canvas', `canvas-mode-${canvasMode}`]" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="canvasMode === 'select' ? true : null" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @viewport-change-start="dismissCanvasPopups" @pointerdown.capture="onCanvasPointerDown" @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
           <template #node-frame="props"><FrameNode v-bind="props" :running="busy || isRunning" :zoom="viewport.zoom" @update-name="updateNodeName(props.id, $event)" @run-workflow="runWorkflow()" @resize-start="onFrameResizeStart(props.id)" @resize-end="onFrameResizeEnd" /></template>
-          <template #node-workflow="props"><WorkflowNode v-bind="props" :node-run="nodeRuns[props.id] || null" :run-id="run?.id || null" :inbound-type="inboundExportTarget(props.id)" :inbound-image="inboundImage(props.id)" :node-catalog="compatibleNodeTypes(props.data.workflowType)" @update-config="updateNodeConfig(props.id, $event)" @update-name="updateNodeName(props.id, $event)" @open-model-editor="openModelEditor(props.id)" @preview-image="openImagePreview" @add-next="addNode($event, props.id)" @run-workflow="runWorkflow($event, 'downstream')" @run-downstream="runWorkflow($event, 'downstream')" /></template>
+          <template #node-workflow="props"><WorkflowNode v-bind="props" :node-run="nodeRuns[props.id] || null" :run-id="run?.id || null" :inbound-type="inboundExportTarget(props.id)" :inbound-image="inboundImage(props.id)" :node-catalog="compatibleNodeTypes(props.data.workflowType)" :viewport-dismiss-version="viewportDismissVersion" @update-config="updateNodeConfig(props.id, $event)" @update-name="updateNodeName(props.id, $event)" @open-model-editor="openModelEditor(props.id)" @preview-image="openImagePreview" @add-next="addNode($event, props.id)" @run-workflow="runWorkflow($event, 'downstream')" @run-downstream="runWorkflow($event, 'downstream')" /></template>
           <Background :gap="24" :size="1.2" :pattern-color="resolvedTheme === 'dark' ? '#252b2c' : '#cdd2cf'" />
           <MiniMap position="bottom-right" :width="160" :height="100" :pannable="true" :zoomable="true" :mask-color="resolvedTheme === 'dark' ? 'rgba(10, 12, 12, .7)' : 'rgba(238, 241, 238, .72)'" :node-color="resolvedTheme === 'dark' ? '#606a63' : '#a6afa9'" :node-stroke-color="resolvedTheme === 'dark' ? '#929a94' : '#737d76'" :node-stroke-width="1" :node-border-radius="4" />
           <Controls position="bottom-right" />

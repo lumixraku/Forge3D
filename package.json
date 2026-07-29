@@ -14,8 +14,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit --noCheck && vue-tsc --noEmit -p tsconfig.app.json",
     "cf:build": "npm run build",
-    "cf:deploy": "npm run build && node scripts/prepare-cloudflare-assets.mjs && npx wrangler deploy",
-    "cf:d1:migrate": "npx wrangler d1 migrations apply forge3d --remote",
+    "cf:deploy": "unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy && npm run build && node scripts/prepare-cloudflare-assets.mjs && npx wrangler deploy",
+    "cf:d1:migrate": "unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy && npx wrangler d1 migrations apply forge3d --remote",
     "cf:release": "npm run test && npm run cf:d1:migrate && npm run cf:deploy",
     "test": "node --import tsx --test server/*.test.ts src/*.test.js"
   },

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import NodeSelect from './NodeSelect.vue'
 import NodeSlider from './NodeSlider.vue'
@@ -11,7 +11,7 @@ import type { NodeDefinition, NodeParameter, NodePort } from '../workflow-nodes'
 type NodeConfig = Record<string, unknown> & { preview?: string; previews?: string[]; viewPreviews?: Record<string, string>; exportTargets?: string[]; modelFormat?: string; approved?: boolean }
 interface WorkflowNodeData { label: string; status?: string; workflowType: string; config: NodeConfig; inputPorts?: NodePort[]; outputPorts?: NodePort[] }
 
-const props = withDefaults(defineProps<{ id: string; data: WorkflowNodeData; selected?: boolean; nodeRun?: NodeRun | null; runId?: string | null; inboundType?: string | null; inboundImage?: string | null; nodeCatalog?: NodeDefinition[] }>(), { selected: false, nodeRun: null, runId: null, inboundType: null, inboundImage: null, nodeCatalog: () => [] })
+const props = withDefaults(defineProps<{ id: string; data: WorkflowNodeData; selected?: boolean; nodeRun?: NodeRun | null; runId?: string | null; inboundType?: string | null; inboundImage?: string | null; nodeCatalog?: NodeDefinition[]; viewportDismissVersion?: number }>(), { selected: false, nodeRun: null, runId: null, inboundType: null, inboundImage: null, nodeCatalog: () => [], viewportDismissVersion: 0 })
 const emit = defineEmits<{
   'update-config': [config: NodeConfig]
   'update-name': [name: string]
@@ -30,6 +30,7 @@ const nameInput = ref<HTMLInputElement | null>(null)
 const imageInput = ref<HTMLInputElement | null>(null)
 const imageDragging = ref(false)
 const imageUploadError = ref('')
+watch(() => props.viewportDismissVersion, () => { nextMenuOpen.value = false })
 const runtimeStatus = computed(() => props.nodeRun?.status || props.data.status)
 const schema = computed(() => nodeSchema(props.data.workflowType))
 const isExecutableNode = computed(() => Boolean(schema.value?.executable))
@@ -199,7 +200,7 @@ function loadMockImage(file: File) {
       <template v-for="parameter in visibleParameters" :key="parameter.key">
         <label v-if="parameter.control === 'text'">{{ parameter.label }}<input :value="data.config[parameter.key]" :placeholder="parameter.placeholder" @input="update(parameter.key, $event.target.value)" /></label>
         <label v-else-if="parameter.control === 'textarea'">{{ parameter.label }}<textarea :value="data.config[parameter.key]" rows="3" :placeholder="parameter.placeholder" @input="update(parameter.key, $event.target.value)" /></label>
-        <label v-else-if="parameter.control === 'select'">{{ parameter.label }}<NodeSelect :model-value="data.config[parameter.key]" :options="parameter.options || []" @update:model-value="update(parameter.key, $event)" /></label>
+        <label v-else-if="parameter.control === 'select'">{{ parameter.label }}<NodeSelect :model-value="data.config[parameter.key]" :options="parameter.options || []" :dismiss-version="viewportDismissVersion" @update:model-value="update(parameter.key, $event)" /></label>
         <fieldset v-else-if="parameter.control === 'segmented'"><legend>{{ parameter.label }}</legend><div class="segmented"><button v-for="option in parameter.options" :key="String(option.value)" type="button" :class="{ active: data.config[parameter.key] === option.value }" @click="update(parameter.key, option.value)">{{ option.label }}</button></div></fieldset>
         <label v-else-if="parameter.control === 'slider'">{{ parameter.label }}<div class="range-row"><NodeSlider :model-value="data.config[parameter.key]" :min="range(parameter).min" :max="range(parameter).max" :step="range(parameter).step" @update:model-value="update(parameter.key, $event)" /><output>{{ Number(data.config[parameter.key]).toLocaleString() }}</output></div></label>
         <label v-else-if="parameter.control === 'toggle'" class="toggle-row"><span>{{ parameter.label }}</span><input type="checkbox" :checked="Boolean(data.config[parameter.key])" @change="update(parameter.key, $event.target.checked)" /></label>
