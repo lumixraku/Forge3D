@@ -531,6 +531,11 @@
 @keyframes node-running { to { transform: rotate(360deg); } }
 .node-editor { display: grid; gap: 9px; margin-bottom: 12px; padding: 10px; border: 1px solid var(--line-subtle); border-radius: 8px; background: var(--bg-input); transition: border-color .15s ease; }
 .node-editor:focus-within { border-color: var(--line-strong); }
+.image-dropzone { display: grid; width: 100%; min-height: 64px; margin: 0 0 12px; padding: 12px; place-content: center; gap: 5px; border: 1px dashed var(--line-strong); border-radius: 8px; background: var(--bg-input); color: var(--text-primary); text-align: center; cursor: pointer; transition: border-color .15s ease, background .15s ease, box-shadow .15s ease; }
+.image-dropzone:hover, .image-dropzone.dragging { border-color: var(--node-accent); background: color-mix(in srgb, var(--node-accent) 8%, var(--bg-input)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--node-accent) 10%, transparent); }
+.image-dropzone strong { font: 600 9px var(--font-mono); text-transform: uppercase; }
+.image-dropzone small { overflow: hidden; color: var(--text-muted); font: 400 8px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.image-upload-error { margin: -5px 0 12px; color: var(--danger); font: 500 8px var(--font-mono); }
 .node-editor label, .node-editor legend { color: var(--text-muted); font: 500 8px var(--font-mono); text-transform: uppercase; }
 .node-editor label { display: grid; gap: 5px; }
 .node-editor input:not([type='checkbox']):not([type='range']):not([type='color']), .node-editor textarea { width: 100%; min-width: 0; border: 1px solid var(--line-strong); border-radius: 5px; outline: 0; background: var(--bg-input-hover); color: var(--text-primary); font: 400 9px var(--font-mono); text-transform: none; transition: border-color .15s ease, box-shadow .15s ease; }

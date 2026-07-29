@@ -27,6 +27,9 @@ const runDetailsOpen = ref(false)
 const editingName = ref(false)
 const draftName = ref('')
 const nameInput = ref<HTMLInputElement | null>(null)
+const imageInput = ref<HTMLInputElement | null>(null)
+const imageDragging = ref(false)
+const imageUploadError = ref('')
 const runtimeStatus = computed(() => props.nodeRun?.status || props.data.status)
 const schema = computed(() => nodeSchema(props.data.workflowType))
 const isExecutableNode = computed(() => Boolean(schema.value?.executable))
@@ -100,6 +103,42 @@ function selectGeneratedImage(image: string, index: number) {
   emit('preview-image', { src: image, alt: `Generated concept ${index + 1}` })
 }
 
+function selectImageFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const [file] = [...(input.files || [])]
+  input.value = ''
+  if (file) loadMockImage(file)
+}
+
+function dropImage(event: DragEvent) {
+  imageDragging.value = false
+  const [file] = [...(event.dataTransfer?.files || [])]
+  if (file) loadMockImage(file)
+}
+
+function loadMockImage(file: File) {
+  const allowedTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
+  imageUploadError.value = ''
+  if (!allowedTypes.has(file.type)) {
+    imageUploadError.value = 'Use JPG, PNG or WEBP'
+    return
+  }
+  if (file.size > 20 * 1024 * 1024) {
+    imageUploadError.value = 'Image must be 20 MB or smaller'
+    return
+  }
+
+  const reader = new FileReader()
+  reader.addEventListener('load', () => {
+    if (typeof reader.result !== 'string') return
+    emit('update-config', { ...props.data.config, reference: file.name, preview: reader.result })
+  }, { once: true })
+  reader.addEventListener('error', () => {
+    imageUploadError.value = 'Could not read this image'
+  }, { once: true })
+  reader.readAsDataURL(file)
+}
+
 </script>
 
 <template>
@@ -147,6 +186,13 @@ function selectGeneratedImage(image: string, index: number) {
       <strong>{{ runStateTitle }}</strong>
       <small>{{ runStateDetail }}</small>
     </div>
+
+    <button v-if="data.workflowType === 'reference-image'" type="button" class="image-dropzone nodrag nopan" :class="{ dragging: imageDragging }" @click.stop="imageInput?.click()" @pointerdown.stop @dragenter.prevent.stop="imageDragging = true" @dragover.prevent.stop="imageDragging = true" @dragleave.prevent.stop="imageDragging = false" @drop.prevent.stop="dropImage">
+      <strong>{{ imageDragging ? 'Drop image here' : 'Drop or choose image' }}</strong>
+      <small>{{ data.config.reference || 'JPG, PNG or WEBP · max 20 MB' }}</small>
+    </button>
+    <input v-if="data.workflowType === 'reference-image'" ref="imageInput" class="file-input" type="file" accept="image/jpeg,image/png,image/webp" @change="selectImageFile" />
+    <p v-if="imageUploadError" class="image-upload-error" role="alert">{{ imageUploadError }}</p>
 
     <button v-if="data.workflowType === 'text-to-3d'" type="button" class="node-parameters-toggle nodrag" :aria-expanded="parametersOpen" @click.stop="parametersOpen = !parametersOpen"><span>Parameters</span><b :class="{ open: parametersOpen }"><svg class="chevron-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></b></button>
     <div v-if="hasEditor" v-show="data.workflowType !== 'text-to-3d' || parametersOpen" class="node-editor nodrag">

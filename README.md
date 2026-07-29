@@ -228,7 +228,8 @@ Double-click a node title to rename it. Node run status takes precedence over st
 
 - Source: `Upload`, `Asset Library`, `URL`.
 - Background: `Keep`, `Remove`.
-- Reference is currently a text field; the node itself does not upload a binary file.
+- Image Upload supports clicking or dropping a JPG, PNG, or WEBP file up to 20 MB.
+- Upload is currently mocked in the browser with a data URL; no OSS or remote object storage is connected.
 
 #### `prompt`
 
