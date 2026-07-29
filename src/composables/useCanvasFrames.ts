@@ -1,0 +1,141 @@
+import { nextTick } from 'vue'
+import { applyLayoutPositions, buildSelectionFrame, fitFrameNodes, pointInAnyFrame, reparentDraggedNodes } from '../frame-geometry'
+import { frameComponentGap, frameInsets, layoutWorkflow } from '../workflow-layout'
+
+// Frames (sections) are plain Vue Flow parent nodes, so their size and their
+// children's parentage are maintained here in response to canvas interaction.
+export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowCoordinate, updateNodeInternals, scheduleSave, frameableSelectedNodes, nextNodeId, focusNode }) {
+  let frameFitQueued = false
+  let frameFitShouldSave = false
+  let dragging = false
+  let resizingFrameId = null
+  let marqueeSelecting = false
+  let marqueeStartedInFrame = false
+
+  function fitFrames() {
+    const fitted = fitFrameNodes(nodes.value, frameInsets(viewport.value.zoom))
+    if (fitted.changed) nodes.value = fitted.nodes
+    return fitted.changed
+  }
+
+  function queueFrameFit({ persist = false } = {}) {
+    frameFitShouldSave ||= persist
+    if (frameFitQueued) return
+    frameFitQueued = true
+    nextTick(async () => {
+      frameFitQueued = false
+      const shouldSave = frameFitShouldSave
+      frameFitShouldSave = false
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+      await nextTick()
+      if (fitFrames() && shouldSave) scheduleSave()
+    })
+  }
+
+  async function fitFramesAfterRender({ persist = false } = {}) {
+    await nextTick()
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+    await nextTick()
+    const changed = fitFrames()
+    // Handles use dynamic per-port positions, so refresh their measured bounds
+    // after the DOM settles or edges connect to stale points.
+    updateNodeInternals()
+    if (changed && persist) scheduleSave()
+    return changed
+  }
+
+  function makeSelectionFrame() {
+    const selected = frameableSelectedNodes.value
+    if (!selected.length) return
+
+    const frameId = nextNodeId('frame')
+    nodes.value = buildSelectionFrame(nodes.value, selected, { insets: frameInsets(viewport.value.zoom), frameId })
+    edges.value = edges.value.map((edge) => ({ ...edge, selected: false }))
+    scheduleSave()
+    focusNode(frameId)
+  }
+
+  function onCanvasPointerDown(event) {
+    marqueeStartedInFrame = pointInAnyFrame(screenToFlowCoordinate({ x: event.clientX, y: event.clientY }), nodes.value)
+  }
+
+  function onSelectionStart() {
+    marqueeSelecting = true
+  }
+
+  function onSelectionEnd() {
+    marqueeSelecting = false
+    marqueeStartedInFrame = false
+  }
+
+  function onElementsChange(changes) {
+    // A marquee that begins inside a section selects its contents. A marquee that
+    // begins outside keeps the section selected along with anything it overlaps.
+    if (marqueeSelecting && marqueeStartedInFrame) {
+      const frameIds = new Set(nodes.value.filter((node) => node.type === 'frame').map((node) => node.id))
+      if (changes.some((change) => change.type === 'select' && change.selected && frameIds.has(change.id))) {
+        // Vue Flow applies its selection change around this callback; enforce the
+        // inside-section exception after that update without disturbing children.
+        queueMicrotask(() => {
+          nodes.value = nodes.value.map((node) => node.type === 'frame' && node.selected ? { ...node, selected: false } : node)
+        })
+      }
+    }
+    const hasDimensions = changes.some((change) => change.type === 'dimensions' && change.id !== resizingFrameId)
+    // Resize frames to their children only once settled: on a node's own size change,
+    // or on a position change that is NOT part of an in-flight drag. While the mouse is
+    // down we leave the frame untouched; onNodeDragStop refits on release.
+    if (hasDimensions || (!dragging && changes.some((change) => change.type === 'position'))) {
+      queueFrameFit({ persist: hasDimensions })
+    }
+    if (changes.some((change) => change.type === 'remove')) scheduleSave()
+  }
+
+  function onFrameResizeStart(id) {
+    resizingFrameId = id
+    nodes.value = nodes.value.map((node) => node.id === id ? { ...node, data: { ...node.data, manualSize: true } } : node)
+  }
+
+  function onFrameResizeEnd() {
+    resizingFrameId = null
+    scheduleSave()
+  }
+
+  function onNodeDragStart() {
+    dragging = true
+  }
+
+  function onNodeDragStop({ nodes: draggedNodes = [] } = {}) {
+    const reparented = reparentDraggedNodes(nodes.value, draggedNodes)
+    if (reparented.changed) nodes.value = reparented.nodes
+    dragging = false
+    fitFrames()
+    scheduleSave()
+  }
+
+  async function autoLayout({ persist = true } = {}) {
+    const workflowNodes = nodes.value.filter((node) => node.type !== 'frame')
+    const positions = await layoutWorkflow(workflowNodes, edges.value, {
+      componentGap: frameComponentGap(viewport.value.zoom),
+    })
+    nodes.value = applyLayoutPositions(nodes.value, positions, frameInsets(viewport.value.zoom))
+    await fitFramesAfterRender({ persist: false })
+    queueFrameFit({ persist })
+    fitView({ padding: 0.18, duration: 500 })
+    if (persist) scheduleSave()
+  }
+
+  return {
+    fitFramesAfterRender,
+    makeSelectionFrame,
+    onCanvasPointerDown,
+    onSelectionStart,
+    onSelectionEnd,
+    onElementsChange,
+    onFrameResizeStart,
+    onFrameResizeEnd,
+    onNodeDragStart,
+    onNodeDragStop,
+    autoLayout,
+  }
+}

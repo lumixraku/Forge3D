@@ -5,9 +5,6 @@ import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
 import '@vue-flow/node-resizer/dist/style.css'
-import { useEditor } from '@tiptap/vue-3'
-import Placeholder from '@tiptap/extension-placeholder'
-import StarterKit from '@tiptap/starter-kit'
 import AssetLibraryView from './components/AssetLibraryView.vue'
 import CanvasContextMenu from './components/CanvasContextMenu.vue'
 import CanvasToolbar from './components/CanvasToolbar.vue'
@@ -17,262 +14,151 @@ import ImagePreviewOverlay from './components/ImagePreviewOverlay.vue'
 import RunLogPanel from './components/RunLogPanel.vue'
 import TopBar from './components/TopBar.vue'
 import WorkflowNode from './components/WorkflowNode.vue'
-import { Attachment } from './editor/attachment'
+import { useAgentChat } from './composables/useAgentChat'
+import { useCanvasFrames } from './composables/useCanvasFrames'
+import { useCanvasHistory } from './composables/useCanvasHistory'
+import { useCanvasSelection } from './composables/useCanvasSelection'
+import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
+import { useTheme } from './composables/useTheme'
+import { useWorkflowDocument } from './composables/useWorkflowDocument'
+import { useWorkflowRun } from './composables/useWorkflowRun'
 import { buildAssetLibrary, buildAssetRails } from './asset-library'
-import { canContinueSelection, selectedOptionIds } from './chat-selection'
-import { applyLayoutPositions, buildSelectionFrame, fitFrameNodes, pointInAnyFrame, reparentDraggedNodes } from './frame-geometry'
-import { mergeNodeRuns } from './node-runs'
-import { formatDuration, summarizeRun } from './run-summary'
-import { edgeDefaults, nodePresentation, toCanvasGraph, toDomainWorkflow } from './workflow-canvas'
-import { buildFragment, importPlacementOffset, remapFragment, validateImportedWorkflow } from './workflow-fragment'
-import { frameComponentGap, frameInsets, layoutWorkflow } from './workflow-layout'
-import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeCategories, nodeDefaults, nodeDefinition, nodeInputPorts, nodeOutputPorts } from './workflow-nodes'
+import { edgeDefaults, nodePresentation } from './workflow-canvas'
+import { canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeCategories, nodeDefaults, nodeDefinition, nodeInputPorts, nodeOutputPorts } from './workflow-nodes'
 
 const ModelEditor = defineAsyncComponent(() => import('./components/ModelEditor.vue'))
 
+// The document and canvas state every composable below works on.
 const workflows = ref([])
 const activeWorkflow = ref(null)
 const conversation = ref(null)
 const nodes = ref([])
 const edges = ref([])
-const composerVersion = ref(0)
-const busy = ref(false)
-const selectedOptions = ref({})
-const continuingTaskId = ref(null)
-const saving = ref(false)
-const savedState = ref('Saved')
 const run = ref(null)
 const nodeRuns = ref({})
+const busy = ref(false)
 const error = ref('')
-const clipboardFragment = ref(null)
+const saving = ref(false)
+const savedState = ref('Saved')
+// Bumped whenever the active workflow changes or a run starts, so in-flight agent
+// streams and run polls belonging to the previous context abandon themselves.
+const runToken = ref(0)
+
+// Canvas chrome: menus, overlays and the two view/mode switches.
 const contextMenu = ref(null)
 const nodeMenuOpen = ref(false)
 const nodeMenuContext = ref(null)
 const viewportDismissVersion = ref(0)
 const workflowMenu = ref(null)
 const workflowSwitcherOpen = ref(false)
-const theme = ref(localStorage.getItem('forge3d-theme') || 'system')
 const workspaceMode = ref('workflow')
 const canvasMode = ref('select')
 const canvasView = ref('canvas')
 const modelEditorNodeId = ref(null)
 const imagePreview = ref(null)
 const runSummaryOpen = ref(false)
-const systemTheme = window.matchMedia('(prefers-color-scheme: dark)')
-let saveTimer
-let hydrating = false
 let pendingConnection = null
-let runPollToken = 0
-const downloadedExportRuns = new Set()
-let savePromise = null
-let pendingSaveSnapshot = null
-let frameFitQueued = false
-let frameFitShouldSave = false
-let dragging = false
-let resizingFrameId = null
-let marqueeSelecting = false
-let marqueeStartedInFrame = false
-
-// Canvas undo/redo history: each entry is a JSON snapshot of { nodes, edges }.
-const HISTORY_LIMIT = 100
-let historyPast = []
-let historyFuture = []
-let historyPresent = null
-let historyPendingPrev = null
-let historyTimer = null
-let historyWorkflowId = null
-let restoringHistory = false
-let historySettling = false
-let historySettleTimer = null
-const canUndo = ref(false)
-const canRedo = ref(false)
 
 const { fitView, screenToFlowCoordinate, updateNodeInternals, viewport } = useVueFlow()
-const messages = computed(() => conversation.value?.messages || [])
-const composer = useEditor({
-  extensions: [
-    StarterKit,
-    Placeholder.configure({ placeholder: 'Describe a 3D workflow or ask for a change...' }),
-    Attachment,
-  ],
-  editorProps: {
-    attributes: {
-      class: 'composer-editor',
-      'aria-label': 'Describe a 3D workflow or ask for a change',
-    },
-    handleKeyDown(_view, event) {
-      if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return false
-      event.preventDefault()
-      sendMessage()
-      return true
-    },
-  },
-  onUpdate() {
-    composerVersion.value += 1
-  },
-})
-const composerHasContent = computed(() => {
-  composerVersion.value
-  const document = composer.value?.getJSON()
-  return Boolean(composer.value?.getText().trim() || document?.content?.some((block) => block.content?.some((node) => node.type === 'attachment')))
+const { theme, resolvedTheme, setTheme } = useTheme()
+
+const {
+  clipboardFragment, selectedNodes, frameableSelectedNodes, canFrameSelection, canDissolveSelection,
+  selectedCount, hasSelectedNode, hasSelection, deleteSelected, dissolveSelectedFrames, selectAll,
+  selectCanvasEdge, copySelected, pasteFragment, duplicateSelected, createWorkflowFromSelection,
+} = useCanvasSelection({
+  nodes,
+  edges,
+  activeWorkflow,
+  error,
+  scheduleSave: () => scheduleSave(),
+  fromCanvas: () => fromCanvas(),
+  toCanvas: (workflow) => toCanvas(workflow),
+  loadWorkflows: (preferredId) => loadWorkflows(preferredId),
 })
 
-function composerMessage() {
-  return (composer.value?.getJSON().content || []).map((block) => (block.content || []).map((node) => {
-    if (node.type === 'text') return node.text
-    if (node.type === 'attachment') return `[Attachment: ${node.attrs.name}]`
-    return ''
-  }).join('')).join('\n').trim()
-}
-
-function clearComposer() {
-  composer.value?.commands.clearContent()
-  composerVersion.value += 1
-}
-
-function addComposerFiles(files) {
-  for (const file of files) {
-    const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : null
-    composer.value?.chain().focus().insertAttachment({
-      id: crypto.randomUUID(),
-      name: file.name,
-      type: file.type,
-      preview,
-    }).insertContent(' ').run()
-  }
-}
-
-async function submitAgentTask(input) {
-  const response = await fetch('/api/chat', {
-    method: 'POST',
-    headers: { accept: 'text/event-stream', 'content-type': 'application/json' },
-    body: JSON.stringify(input),
-  })
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({}))
-    throw new Error(data.error || 'Request failed')
-  }
-  if (!response.body) throw new Error('Agent stream is unavailable')
-  return response.body
-}
-
-async function refreshWorkflow(workflowId, taskId, structureChanged) {
-  const data = await request(`/api/workflows/${workflowId}`)
-  const pendingMessages = conversation.value?.messages.filter((item) => item.pending && item.taskId !== taskId) || []
-  activeWorkflow.value = data.workflow
-  conversation.value = { ...data.conversation, messages: [...data.conversation.messages, ...pendingMessages] }
-  await toCanvas(data.workflow)
-  await loadWorkflowList()
-  await nextTick()
-}
-
-function applyAgentEvent(event, pendingAssistantId) {
-  const pending = conversation.value?.messages.find((item) => item.id === pendingAssistantId || item.taskId === event.turn_id)
-  if (event.type === 'task-start' && pending) pending.taskId = event.turn_id
-  if (event.type === 'progress' && pending) pending.progress = [...(pending.progress || []), { label: event.label, status: event.status }]
-  if (event.type === 'text' && pending) {
-    pending.streamMessageId = event.id
-    pending.content = event.text || ''
-  }
-  if (event.type === 'request_user_select' && pending) {
-    pending.pending = false
-    pending.request = event.request
-    pending.content = ''
-  }
-  if (event.type === 'error') throw new Error(event.error || 'Agent task failed')
-  return event.type === 'finish' ? { taskId: event.turn_id } : null
-}
-
-async function consumeAgentStream(stream, pendingAssistantId, token = runPollToken) {
-  const reader = stream.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  let completion = null
-  while (token === runPollToken) {
-    const { done, value } = await reader.read()
-    buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
-    const frames = buffer.split(/\r?\n\r?\n/)
-    buffer = frames.pop()
-    for (const frame of frames) {
-      const protocolType = frame.split(/\r?\n/).find((line) => line.startsWith('event: '))?.slice(7)
-      const data = frame.split(/\r?\n/).find((line) => line.startsWith('data: '))?.slice(6)
-      if (!data) continue
-      const event = JSON.parse(data)
-      if (!['message', 'error'].includes(protocolType) || (protocolType === 'error') !== (event.type === 'error')) throw new Error('Invalid SSE event framing')
-      const outcome = applyAgentEvent(event, pendingAssistantId)
-      if (event.type === 'workflow-updated') await refreshWorkflow(event.workflow_id, event.turn_id, event.structure_changed)
-      completion = outcome || completion
-    }
-    if (done) break
-  }
-  if (completion) {
-    const pending = conversation.value?.messages.find((item) => item.taskId === completion.taskId)
-    if (pending) pending.pending = false
-  }
-}
-
-async function restoreAgentTasks(workflowId) {
-  const tasks = await request(`/api/tasks?workflowId=${encodeURIComponent(workflowId)}&status=queued,running,waiting_for_user`)
-  for (const task of tasks) {
-    const existing = conversation.value?.messages.some((item) => item.taskId === task.id)
-    if (!existing) {
-      conversation.value.messages.push(
-        { id: `task-user-${task.id}`, role: 'user', content: task.message, taskId: task.id, createdAt: task.createdAt },
-        { id: `task-assistant-${task.id}`, role: 'assistant', content: '', progress: task.progress, taskId: task.id, createdAt: task.createdAt, pending: task.status !== 'waiting_for_user', request: task.status === 'waiting_for_user' ? task.request : null },
-      )
-    }
-  }
-}
-
-function toggleSelectedOption(message, optionId) {
-  const current = selectedOptionIds(message, selectedOptions.value)
-  if (current.includes(optionId)) {
-    selectedOptions.value = { ...selectedOptions.value, [message.taskId]: current.filter((id) => id !== optionId) }
-  } else if (message.request.max === 1) {
-    selectedOptions.value = { ...selectedOptions.value, [message.taskId]: [optionId] }
-  } else if (current.length < message.request.max) {
-    selectedOptions.value = { ...selectedOptions.value, [message.taskId]: [...current, optionId] }
-  }
-}
-
-async function continueTask(message) {
-  if (!canContinueSelection(message, selectedOptions.value) || continuingTaskId.value) return
-  continuingTaskId.value = message.taskId
-  error.value = ''
-  message.pending = true
-  try {
-    const response = await fetch(`/api/tasks/${message.taskId}/continue`, {
-      method: 'POST',
-      headers: { accept: 'text/event-stream', 'content-type': 'application/json' },
-      body: JSON.stringify({ request_id: message.request.request_id, selected_option_ids: selectedOptionIds(message, selectedOptions.value) }),
-    })
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}))
-      throw new Error(data.error || 'Request failed')
-    }
-    if (!response.body) throw new Error('Agent stream is unavailable')
-    await consumeAgentStream(response.body, message.id, runPollToken)
-    delete selectedOptions.value[message.taskId]
-  } catch (caught) {
-    message.pending = false
-    error.value = caught.message
-  } finally {
-    continuingTaskId.value = null
-  }
-}
-
-const runSummary = computed(() => {
-  if (!run.value) return 'Ready to run'
-  const nodeRuns = Object.values(run.value.nodeRuns)
-  const completed = nodeRuns.filter((nodeRun) => ['succeeded', 'failed'].includes(nodeRun.status)).length
-  const totalDurationMs = nodeRuns.reduce((total, nodeRun) => total + (nodeRun.durationMs || 0), 0)
-  const duration = totalDurationMs ? ` · ${formatDuration(totalDurationMs)}` : ''
-  return run.value.status === 'running' ? `Running · ${completed}/${nodeRuns.length} steps${duration}` : `${nodeRuns.length} steps · ${run.value.status}${duration}`
+const {
+  fitFramesAfterRender, makeSelectionFrame, onCanvasPointerDown, onSelectionStart, onSelectionEnd,
+  onElementsChange, onFrameResizeStart, onFrameResizeEnd, onNodeDragStart, onNodeDragStop, autoLayout,
+} = useCanvasFrames({
+  nodes,
+  edges,
+  viewport,
+  fitView,
+  screenToFlowCoordinate,
+  updateNodeInternals,
+  scheduleSave: () => scheduleSave(),
+  frameableSelectedNodes,
+  nextNodeId,
+  focusNode,
 })
-const runDetails = computed(() => summarizeRun(run.value, nodes.value))
-const isRunning = computed(() => run.value?.status === 'running')
-const selectedNodes = computed(() => nodes.value.filter((node) => node.selected))
-const selectedEdges = computed(() => edges.value.filter((edge) => edge.selected))
+
+const { syncHistoryWorkflow, recordHistory, undo, redo } = useCanvasHistory({
+  nodes,
+  edges,
+  activeWorkflow,
+  hydrating: computed(() => hydrating.value),
+  updateNodeInternals,
+  scheduleSave: () => scheduleSave(),
+})
+
+const {
+  hydrating, toCanvas, fromCanvas, loadWorkflowList, loadWorkflows, openWorkflow, scheduleSave,
+  flushPendingSave, saveWorkflow, stopPendingSave, duplicateWorkflow, deleteWorkflow, createWorkflow,
+  renameWorkflow, exportWorkflow, importWorkflowFile,
+} = useWorkflowDocument({
+  workflows,
+  activeWorkflow,
+  conversation,
+  nodes,
+  edges,
+  run,
+  nodeRuns,
+  busy,
+  error,
+  saving,
+  savedState,
+  runToken,
+  fitView,
+  recordHistory,
+  syncHistoryWorkflow,
+  fitFramesAfterRender,
+  restoreAgentTasks: (id) => restoreAgentTasks(id),
+  pasteFragment,
+  resetWorkspace,
+  closeWorkflowSwitcher,
+})
+
+const {
+  composer, composerHasContent, messages, selectedOptions, continuingTaskId, addComposerFiles,
+  restoreAgentTasks, toggleSelectedOption, continueTask, sendMessage,
+} = useAgentChat({
+  activeWorkflow,
+  conversation,
+  busy,
+  error,
+  runToken,
+  toCanvas: (workflow) => toCanvas(workflow),
+  loadWorkflowList: () => loadWorkflowList(),
+  flushPendingSave: () => flushPendingSave(),
+})
+
+const { isRunning, runDetails, runSummary, runWorkflow } = useWorkflowRun({
+  activeWorkflow,
+  nodes,
+  run,
+  nodeRuns,
+  busy,
+  error,
+  runToken,
+  saveWorkflow: () => saveWorkflow(),
+})
+
+const panOnDrag = computed(() => canvasMode.value === 'move')
+const toolbarMenuOpen = computed(() => nodeMenuOpen.value && !nodeMenuContext.value)
+const assetLibrary = computed(() => buildAssetLibrary(nodes.value))
+const assetRails = computed(() => buildAssetRails(assetLibrary.value))
+const modelEditorNode = computed(() => nodes.value.find((node) => node.id === modelEditorNodeId.value) || null)
 
 // The single input handle is untyped, so the inbound media is read from what
 // each upstream node produces rather than from a named target port.
@@ -298,407 +184,6 @@ function inboundImage(nodeId) {
     if (image) return image
   }
   return null
-}
-const frameableSelectedNodes = computed(() => selectedNodes.value.filter((node) => node.type !== 'frame' && !node.parentNode))
-const canFrameSelection = computed(() => frameableSelectedNodes.value.length > 0)
-const canDissolveSelection = computed(() => selectedNodes.value.some((node) => node.type === 'frame'))
-const selectedCount = computed(() => selectedNodes.value.length + selectedEdges.value.length)
-const hasSelectedNode = computed(() => selectedNodes.value.length > 0)
-const hasSelection = computed(() => selectedCount.value > 0)
-const panOnDrag = computed(() => canvasMode.value === 'move')
-const toolbarMenuOpen = computed(() => nodeMenuOpen.value && !nodeMenuContext.value)
-
-const assetLibrary = computed(() => buildAssetLibrary(nodes.value))
-const assetRails = computed(() => buildAssetRails(assetLibrary.value))
-const resolvedTheme = computed(() => theme.value === 'system' ? (systemTheme.matches ? 'dark' : 'light') : theme.value)
-const modelEditorNode = computed(() => nodes.value.find((node) => node.id === modelEditorNodeId.value) || null)
-
-function applyTheme() {
-  document.documentElement.dataset.theme = resolvedTheme.value
-  document.documentElement.style.colorScheme = resolvedTheme.value
-}
-
-function setTheme(value) {
-  theme.value = value
-  localStorage.setItem('forge3d-theme', value)
-  applyTheme()
-}
-
-function handleSystemThemeChange() {
-  if (theme.value === 'system') applyTheme()
-}
-
-async function toCanvas(workflow) {
-  hydrating = true
-  const graph = toCanvasGraph(workflow)
-  nodes.value = graph.nodes
-  edges.value = graph.edges
-  // Repair workflows whose views were materialized before they were wired to the model node.
-  await fitFramesAfterRender({ persist: true })
-  hydrating = false
-  syncHistoryWorkflow(workflow.id)
-}
-
-function fromCanvas() {
-  return toDomainWorkflow(activeWorkflow.value, nodes.value, edges.value)
-}
-
-async function request(url, options) {
-  const response = await fetch(url, options)
-  const data = response.status === 204 ? null : await response.json()
-  if (!response.ok) throw new Error(data.error || 'Request failed')
-  return data
-}
-
-async function loadWorkflows(preferredId) {
-  await loadWorkflowList()
-  const id = preferredId || activeWorkflow.value?.id || workflows.value[0]?.id
-  if (id) await openWorkflow(id)
-}
-
-async function openWorkflow(id) {
-  closeWorkflowSwitcher()
-  if (activeWorkflow.value && activeWorkflow.value.id !== id) await flushPendingSave()
-  runPollToken += 1
-  error.value = ''
-  imagePreview.value = null
-  workspaceMode.value = 'workflow'
-  modelEditorNodeId.value = null
-  const data = await request(`/api/workflows/${id}`)
-  activeWorkflow.value = data.workflow
-  conversation.value = data.conversation
-  run.value = null
-  nodeRuns.value = data.nodeRuns || {}
-  await toCanvas(data.workflow)
-  await restoreAgentTasks(id)
-  fitView({ padding: 0.18, duration: 500 })
-}
-
-async function sendMessage() {
-  const message = composerMessage()
-  if (!message) return
-  const previousConversation = conversation.value
-  const createdAt = new Date().toISOString()
-  const pendingAssistantId = `pending-assistant-${Date.now()}`
-  busy.value = true
-  error.value = ''
-  const previousComposer = composer.value?.getJSON()
-  clearComposer()
-  conversation.value = {
-    ...previousConversation,
-    messages: [
-      ...messages.value,
-      { id: `pending-user-${Date.now()}`, role: 'user', content: message, createdAt },
-      { id: pendingAssistantId, role: 'assistant', content: '', progress: [], taskId: null, createdAt, pending: true },
-    ],
-  }
-  try {
-    await flushPendingSave()
-    const workflowId = activeWorkflow.value?.id
-    busy.value = false
-    const stream = await submitAgentTask({ message, workflowId })
-    await consumeAgentStream(stream, pendingAssistantId, runPollToken)
-  } catch (caught) {
-    const current = conversation.value?.messages.find((item) => item.id === pendingAssistantId)
-    if (current) {
-      current.pending = false
-      current.failed = true
-      current.content = caught.message
-    } else {
-      conversation.value = previousConversation
-      composer.value?.commands.setContent(previousComposer || { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: message }] }] })
-    }
-    error.value = caught.message
-  } finally {
-    busy.value = false
-  }
-}
-
-async function loadWorkflowList() {
-  workflows.value = await request('/api/workflows')
-}
-
-function scheduleSave() {
-  if (!activeWorkflow.value || busy.value || hydrating) return
-  recordHistory()
-  savedState.value = 'Unsaved changes'
-  clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => {
-    saveTimer = null
-    saveWorkflow(fromCanvas())
-  }, 700)
-}
-
-async function flushPendingSave() {
-  if (saveTimer) {
-    clearTimeout(saveTimer)
-    saveTimer = null
-    await saveWorkflow(fromCanvas())
-  } else if (savePromise) {
-    await savePromise
-  }
-}
-
-async function saveWorkflow(workflow = fromCanvas()) {
-  if (!workflow) return
-  if (saving.value) {
-    pendingSaveSnapshot = workflow
-    return savePromise
-  }
-  saving.value = true
-  savedState.value = 'Saving…'
-  savePromise = (async () => {
-    let nextWorkflow = workflow
-    while (nextWorkflow) {
-      const savingWorkflow = nextWorkflow
-      pendingSaveSnapshot = null
-      const savedWorkflow = await request(`/api/workflows/${savingWorkflow.id}`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(savingWorkflow),
-      })
-      if (activeWorkflow.value?.id === savedWorkflow.id) activeWorkflow.value = savedWorkflow
-      await loadWorkflowList()
-      nextWorkflow = pendingSaveSnapshot
-    }
-  })()
-  try {
-    await savePromise
-    savedState.value = 'Saved'
-  } catch (caught) {
-    error.value = caught.message
-    savedState.value = 'Save failed'
-  } finally {
-    saving.value = false
-    savePromise = null
-  }
-}
-
-function snapshotCanvas() {
-  return JSON.stringify({ nodes: nodes.value, edges: edges.value })
-}
-
-function updateHistoryFlags() {
-  canUndo.value = historyPast.length > 0
-  canRedo.value = historyFuture.length > 0
-}
-
-// Point the history at a workflow. Switching to a different workflow starts a
-// fresh stack; re-hydrating the same one (e.g. after a paste) keeps it.
-function syncHistoryWorkflow(workflowId) {
-  if (workflowId === historyWorkflowId) return
-  historyWorkflowId = workflowId
-  historyPast = []
-  historyFuture = []
-  historyPendingPrev = null
-  clearTimeout(historyTimer)
-  historyTimer = null
-  historyPresent = workflowId ? snapshotCanvas() : null
-  updateHistoryFlags()
-  // The canvas emits a persisted frame-fit as node dimensions settle after a
-  // load; absorb that into the baseline so undo doesn't begin with a stray step.
-  historySettling = true
-  clearTimeout(historySettleTimer)
-  historySettleTimer = setTimeout(() => { historySettling = false }, 400)
-}
-
-// Record a history step for the change that just scheduled a save. Rapid bursts
-// (dragging, typing) coalesce into one step via a short debounce.
-function recordHistory() {
-  if (restoringHistory || hydrating || !activeWorkflow.value) return
-  if (historySettling) {
-    historyPresent = snapshotCanvas()
-    return
-  }
-  if (historyPresent === null) historyPresent = snapshotCanvas()
-  if (historyPendingPrev === null) historyPendingPrev = historyPresent
-  clearTimeout(historyTimer)
-  historyTimer = setTimeout(() => {
-    historyTimer = null
-    const next = snapshotCanvas()
-    const previous = historyPendingPrev
-    historyPendingPrev = null
-    if (next === previous) return
-    historyPast.push(previous)
-    if (historyPast.length > HISTORY_LIMIT) historyPast.shift()
-    historyFuture = []
-    historyPresent = next
-    updateHistoryFlags()
-  }, 400)
-}
-
-// Fold any in-flight (debounced) change into the past so undo can revert it.
-function flushHistory() {
-  if (!historyTimer) return
-  clearTimeout(historyTimer)
-  historyTimer = null
-  const next = snapshotCanvas()
-  const previous = historyPendingPrev
-  historyPendingPrev = null
-  if (previous !== null && next !== previous) {
-    historyPast.push(previous)
-    if (historyPast.length > HISTORY_LIMIT) historyPast.shift()
-    historyFuture = []
-    historyPresent = next
-    updateHistoryFlags()
-  }
-}
-
-async function restoreSnapshot(snapshot) {
-  const parsed = JSON.parse(snapshot)
-  restoringHistory = true
-  nodes.value = parsed.nodes
-  edges.value = parsed.edges
-  scheduleSave()
-  await nextTick()
-  parsed.nodes.forEach((node) => updateNodeInternals(node.id))
-  restoringHistory = false
-}
-
-function undo() {
-  flushHistory()
-  if (!historyPast.length) return
-  historyFuture.push(historyPresent)
-  historyPresent = historyPast.pop()
-  updateHistoryFlags()
-  restoreSnapshot(historyPresent)
-}
-
-function redo() {
-  if (!historyFuture.length) return
-  historyPast.push(historyPresent)
-  historyPresent = historyFuture.pop()
-  updateHistoryFlags()
-  restoreSnapshot(historyPresent)
-}
-
-async function duplicateWorkflow(workflowId = activeWorkflow.value?.id) {
-  if (!workflowId) return
-  try {
-    const workflow = await request(`/api/workflows/${workflowId}/duplicate`, { method: 'POST' })
-    await loadWorkflows(workflow.id)
-  } catch (caught) {
-    error.value = caught.message
-  }
-}
-
-async function deleteWorkflow(workflowId) {
-  const workflow = workflows.value.find((item) => item.id === workflowId)
-  if (!workflow || !window.confirm(`Delete "${workflow.name}"? This cannot be undone.`)) return
-
-  try {
-    const deletingActiveWorkflow = activeWorkflow.value?.id === workflowId
-    if (deletingActiveWorkflow) await flushPendingSave()
-    await request(`/api/workflows/${workflowId}`, { method: 'DELETE' })
-    await loadWorkflowList()
-    if (!deletingActiveWorkflow) return
-
-    activeWorkflow.value = null
-    conversation.value = null
-    nodes.value = []
-    edges.value = []
-    run.value = null
-    nodeRuns.value = {}
-    if (workflows.value[0]) await openWorkflow(workflows.value[0].id)
-  } catch (caught) {
-    error.value = caught.message
-  }
-}
-
-async function createWorkflow() {
-  const name = window.prompt('Name this workflow', 'New 3D workflow')?.trim()
-  if (!name) return
-
-  try {
-    const workflow = await request('/api/workflows', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        name,
-        description: 'A new 3D production workflow ready to customize.',
-        nodes: [],
-        edges: [],
-        viewport: { x: 80, y: 160, zoom: 0.72 },
-      }),
-    })
-    await loadWorkflows(workflow.id)
-  } catch (caught) {
-    error.value = caught.message
-  }
-}
-
-async function renameWorkflow(name) {
-  activeWorkflow.value = { ...activeWorkflow.value, name }
-  await saveWorkflow()
-}
-
-async function exportWorkflow(workflowId) {
-  try {
-    const { workflow } = await request(`/api/workflows/${workflowId}`)
-    const blob = new Blob([`${JSON.stringify(workflow, null, 2)}\n`], { type: 'application/json' })
-    const anchor = document.createElement('a')
-    anchor.href = URL.createObjectURL(blob)
-    anchor.download = `${workflow.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.workflow.json`
-    anchor.click()
-    URL.revokeObjectURL(anchor.href)
-  } catch (caught) {
-    error.value = `Workflow export failed: ${caught.message}`
-  }
-}
-
-async function importWorkflowFile(file) {
-  if (!file) return
-
-  try {
-    const input = JSON.parse(await file.text())
-    if (!activeWorkflow.value) throw new Error('Open a workflow before importing')
-    validateImportedWorkflow(input)
-    await pasteFragment(
-      { nodes: input.nodes, edges: input.edges || [] },
-      { offset: importPlacementOffset(nodes.value, input.nodes), translateRoots: true },
-    )
-    closeWorkflowSwitcher()
-  } catch (caught) {
-    error.value = `Workflow import failed: ${caught.message}`
-  }
-}
-
-async function runWorkflow(targetNodeId, scope = 'node') {
-  if (!activeWorkflow.value || busy.value || isRunning.value) return
-  busy.value = true
-  error.value = ''
-  const pollToken = ++runPollToken
-  try {
-    await saveWorkflow()
-    const workflowId = activeWorkflow.value.id
-    const startedRun = await request(`/api/workflows/${workflowId}/runs`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ targetNodeId, scope }),
-    })
-    run.value = startedRun
-    nodeRuns.value = targetNodeId ? mergeNodeRuns(nodeRuns.value, startedRun.nodeRuns) : startedRun.nodeRuns
-    const runId = run.value.id
-    busy.value = false
-
-    while (run.value?.status === 'running' && runPollToken === pollToken) {
-      await new Promise((resolve) => setTimeout(resolve, 250))
-      const nextRun = await request(`/api/workflows/${workflowId}/runs/${runId}`)
-      if (runPollToken !== pollToken || activeWorkflow.value?.id !== workflowId) return
-      run.value = nextRun
-      nodeRuns.value = targetNodeId ? mergeNodeRuns(nodeRuns.value, nextRun.nodeRuns) : nextRun.nodeRuns
-      if (nextRun.status === 'succeeded' && !downloadedExportRuns.has(nextRun.id)) {
-        downloadedExportRuns.add(nextRun.id)
-        for (const [nodeId, nodeRun] of Object.entries(nextRun.nodeRuns)) {
-          if (nodes.value.find((node) => node.id === nodeId)?.data.workflowType === 'export-model') downloadExport(nodeRun)
-        }
-      }
-    }
-  } catch (caught) {
-    error.value = caught.message
-  } finally {
-    busy.value = false
-  }
 }
 
 function onConnect(connection) {
@@ -784,17 +269,6 @@ function openModelEditor(id) {
   nextTick(() => window.scrollTo({ top: 0 }))
 }
 
-function downloadExport(nodeRun) {
-  const outputs = nodeRun?.output?.outputs || (nodeRun?.output?.downloadUrl ? [nodeRun.output] : [])
-  for (const output of outputs) {
-    if (!output.downloadUrl) continue
-    const anchor = document.createElement('a')
-    anchor.href = output.downloadUrl
-    anchor.download = output.filename || `shark-gardener.${String(output.format || 'GLB').toLowerCase()}`
-    anchor.click()
-  }
-}
-
 function closeModelEditor() {
   workspaceMode.value = 'workflow'
   modelEditorNodeId.value = null
@@ -812,55 +286,12 @@ function closeImagePreview() {
   imagePreview.value = null
 }
 
-function deleteSelected({ preserveFrameChildren = true } = {}) {
-  const selectedFrameIds = new Set(selectedNodes.value.filter((node) => node.type === 'frame').map((node) => node.id))
-  const nodeIds = new Set(selectedNodes.value
-    .filter((node) => node.type !== 'frame' && (!preserveFrameChildren || !selectedFrameIds.has(node.parentNode)))
-    .map((node) => node.id))
-  const edgeIds = new Set(selectedEdges.value.map((edge) => edge.id))
-  const frames = new Map(nodes.value.filter((node) => selectedFrameIds.has(node.id)).map((node) => [node.id, node]))
-  nodes.value = nodes.value
-    .filter((node) => !selectedFrameIds.has(node.id) && !nodeIds.has(node.id))
-    .map((node) => {
-      const frame = frames.get(node.parentNode)
-      if (!frame) return node
-      return {
-        ...node,
-        parentNode: undefined,
-        extent: undefined,
-        expandParent: false,
-        position: { x: frame.position.x + node.position.x, y: frame.position.y + node.position.y },
-      }
-    })
-  edges.value = edges.value.filter((edge) =>
-    !edgeIds.has(edge.id) &&
-    !nodeIds.has(edge.source) &&
-    !nodeIds.has(edge.target)
-  )
-  scheduleSave()
-}
-
-function dissolveSelectedFrames() {
-  if (!canDissolveSelection.value) return
-  deleteSelected({ preserveFrameChildren: true })
-}
-
-function onEdgeClick({ edge, event }) {
-  const extendSelection = event?.shiftKey
-  nodes.value = nodes.value.map((node) => extendSelection ? node : { ...node, selected: false })
-  edges.value = edges.value.map((item) => ({
-    ...item,
-    selected: item.id === edge.id || (extendSelection && item.selected),
-  }))
-}
-
-// Vue Flow's native @edge-click is unreliable here (pane selection intercepts it),
-// so detect edge hits ourselves on the capture-phase pointerdown.
-function selectCanvasEdge(event) {
-  const edgeElement = event.target.closest?.('.vue-flow__edge')
-  if (!edgeElement) return
-  const edge = edges.value.find((item) => item.id === edgeElement.dataset.id)
-  if (edge) onEdgeClick({ edge, event })
+// Opening another workflow leaves the model editor and any open overlay behind.
+function resetWorkspace() {
+  closeWorkflowSwitcher()
+  imagePreview.value = null
+  workspaceMode.value = 'workflow'
+  modelEditorNodeId.value = null
 }
 
 function nextNodeId(type) {
@@ -948,59 +379,6 @@ function addNode(type, sourceId, position) {
     }
     fitView({ nodes: [node.id], padding: 1.5, maxZoom: 1, duration: 350 })
   })
-}
-
-function makeSelectionFrame() {
-  const selected = frameableSelectedNodes.value
-  if (!selected.length) return
-
-  const frameId = nextNodeId('frame')
-  nodes.value = buildSelectionFrame(nodes.value, selected, { insets: frameInsets(viewport.value.zoom), frameId })
-  edges.value = edges.value.map((edge) => ({ ...edge, selected: false }))
-  scheduleSave()
-  focusNode(frameId)
-}
-
-function fitFrames() {
-  const fitted = fitFrameNodes(nodes.value, frameInsets(viewport.value.zoom))
-  if (fitted.changed) nodes.value = fitted.nodes
-  return fitted.changed
-}
-
-function onCanvasPointerDown(event) {
-  marqueeStartedInFrame = pointInAnyFrame(screenToFlowCoordinate({ x: event.clientX, y: event.clientY }), nodes.value)
-}
-
-function updateDraggedNodeFrames(draggedNodes = []) {
-  const reparented = reparentDraggedNodes(nodes.value, draggedNodes)
-  if (reparented.changed) nodes.value = reparented.nodes
-  return reparented.changed
-}
-
-function queueFrameFit({ persist = false } = {}) {
-  frameFitShouldSave ||= persist
-  if (frameFitQueued) return
-  frameFitQueued = true
-  nextTick(async () => {
-    frameFitQueued = false
-    const shouldSave = frameFitShouldSave
-    frameFitShouldSave = false
-    await new Promise((resolve) => requestAnimationFrame(resolve))
-    await nextTick()
-    if (fitFrames() && shouldSave) scheduleSave()
-  })
-}
-
-async function fitFramesAfterRender({ persist = false } = {}) {
-  await nextTick()
-  await new Promise((resolve) => requestAnimationFrame(resolve))
-  await nextTick()
-  const changed = fitFrames()
-  // Handles use dynamic per-port positions, so refresh their measured bounds
-  // after the DOM settles or edges connect to stale points.
-  updateNodeInternals()
-  if (changed && persist) scheduleSave()
-  return changed
 }
 
 function catalogForMenu() {
@@ -1135,218 +513,31 @@ function onCanvasDrop(event) {
   addNode(type, null, screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
 }
 
-function onSelectionStart() {
-  marqueeSelecting = true
-}
-
-function onSelectionEnd() {
-  marqueeSelecting = false
-  marqueeStartedInFrame = false
-}
-
-function onElementsChange(changes) {
-  // A marquee that begins inside a section selects its contents. A marquee that
-  // begins outside keeps the section selected along with anything it overlaps.
-  if (marqueeSelecting && marqueeStartedInFrame) {
-    const frameIds = new Set(nodes.value.filter((node) => node.type === 'frame').map((node) => node.id))
-    if (changes.some((change) => change.type === 'select' && change.selected && frameIds.has(change.id))) {
-      // Vue Flow applies its selection change around this callback; enforce the
-      // inside-section exception after that update without disturbing children.
-      queueMicrotask(() => {
-        nodes.value = nodes.value.map((node) => node.type === 'frame' && node.selected ? { ...node, selected: false } : node)
-      })
-    }
-  }
-  const hasDimensions = changes.some((change) => change.type === 'dimensions' && change.id !== resizingFrameId)
-  // Resize frames to their children only once settled: on a node's own size change,
-  // or on a position change that is NOT part of an in-flight drag. While the mouse is
-  // down we leave the frame untouched; onNodeDragStop refits on release.
-  if (hasDimensions || (!dragging && changes.some((change) => change.type === 'position'))) {
-    queueFrameFit({ persist: hasDimensions })
-  }
-  if (changes.some((change) => change.type === 'remove')) scheduleSave()
-}
-
-function onFrameResizeStart(id) {
-  resizingFrameId = id
-  nodes.value = nodes.value.map((node) => node.id === id ? { ...node, data: { ...node.data, manualSize: true } } : node)
-}
-
-function onFrameResizeEnd() {
-  resizingFrameId = null
-  scheduleSave()
-}
-
-function onNodeDragStart() {
-  dragging = true
-}
-
-function onNodeDragStop({ nodes: draggedNodes = [] } = {}) {
-  updateDraggedNodeFrames(draggedNodes)
-  dragging = false
-  fitFrames()
-  scheduleSave()
-}
-
-async function autoLayout({ persist = true } = {}) {
-  const workflowNodes = nodes.value.filter((node) => node.type !== 'frame')
-  const positions = await layoutWorkflow(workflowNodes, edges.value, {
-    componentGap: frameComponentGap(viewport.value.zoom),
-  })
-  nodes.value = applyLayoutPositions(nodes.value, positions, frameInsets(viewport.value.zoom))
-  await fitFramesAfterRender({ persist: false })
-  queueFrameFit({ persist })
-  fitView({ padding: 0.18, duration: 500 })
-  if (persist) scheduleSave()
-}
-
-function selectAll() {
-  nodes.value = nodes.value.map((node) => ({ ...node, selected: true }))
-}
-
-function selectedFragmentData(name = 'Untitled block') {
-  const selected = selectedNodes.value
-  if (!selected.length) return null
-  return buildFragment(fromCanvas(), new Set(selected.map((node) => node.id)), name)
-}
-
-async function copySelected() {
-  const fragment = selectedFragmentData('Copied selection')
-  if (!fragment) return
-  clipboardFragment.value = fragment
-  try {
-    await navigator.clipboard.writeText(JSON.stringify(fragment, null, 2))
-  } catch {
-    // The in-app clipboard still works when browser clipboard permission is unavailable.
-  }
-}
-
-async function pasteFragment(fragment = clipboardFragment.value, options = {}) {
-  if (!fragment?.nodes?.length) return
-  const maxX = nodes.value.length ? Math.max(...nodes.value.map((node) => node.position.x)) : 0
-  const { nodes: domainNodes, edges: domainEdges } = remapFragment(fragment, {
-    offset: options.offset || { x: maxX + 310, y: 120 },
-    translateRoots: options.translateRoots,
-  })
-  activeWorkflow.value = {
-    ...fromCanvas(),
-    nodes: [...fromCanvas().nodes, ...domainNodes],
-    edges: [...fromCanvas().edges, ...domainEdges],
-  }
-  toCanvas(activeWorkflow.value)
-  await nextTick()
-  if (options.selectInserted) {
-    const insertedIds = new Set(domainNodes.map((node) => node.id))
-    nodes.value = nodes.value.map((node) => ({ ...node, selected: insertedIds.has(node.id) }))
-  }
-  scheduleSave()
-}
-
-async function duplicateSelected() {
-  const selected = selectedNodes.value
-  const fragment = selectedFragmentData('Duplicated selection')
-  if (!fragment || !selected.length) return
-  const minX = Math.min(...selected.map((node) => node.position.x))
-  const minY = Math.min(...selected.map((node) => node.position.y))
-  await pasteFragment(fragment, { offset: { x: minX + 24, y: minY + 24 }, selectInserted: true })
-}
-
-async function createWorkflowFromSelection() {
-  if (!selectedNodes.value.length) return
-  const name = window.prompt('Name this workflow', 'Workflow from selection')?.trim()
-  if (!name) return
-  const selection = selectedFragmentData(name)
-  if (!selection) return
-  const payload = {
-    name,
-    description: `${selection.nodes.length} selected steps from ${activeWorkflow.value.name}`,
-    nodes: selection.nodes,
-    edges: selection.edges,
-  }
-  try {
-    const workflow = await request('/api/workflows', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    await loadWorkflows(workflow.id)
-  } catch (caught) {
-    error.value = caught.message
-  }
-}
-
-function handleKeyboard(event) {
-  if (imagePreview.value) {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      closeImagePreview()
-    }
-    return
-  }
-  if (event.key === 'Escape' && workspaceMode.value === 'model-editor') {
-    event.preventDefault()
-    closeModelEditor()
-    return
-  }
-  if (event.key === 'Escape' && workflowSwitcherOpen.value) {
-    event.preventDefault()
-    closeWorkflowSwitcher()
-    return
-  }
-  const modifier = event.metaKey || event.ctrlKey
-  if (event.key === 'Escape' && (nodeMenuOpen.value || workflowMenu.value)) {
-    closeContextMenu()
-    closeWorkflowMenu()
-    return
-  }
-  if (modifier && event.code === 'KeyD') {
-    event.preventDefault()
-    if (hasSelection.value) duplicateSelected()
-    return
-  }
-  const editing = ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)
-  if (editing) return
-  if (modifier && event.key.toLowerCase() === 'z') {
-    event.preventDefault()
-    if (event.shiftKey) redo()
-    else undo()
-    return
-  }
-  if (modifier && event.key.toLowerCase() === 'y') {
-    event.preventDefault()
-    redo()
-    return
-  }
-  if (['Backspace', 'Delete'].includes(event.key) && hasSelection.value) {
-    event.preventDefault()
-    deleteSelected()
-    return
-  }
-  if (event.key === '/') {
-    event.preventDefault()
-    const canvas = document.querySelector('.flow-canvas')?.getBoundingClientRect()
-    if (canvas) openNodeMenuAt(canvas.left + canvas.width / 2, canvas.top + canvas.height / 2)
-    return
-  }
-  if (modifier && event.key.toLowerCase() === 'a') {
-    event.preventDefault()
-    selectAll()
-  }
-  if (modifier && event.key.toLowerCase() === 'c' && hasSelection.value) {
-    event.preventDefault()
-    copySelected()
-  }
-  if (modifier && event.key.toLowerCase() === 'v' && clipboardFragment.value) {
-    event.preventDefault()
-    pasteFragment()
-  }
-}
+useKeyboardShortcuts({
+  imagePreview,
+  workspaceMode,
+  workflowSwitcherOpen,
+  nodeMenuOpen,
+  workflowMenu,
+  hasSelection,
+  clipboardFragment,
+  closeImagePreview,
+  closeModelEditor,
+  closeWorkflowSwitcher,
+  closeContextMenu,
+  closeWorkflowMenu,
+  openNodeMenuAt,
+  undo,
+  redo,
+  selectAll,
+  copySelected,
+  pasteFragment,
+  duplicateSelected,
+  deleteSelected,
+})
 
 onMounted(async () => {
-  window.addEventListener('keydown', handleKeyboard, true)
   window.addEventListener('pointerdown', closeWorkflowMenu)
-  systemTheme.addEventListener('change', handleSystemThemeChange)
-  applyTheme()
   try {
     await loadWorkflows()
   } catch (caught) {
@@ -1354,13 +545,11 @@ onMounted(async () => {
   }
 })
 onUnmounted(() => {
-  clearTimeout(saveTimer)
-  composer.value?.destroy()
-  window.removeEventListener('keydown', handleKeyboard, true)
+  stopPendingSave()
   window.removeEventListener('pointerdown', closeWorkflowMenu)
-  systemTheme.removeEventListener('change', handleSystemThemeChange)
 })
 </script>
+
 
 
 <template>
