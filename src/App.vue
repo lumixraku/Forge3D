@@ -13,15 +13,16 @@ import StarterKit from '@tiptap/starter-kit'
 import WorkflowNode from './components/WorkflowNode.vue'
 import FrameNode from './components/FrameNode.vue'
 import { Attachment } from './editor/attachment'
+import { buildAssetLibrary, buildAssetRails } from './asset-library'
+import { applyLayoutPositions, buildSelectionFrame, fitFrameNodes, pointInAnyFrame, reparentDraggedNodes } from './frame-geometry'
 import { mergeNodeRuns } from './node-runs'
 import { summarizeRun } from './run-summary'
+import { edgeDefaults, nodePresentation, toCanvasGraph, toDomainWorkflow } from './workflow-canvas'
+import { buildFragment, importPlacementOffset, remapFragment, validateImportedWorkflow } from './workflow-fragment'
 import { frameComponentGap, frameInsets, layoutWorkflow } from './workflow-layout'
-import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeCategories, nodeDefaults, nodeDefinition, nodeDisplayName, nodeInputPorts, nodeOutputPorts } from './workflow-nodes'
-import { normalizeNodeConfig } from './workflow-schema'
+import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeCategories, nodeDefaults, nodeDefinition, nodeInputPorts, nodeOutputPorts } from './workflow-nodes'
 
 const ModelEditor = defineAsyncComponent(() => import('./components/ModelEditor.vue'))
-
-const nodePresentation = Object.fromEntries(nodeCatalog.map((node) => [node.type, [node.presentation.kind, node.presentation.detail, node.presentation.tone]]))
 
 const workflows = ref([])
 const activeWorkflow = ref(null)
@@ -88,7 +89,6 @@ const canUndo = ref(false)
 const canRedo = ref(false)
 
 const { fitView, screenToFlowCoordinate, updateNodeInternals, viewport } = useVueFlow()
-const edgeDefaults = { selectable: true }
 const messages = computed(() => conversation.value?.messages || [])
 const composer = useEditor({
   extensions: [
@@ -328,34 +328,8 @@ const hasSelectedNode = computed(() => selectedNodes.value.length > 0)
 const hasSelection = computed(() => selectedCount.value > 0)
 const panOnDrag = computed(() => canvasMode.value === 'move')
 
-// Aggregate every produced asset from the current workflow's nodes into the three
-// library buckets (reference / 2D / 3D). Purely derived — the canvas data is untouched.
-const MODEL_ASSET_TYPES = new Set(['generate-model', 'text-to-3d', 'multiview-to-3d', 'smart-mesh', 'texture', 'retopology', 'bake', 'rigging', 'segments', 'model-preview', 'export-model'])
-const assetLibrary = computed(() => {
-  const reference = [], images = [], models = []
-  for (const node of nodes.value) {
-    if (node.type !== 'workflow') continue
-    const type = node.data?.workflowType
-    const config = node.data?.config || {}
-    const label = node.data?.label || type
-    if (type === 'reference-image') {
-      const src = config.selectedPreview || config.preview
-      if (src) reference.push({ id: node.id, src, label, nodeId: node.id })
-    } else if (type === 'generate-image' || type === 'generated-image') {
-      const previews = Array.isArray(config.previews) && config.previews.length ? config.previews : [config.selectedPreview || config.preview].filter(Boolean)
-      previews.forEach((src, i) => src && images.push({ id: `${node.id}-${i}`, src, label, nodeId: node.id }))
-    } else if (MODEL_ASSET_TYPES.has(type)) {
-      const src = config.selectedPreview || config.preview
-      if (src) models.push({ id: node.id, src, label, nodeId: node.id })
-    }
-  }
-  return { reference, images, models, total: reference.length + images.length + models.length }
-})
-const assetRails = computed(() => [
-  { key: 'reference', title: 'Reference', badge: 'REF', items: assetLibrary.value.reference },
-  { key: 'images', title: '2D Assets', badge: '2D', items: assetLibrary.value.images },
-  { key: 'models', title: '3D Assets', badge: '3D', items: assetLibrary.value.models },
-])
+const assetLibrary = computed(() => buildAssetLibrary(nodes.value))
+const assetRails = computed(() => buildAssetRails(assetLibrary.value))
 const resolvedTheme = computed(() => theme.value === 'system' ? (systemTheme.matches ? 'dark' : 'light') : theme.value)
 const modelEditorNode = computed(() => nodes.value.find((node) => node.id === modelEditorNodeId.value) || null)
 
@@ -376,75 +350,9 @@ function handleSystemThemeChange() {
 
 async function toCanvas(workflow) {
   hydrating = true
-  const workflowNodes = new Map(workflow.nodes.map((node) => [node.id, node]))
-  // Child positions are persisted in the parent's local coordinate space.
-  const positions = new Map(workflow.nodes.map((node) => [node.id, node.ui.position || { x: 0, y: 0 }]))
-  // VueFlow requires a parent node to be present before its children.
-  nodes.value = [...workflow.nodes].sort((left, right) => (left.type === 'frame' ? -1 : 0) - (right.type === 'frame' ? -1 : 0)).map((node) => {
-    if (node.type === 'frame') {
-      return {
-        id: node.id,
-        type: 'frame',
-        position: positions.get(node.id),
-        width: node.ui.size?.width || 900,
-        height: node.ui.size?.height || 600,
-        // Let the frame body pass clicks through to the edges/child nodes beneath
-        // it; the header (see FrameNode.vue) re-enables pointer events as the handle.
-        style: { pointerEvents: 'none' },
-        data: { label: node.name, description: node.config?.description || '', manualSize: Boolean(node.config?.manualSize) },
-      }
-    }
-    const type = node.type === 'split' ? 'segments' : node.type
-    const [kind, detail, tone] = nodePresentation[type] || ['STEP', type, 'cyan']
-    return {
-      id: node.id,
-      type: 'workflow',
-      position: positions.get(node.id),
-      parentNode: node.ui.parentFrameId,
-      // No extent/expandParent: those let Vue Flow lock children inside the frame
-      // and live-resize it mid-drag. The frame is only refit on drag stop (fitFrames).
-      data: {
-        kind,
-        label: nodeDisplayName(type, node.name),
-        detail,
-        tone,
-        status: 'ready',
-        workflowType: type,
-        config: normalizeNodeConfig(type, node.config),
-        inputTypes: nodeDefinition(type)?.inputTypes || [],
-        outputType: nodeDefinition(type)?.outputType || null,
-        inputPorts: nodeInputPorts(type),
-        outputPorts: nodeOutputPorts(type),
-      },
-    }
-  })
-  // Ports collapsed to one input/output handle per node. Remap each stored
-  // edge — legacy typed ports (image/text/model) and the old view ports
-  // (front/back/left/right) alike — onto those single handles, drop edges that
-  // no longer resolve to a port, and dedupe pairs that used to target distinct
-  // ports on the same node into one link.
-  const seenEdges = new Set()
-  edges.value = workflow.edges
-    .map((edge) => {
-      const sourceType = workflowNodes.get(edge.source.nodeId)?.type
-      const targetType = workflowNodes.get(edge.target.nodeId)?.type
-      const sourceHandle = nodeOutputPorts(sourceType)[0]?.id
-      const targetHandle = nodeInputPorts(targetType)[0]?.id
-      const key = `${edge.source.nodeId}->${edge.target.nodeId}`
-      if (!sourceHandle || !targetHandle || seenEdges.has(key)) return null
-      seenEdges.add(key)
-      return {
-        id: edge.id,
-        source: edge.source.nodeId,
-        target: edge.target.nodeId,
-        sourceHandle,
-        targetHandle,
-        sourcePort: sourceHandle,
-        targetPort: targetHandle,
-        ...edgeDefaults,
-      }
-    })
-    .filter(Boolean)
+  const graph = toCanvasGraph(workflow)
+  nodes.value = graph.nodes
+  edges.value = graph.edges
   // Repair workflows whose views were materialized before they were wired to the model node.
   await fitFramesAfterRender({ persist: true })
   hydrating = false
@@ -452,19 +360,7 @@ async function toCanvas(workflow) {
 }
 
 function fromCanvas() {
-  if (!activeWorkflow.value) return null
-  const nodeMap = new Map(activeWorkflow.value.nodes.map((node) => [node.id, node]))
-  return {
-    ...activeWorkflow.value,
-    nodes: nodes.value.map((node) => node.type === 'frame'
-      ? { ...nodeMap.get(node.id), id: node.id, type: 'frame', name: node.data.label, config: { ...nodeMap.get(node.id)?.config, description: node.data.description || '', manualSize: Boolean(node.data.manualSize) }, ui: { position: node.position, size: { width: Number(node.dimensions?.width || node.width || 900), height: Number(node.dimensions?.height || node.height || 600) } } }
-      : { ...nodeMap.get(node.id), id: node.id, name: node.data.label, type: node.data.workflowType, config: node.data.config, ui: { position: node.position, parentFrameId: node.parentNode } }),
-    edges: edges.value.map((edge) => ({
-      id: edge.id,
-      source: { nodeId: edge.source, port: edge.sourceHandle || edge.sourcePort || 'output' },
-      target: { nodeId: edge.target, port: edge.targetHandle || edge.targetPort || 'input' },
-    })),
-  }
+  return toDomainWorkflow(activeWorkflow.value, nodes.value, edges.value)
 }
 
 async function request(url, options) {
@@ -794,39 +690,10 @@ async function importWorkflowFile(file) {
   try {
     const input = JSON.parse(await file.text())
     if (!activeWorkflow.value) throw new Error('Open a workflow before importing')
-    if (!Array.isArray(input.nodes) || !Array.isArray(input.edges || [])) {
-      throw new Error('Workflow JSON must include nodes and edges arrays')
-    }
-    if (input.nodes.some((node) => (
-      typeof node?.id !== 'string'
-      || !node.id
-      || !Number.isFinite(node.ui?.position?.x)
-      || !Number.isFinite(node.ui?.position?.y)
-    ))) {
-      throw new Error('Imported nodes must have IDs and valid positions')
-    }
-    const nodeIds = new Set(input.nodes.map((node) => node.id))
-    if (nodeIds.size !== input.nodes.length) {
-      throw new Error('Imported nodes must have unique IDs')
-    }
-    if (input.nodes.some((node) => node.ui?.parentFrameId && !nodeIds.has(node.ui.parentFrameId))) {
-      throw new Error('Imported nodes must include their parent frames')
-    }
-    if ((input.edges || []).some((edge) => !nodeIds.has(edge.source?.nodeId) || !nodeIds.has(edge.target?.nodeId))) {
-      throw new Error('Imported edges must connect imported nodes')
-    }
-
-    const currentRoots = nodes.value.filter((node) => !node.parentNode)
-    const currentRight = currentRoots.length
-      ? Math.max(...currentRoots.map((node) => node.position.x + (node.dimensions?.width || node.width || 260)))
-      : 0
-    const importedRoots = input.nodes.filter((node) => !node.ui?.parentFrameId)
-    const importedLeft = importedRoots.length
-      ? Math.min(...importedRoots.map((node) => Number(node.ui?.position?.x) || 0))
-      : 0
+    validateImportedWorkflow(input)
     await pasteFragment(
       { nodes: input.nodes, edges: input.edges || [] },
-      { offset: { x: currentRight + 80 - importedLeft, y: 0 }, translateRoots: true },
+      { offset: importPlacementOffset(nodes.value, input.nodes), translateRoots: true },
     )
     closeWorkflowSwitcher()
   } catch (caught) {
@@ -1152,161 +1019,27 @@ function makeSelectionFrame() {
   const selected = frameableSelectedNodes.value
   if (!selected.length) return
 
-  const insets = frameInsets(viewport.value.zoom)
-  const left = Math.min(...selected.map((node) => node.position.x))
-  const top = Math.min(...selected.map((node) => node.position.y))
-  const right = Math.max(...selected.map((node) => node.position.x + Number(node.dimensions?.width || node.width || 260)))
-  const bottom = Math.max(...selected.map((node) => node.position.y + Number(node.dimensions?.height || node.height || 430)))
   const frameId = nextNodeId('frame')
-  const framePosition = { x: left - insets.left, y: top - insets.top }
-  const selectedIds = new Set(selected.map((node) => node.id))
-  const frame = {
-    id: frameId,
-    type: 'frame',
-    position: framePosition,
-    width: right - left + insets.left + insets.right,
-    height: bottom - top + insets.top + insets.bottom,
-    selected: true,
-    style: { pointerEvents: 'none' },
-    data: { label: 'Workflow section', description: '' },
-  }
-  const children = nodes.value.map((node) => selectedIds.has(node.id)
-    ? {
-        ...node,
-        parentNode: frameId,
-        position: { x: node.position.x - framePosition.x, y: node.position.y - framePosition.y },
-        selected: false,
-      }
-    : { ...node, selected: false })
-
-  nodes.value = [frame, ...children]
+  nodes.value = buildSelectionFrame(nodes.value, selected, { insets: frameInsets(viewport.value.zoom), frameId })
   edges.value = edges.value.map((edge) => ({ ...edge, selected: false }))
   scheduleSave()
   focusNode(frameId)
 }
 
 function fitFrames() {
-  const insets = frameInsets(viewport.value.zoom)
-  let changed = false
-  const nextNodes = [...nodes.value]
-  const nodeIndexes = new Map(nextNodes.map((node, index) => [node.id, index]))
-
-  for (const frame of nextNodes.filter((node) => node.type === 'frame')) {
-    if (frame.data?.manualSize) continue
-    const children = nextNodes.filter((node) => node.parentNode === frame.id)
-    if (!children.length) continue
-    const left = Math.min(...children.map((node) => node.position.x))
-    const top = Math.min(...children.map((node) => node.position.y))
-    const right = Math.max(...children.map((node) => node.position.x + Number(node.dimensions?.width || node.width || 260)))
-    const bottom = Math.max(...children.map((node) => node.position.y + Number(node.dimensions?.height || node.height || 430)))
-    const width = right - left + insets.left + insets.right
-    const height = bottom - top + insets.top + insets.bottom
-    // Vue Flow renders a node's size from style.width/height when present (it
-    // prioritises that over node.width), so read the current size from there and
-    // write the fitted size back the same way — otherwise a stale style.width
-    // (e.g. left behind by expandParent) freezes the frame and leaves dead space.
-    const frameWidth = Number(parseFloat(frame.style?.width) || frame.width || frame.dimensions?.width || 900)
-    const frameHeight = Number(parseFloat(frame.style?.height) || frame.height || frame.dimensions?.height || 600)
-    const offset = { x: insets.left - left, y: insets.top - top }
-    if (Math.abs(frameWidth - width) < 0.5 && Math.abs(frameHeight - height) < 0.5 && Math.abs(offset.x) < 0.5 && Math.abs(offset.y) < 0.5) continue
-
-    changed = true
-    nextNodes[nodeIndexes.get(frame.id)] = {
-      ...frame,
-      width,
-      height,
-      style: { ...frame.style, width: `${width}px`, height: `${height}px` },
-    }
-    for (const child of children) {
-      nextNodes[nodeIndexes.get(child.id)] = {
-        ...child,
-        position: {
-          x: child.position.x + offset.x,
-          y: child.position.y + offset.y,
-        },
-      }
-    }
-  }
-
-  if (changed) nodes.value = nextNodes
-  return changed
-}
-
-function absoluteNodePosition(node, nodeMap = new Map(nodes.value.map((item) => [item.id, item]))) {
-  if (node.positionAbsolute) return { x: node.positionAbsolute.x, y: node.positionAbsolute.y }
-  const position = node.position || { x: 0, y: 0 }
-  if (!node.parentNode) return { x: position.x, y: position.y }
-
-  const parent = nodeMap.get(node.parentNode)
-  if (!parent) return { x: position.x, y: position.y }
-  const parentPosition = absoluteNodePosition(parent, nodeMap)
-  return { x: parentPosition.x + position.x, y: parentPosition.y + position.y }
-}
-
-function marqueeStartsInFrame(event) {
-  const point = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
-  const nodeMap = new Map(nodes.value.map((node) => [node.id, node]))
-  return nodes.value.some((node) => {
-    if (node.type !== 'frame') return false
-    const position = absoluteNodePosition(node, nodeMap)
-    const width = Number(parseFloat(node.style?.width) || node.width || node.dimensions?.width || 900)
-    const height = Number(parseFloat(node.style?.height) || node.height || node.dimensions?.height || 600)
-    return point.x >= position.x && point.x <= position.x + width && point.y >= position.y && point.y <= position.y + height
-  })
+  const fitted = fitFrameNodes(nodes.value, frameInsets(viewport.value.zoom))
+  if (fitted.changed) nodes.value = fitted.nodes
+  return fitted.changed
 }
 
 function onCanvasPointerDown(event) {
-  marqueeStartedInFrame = marqueeStartsInFrame(event)
+  marqueeStartedInFrame = pointInAnyFrame(screenToFlowCoordinate({ x: event.clientX, y: event.clientY }), nodes.value)
 }
 
 function updateDraggedNodeFrames(draggedNodes = []) {
-  const currentNodes = [...nodes.value]
-  const nodeMap = new Map(currentNodes.map((node) => [node.id, node]))
-  const frames = currentNodes.filter((node) => node.type === 'frame')
-  if (!draggedNodes.length) return false
-
-  let changed = false
-  for (const draggedNode of draggedNodes) {
-    const node = nodeMap.get(draggedNode.id)
-    if (!node || node.type === 'frame') continue
-
-    const position = absoluteNodePosition(draggedNode, nodeMap)
-    const width = Number(draggedNode.dimensions?.width || draggedNode.width || node.dimensions?.width || node.width || 260)
-    const height = Number(draggedNode.dimensions?.height || draggedNode.height || node.dimensions?.height || node.height || 430)
-    const right = position.x + width
-    const bottom = position.y + height
-    const oldParent = node.parentNode
-    const containingFrames = frames
-      .filter((frame) => frame.id !== node.id)
-      .map((frame) => {
-        const framePosition = absoluteNodePosition(frame, nodeMap)
-        const frameRight = framePosition.x + Number(parseFloat(frame.style?.width) || frame.width || frame.dimensions?.width || 900)
-        const frameBottom = framePosition.y + Number(parseFloat(frame.style?.height) || frame.height || frame.dimensions?.height || 600)
-        const overlap = Math.max(0, Math.min(right, frameRight) - Math.max(position.x, framePosition.x)) * Math.max(0, Math.min(bottom, frameBottom) - Math.max(position.y, framePosition.y))
-        return { frame, framePosition, overlap }
-      })
-      .filter(({ overlap }) => overlap > 0)
-      .sort((left, right) => right.overlap - left.overlap)
-    const nextParent = containingFrames[0]?.frame || null
-
-    if (nextParent?.id === oldParent) continue
-    const nextParentPosition = nextParent ? containingFrames[0].framePosition : { x: 0, y: 0 }
-    const nodeIndex = currentNodes.findIndex((item) => item.id === node.id)
-    const updatedNode = {
-      ...node,
-      parentNode: nextParent?.id,
-      position: {
-        x: position.x - nextParentPosition.x,
-        y: position.y - nextParentPosition.y,
-      },
-    }
-    currentNodes[nodeIndex] = updatedNode
-    nodeMap.set(node.id, updatedNode)
-    changed = true
-  }
-
-  if (changed) nodes.value = currentNodes
-  return changed
+  const reparented = reparentDraggedNodes(nodes.value, draggedNodes)
+  if (reparented.changed) nodes.value = reparented.nodes
+  return reparented.changed
 }
 
 function queueFrameFit({ persist = false } = {}) {
@@ -1531,43 +1264,10 @@ function onNodeDragStop({ nodes: draggedNodes = [] } = {}) {
 
 async function autoLayout({ persist = true } = {}) {
   const workflowNodes = nodes.value.filter((node) => node.type !== 'frame')
-  const insets = frameInsets(viewport.value.zoom)
   const positions = await layoutWorkflow(workflowNodes, edges.value, {
     componentGap: frameComponentGap(viewport.value.zoom),
   })
-  const frameBounds = new Map()
-  for (const node of workflowNodes) {
-    if (!node.parentNode) continue
-    const position = positions.get(node.id)
-    if (!position) continue
-    const bounds = frameBounds.get(node.parentNode) || { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity }
-    bounds.left = Math.min(bounds.left, position.x)
-    bounds.top = Math.min(bounds.top, position.y)
-    bounds.right = Math.max(bounds.right, position.x + (node.dimensions?.width || node.width || 260))
-    bounds.bottom = Math.max(bounds.bottom, position.y + (node.dimensions?.height || node.height || 430))
-    frameBounds.set(node.parentNode, bounds)
-  }
-  // The layout works in a single global space, but a framed child's position is
-  // stored relative to its frame's origin. Anchor each frame to the top-left of
-  // its (padded) children, then convert children back into that local space.
-  const frameOrigins = new Map()
-  for (const [frameId, bounds] of frameBounds) {
-    frameOrigins.set(frameId, { x: bounds.left - insets.left, y: bounds.top - insets.top })
-  }
-  nodes.value = nodes.value.map((node) => {
-    if (node.type === 'frame') {
-      const bounds = frameBounds.get(node.id)
-      if (!bounds) return node
-      const origin = frameOrigins.get(node.id)
-      const width = bounds.right - bounds.left + insets.left + insets.right
-      const height = bounds.bottom - bounds.top + insets.top + insets.bottom
-      return { ...node, position: origin, width, height, style: { ...node.style, width: `${width}px`, height: `${height}px` } }
-    }
-    const position = positions.get(node.id)
-    if (!position) return node
-    const origin = node.parentNode ? frameOrigins.get(node.parentNode) : null
-    return { ...node, position: origin ? { x: position.x - origin.x, y: position.y - origin.y } : position }
-  })
+  nodes.value = applyLayoutPositions(nodes.value, positions, frameInsets(viewport.value.zoom))
   await fitFramesAfterRender({ persist: false })
   queueFrameFit({ persist })
   fitView({ padding: 0.18, duration: 500 })
@@ -1581,29 +1281,7 @@ function selectAll() {
 function selectedFragmentData(name = 'Untitled block') {
   const selected = selectedNodes.value
   if (!selected.length) return null
-  const workflow = fromCanvas()
-  const selectedIds = new Set(selected.map((node) => node.id))
-  const fragmentNodes = workflow.nodes.filter((node) => selectedIds.has(node.id))
-  const minX = Math.min(...fragmentNodes.map((node) => node.ui.position.x))
-  const minY = Math.min(...fragmentNodes.map((node) => node.ui.position.y))
-  const internalEdges = workflow.edges.filter((edge) => selectedIds.has(edge.source.nodeId) && selectedIds.has(edge.target.nodeId))
-  const inputs = workflow.edges
-    .filter((edge) => !selectedIds.has(edge.source.nodeId) && selectedIds.has(edge.target.nodeId))
-    .map((edge) => ({ nodeId: edge.target.nodeId, port: edge.target.port }))
-  const outputs = workflow.edges
-    .filter((edge) => selectedIds.has(edge.source.nodeId) && !selectedIds.has(edge.target.nodeId))
-    .map((edge) => ({ nodeId: edge.source.nodeId, port: edge.source.port }))
-
-  return {
-    schemaVersion: '1.0',
-    kind: 'workflow-fragment',
-    name,
-    description: `${fragmentNodes.length}-step reusable block from ${workflow.name}`,
-    source: { workflowId: workflow.id, workflowRevision: workflow.revision },
-    nodes: fragmentNodes.map((node) => ({ ...node, ui: { position: { x: node.ui.position.x - minX, y: node.ui.position.y - minY } } })),
-    edges: internalEdges,
-    interface: { inputs, outputs },
-  }
+  return buildFragment(fromCanvas(), new Set(selected.map((node) => node.id)), name)
 }
 
 async function copySelected() {
@@ -1619,30 +1297,11 @@ async function copySelected() {
 
 async function pasteFragment(fragment = clipboardFragment.value, options = {}) {
   if (!fragment?.nodes?.length) return
-  const suffix = crypto.randomUUID()
-  const idMap = new Map(fragment.nodes.map((node, index) => [node.id, `${node.id}-${suffix}-${index}`]))
   const maxX = nodes.value.length ? Math.max(...nodes.value.map((node) => node.position.x)) : 0
-  const offset = options.offset || { x: maxX + 310, y: 120 }
-  const domainNodes = fragment.nodes.map((node) => ({
-    ...JSON.parse(JSON.stringify(node)),
-    id: idMap.get(node.id),
-    ui: {
-      ...node.ui,
-      position: {
-        x: node.ui.position.x + ((options.translateRoots ? !node.ui.parentFrameId : node.type === 'frame') ? offset.x : 0),
-        y: node.ui.position.y + ((options.translateRoots ? !node.ui.parentFrameId : node.type === 'frame') ? offset.y : 0),
-      },
-      ...(node.ui.parentFrameId ? { parentFrameId: idMap.get(node.ui.parentFrameId) } : {}),
-    },
-  }))
-  const domainEdges = (fragment.edges || [])
-    .filter((edge) => idMap.has(edge.source?.nodeId) && idMap.has(edge.target?.nodeId))
-    .map((edge, index) => ({
-      ...JSON.parse(JSON.stringify(edge)),
-      id: `${edge.id || 'edge'}-${suffix}-${index}`,
-      source: { ...edge.source, nodeId: idMap.get(edge.source.nodeId) },
-      target: { ...edge.target, nodeId: idMap.get(edge.target.nodeId) },
-    }))
+  const { nodes: domainNodes, edges: domainEdges } = remapFragment(fragment, {
+    offset: options.offset || { x: maxX + 310, y: 120 },
+    translateRoots: options.translateRoots,
+  })
   activeWorkflow.value = {
     ...fromCanvas(),
     nodes: [...fromCanvas().nodes, ...domainNodes],

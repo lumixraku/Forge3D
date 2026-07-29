@@ -1,0 +1,94 @@
+import { nodeSize } from './frame-geometry'
+
+// A fragment is a self-contained, position-normalized slice of a workflow: the
+// selected nodes, the edges between them, and the ports that crossed the cut.
+export function buildFragment(workflow, selectedIds: Set<string>, name = 'Untitled block') {
+  const fragmentNodes = workflow.nodes.filter((node) => selectedIds.has(node.id))
+  if (!fragmentNodes.length) return null
+  const minX = Math.min(...fragmentNodes.map((node) => node.ui.position.x))
+  const minY = Math.min(...fragmentNodes.map((node) => node.ui.position.y))
+  const internalEdges = workflow.edges.filter((edge) => selectedIds.has(edge.source.nodeId) && selectedIds.has(edge.target.nodeId))
+  const inputs = workflow.edges
+    .filter((edge) => !selectedIds.has(edge.source.nodeId) && selectedIds.has(edge.target.nodeId))
+    .map((edge) => ({ nodeId: edge.target.nodeId, port: edge.target.port }))
+  const outputs = workflow.edges
+    .filter((edge) => selectedIds.has(edge.source.nodeId) && !selectedIds.has(edge.target.nodeId))
+    .map((edge) => ({ nodeId: edge.source.nodeId, port: edge.source.port }))
+
+  return {
+    schemaVersion: '1.0',
+    kind: 'workflow-fragment',
+    name,
+    description: `${fragmentNodes.length}-step reusable block from ${workflow.name}`,
+    source: { workflowId: workflow.id, workflowRevision: workflow.revision },
+    nodes: fragmentNodes.map((node) => ({ ...node, ui: { position: { x: node.ui.position.x - minX, y: node.ui.position.y - minY } } })),
+    edges: internalEdges,
+    interface: { inputs, outputs },
+  }
+}
+
+// Give a fragment fresh ids so it can be inserted alongside its source, and shift
+// it into place. `translateRoots` moves every node without a parent frame (used by
+// import); otherwise only frames move and their children ride along.
+export function remapFragment(fragment, { offset, translateRoots = false, suffix = crypto.randomUUID() }) {
+  const idMap = new Map(fragment.nodes.map((node, index) => [node.id, `${node.id}-${suffix}-${index}`]))
+  const nodes = fragment.nodes.map((node) => ({
+    ...JSON.parse(JSON.stringify(node)),
+    id: idMap.get(node.id),
+    ui: {
+      ...node.ui,
+      position: {
+        x: node.ui.position.x + ((translateRoots ? !node.ui.parentFrameId : node.type === 'frame') ? offset.x : 0),
+        y: node.ui.position.y + ((translateRoots ? !node.ui.parentFrameId : node.type === 'frame') ? offset.y : 0),
+      },
+      ...(node.ui.parentFrameId ? { parentFrameId: idMap.get(node.ui.parentFrameId) } : {}),
+    },
+  }))
+  const edges = (fragment.edges || [])
+    .filter((edge) => idMap.has(edge.source?.nodeId) && idMap.has(edge.target?.nodeId))
+    .map((edge, index) => ({
+      ...JSON.parse(JSON.stringify(edge)),
+      id: `${edge.id || 'edge'}-${suffix}-${index}`,
+      source: { ...edge.source, nodeId: idMap.get(edge.source.nodeId) },
+      target: { ...edge.target, nodeId: idMap.get(edge.target.nodeId) },
+    }))
+
+  return { nodes, edges }
+}
+
+export function validateImportedWorkflow(input) {
+  if (!Array.isArray(input.nodes) || !Array.isArray(input.edges || [])) {
+    throw new Error('Workflow JSON must include nodes and edges arrays')
+  }
+  if (input.nodes.some((node) => (
+    typeof node?.id !== 'string'
+    || !node.id
+    || !Number.isFinite(node.ui?.position?.x)
+    || !Number.isFinite(node.ui?.position?.y)
+  ))) {
+    throw new Error('Imported nodes must have IDs and valid positions')
+  }
+  const nodeIds = new Set(input.nodes.map((node) => node.id))
+  if (nodeIds.size !== input.nodes.length) {
+    throw new Error('Imported nodes must have unique IDs')
+  }
+  if (input.nodes.some((node) => node.ui?.parentFrameId && !nodeIds.has(node.ui.parentFrameId))) {
+    throw new Error('Imported nodes must include their parent frames')
+  }
+  if ((input.edges || []).some((edge) => !nodeIds.has(edge.source?.nodeId) || !nodeIds.has(edge.target?.nodeId))) {
+    throw new Error('Imported edges must connect imported nodes')
+  }
+}
+
+// Drop an imported workflow to the right of everything already on the canvas.
+export function importPlacementOffset(canvasNodes, importedNodes) {
+  const currentRoots = canvasNodes.filter((node) => !node.parentNode)
+  const currentRight = currentRoots.length
+    ? Math.max(...currentRoots.map((node) => node.position.x + nodeSize(node).width))
+    : 0
+  const importedRoots = importedNodes.filter((node) => !node.ui?.parentFrameId)
+  const importedLeft = importedRoots.length
+    ? Math.min(...importedRoots.map((node) => Number(node.ui?.position?.x) || 0))
+    : 0
+  return { x: currentRight + 80 - importedLeft, y: 0 }
+}
