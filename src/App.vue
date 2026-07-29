@@ -17,6 +17,7 @@ import { mergeNodeRuns } from './node-runs'
 import { summarizeRun } from './run-summary'
 import { frameComponentGap, frameInsets, layoutWorkflow } from './workflow-layout'
 import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeCategories, nodeDefaults, nodeDefinition, nodeDisplayName, nodeInputPorts, nodeOutputPorts } from './workflow-nodes'
+import { normalizeNodeConfig } from './workflow-schema'
 
 const ModelEditor = defineAsyncComponent(() => import('./components/ModelEditor.vue'))
 
@@ -446,27 +447,6 @@ async function toCanvas(workflow) {
   await fitFramesAfterRender({ persist: true })
   hydrating = false
   syncHistoryWorkflow(workflow.id)
-}
-
-function normalizeNodeConfig(type, config = {}) {
-  const normalized = { ...nodeDefaults(type), ...config }
-  if (type === 'generate-image' && Array.isArray(normalized.previews) && !normalized.previews.includes(normalized.selectedPreview)) normalized.selectedPreview = normalized.previews[0] || null
-  if (['generate-model', 'text-to-3d'].includes(type)) {
-    if (config.quality && !config.modelVersion) normalized.modelVersion = config.quality === 'standard' ? 'v3.0-20250812' : config.quality
-  }
-  if (type === 'retopology') {
-    if (config.targetFaces && !config.faceLimit) normalized.faceLimit = config.targetFaces
-    if (config.faceType && !config.topology) normalized.topology = String(config.faceType).toLowerCase() === 'quad' ? 'quad' : 'triangle'
-  }
-  if (type === 'texture') {
-    if (!config.textureQuality && typeof config.resolution === 'string') normalized.textureQuality = { '2K': 'standard', '4K': 'detailed', '8K': 'extreme' }[config.resolution.toUpperCase()] || 'standard'
-    delete normalized.model
-    delete normalized.resolution
-    delete normalized.style
-  }
-  if (type === 'model-preview') delete normalized.background
-  if (type === 'export-model' && config.format && !config.modelFormat) normalized.modelFormat = String(config.format).toLowerCase() === 'glb' ? 'gltf' : String(config.format).toLowerCase()
-  return normalized
 }
 
 function fromCanvas() {

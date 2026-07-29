@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeDisplayName, nodeInputPorts, nodeOutputPorts, nodeSchema, parameterRange } from './workflow-nodes.js'
+import { normalizeNodeConfig, workflowNodeSchema } from './workflow-schema.js'
 
 test('uses Lychee node names while preserving unmatched node names', () => {
   assert.equal(nodeDisplayName('reference-image', 'Reference Image'), 'Image Upload')
@@ -91,9 +92,16 @@ test('matches the Tripo Studio parameters without changing node types', () => {
   assert.equal(segmentation.type, 'segments')
   assert.equal(segmentation.label, 'Segments')
   assert.equal(generateModel.defaults.generateParts, false)
+  assert.equal(generateModel.defaults.geometryQuality, true)
+  assert.equal(generateModel.defaults.aiComplete, false)
+  assert.equal(generateModel.defaults.textureQuality, 'extreme')
   assert.equal(generateModel.defaults.texture8k, true)
   assert.equal(generateModel.defaults.privacy, 'sharing-only')
+  assert.equal(generateModel.parameters.find(({ key }) => key === 'geometryQuality').control, 'toggle')
+  assert.equal(generateModel.parameters.find(({ key }) => key === 'aiComplete').control, 'toggle')
+  assert.deepEqual(generateModel.parameters.find(({ key }) => key === 'textureQuality').options.map(({ label }) => label), ['2K', '4K', '8K'])
   assert.equal(generateModel.parameters.find(({ key }) => key === 'texture8k').control, 'toggle')
+  assert.deepEqual(parameterRange(generateModel.parameters.find(({ key }) => key === 'faceCount'), generateModel.defaults), { min: 500, max: 2000000, step: 500 })
 
   assert.equal(segmentation.defaults.detailLevel, 'low')
   assert.deepEqual(segmentation.parameters[0].options.map(({ label }) => label), [
@@ -110,4 +118,16 @@ test('matches the Tripo Studio parameters without changing node types', () => {
   assert.equal(texture.defaults.textureQuality, 'extreme')
   assert.equal(texture.parameters.find(({ key }) => key === 'textureQuality').control, 'segmented')
   assert.deepEqual(texture.parameters.find(({ key }) => key === 'textureQuality').options.map(({ label }) => label), ['2K', '4K', '8K'])
+})
+
+test('gives every select a valid default and normalizes legacy values', () => {
+  for (const schema of workflowNodeSchema) {
+    for (const parameter of schema.parameters.filter(({ control }) => control === 'select')) {
+      assert.ok(parameter.options.some(({ value }) => value === schema.defaults[parameter.key]), `${schema.type}.${parameter.key} has a selected default`)
+    }
+  }
+
+  assert.equal(normalizeNodeConfig('generate-model', { modelVersion: 'Smart Mesh' }).modelVersion, 'v3.1-20260211')
+  assert.equal(normalizeNodeConfig('generate-model', { geometryQuality: 'detailed' }).geometryQuality, true)
+  assert.equal(normalizeNodeConfig('export-model', { modelFormat: 'GLB' }).modelFormat, 'gltf')
 })

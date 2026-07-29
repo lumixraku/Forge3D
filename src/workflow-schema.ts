@@ -72,14 +72,16 @@ const detailLevels = options([['low', 'Simple · 3-6 parts'], ['medium', 'Balanc
 const imageAmounts = options([[1, '1'], [2, '2'], [3, '3'], [4, '4']])
 const scales = options([['1:1', '1:1'], ['3:4', '3:4'], ['4:3', '4:3'], ['9:16', '9:16'], ['16:9', '16:9']])
 const multiViewPorts = ['front', 'back', 'left', 'right'].map((id): NodePort => ({ id, label: id[0].toUpperCase() + id.slice(1), type: 'image' }))
-const modelDefaults = { modelVersion: 'v3.1-20260211', geometryQuality: 'detailed', topology: 'triangle', faceCount: 2000000, texture: true, pbr: true, generateParts: false, texture8k: true, privacy: 'sharing-only', preview: '/shark-model.png' }
+const modelDefaults = { modelVersion: 'v3.1-20260211', geometryQuality: true, aiComplete: false, texture: true, textureQuality: 'extreme', pbr: true, topology: 'triangle', faceCount: 2000000, generateParts: false, texture8k: true, privacy: 'sharing-only', preview: '/shark-model.png' }
 const modelParameters: NodeParameter[] = [
   { key: 'modelVersion', label: 'AI Model', control: 'select', options: modelVersions },
-  { key: 'geometryQuality', label: 'Ultra Mesh Quality', control: 'segmented', options: options([['standard', 'Standard'], ['detailed', 'Detailed']]), visibleWhen: [{ field: 'modelVersion', equals: 'v3.1-20260211' }] },
-  { key: 'topology', label: 'Topology', control: 'segmented', options: topology },
-  { key: 'faceCount', label: 'Polycount', control: 'slider', range: { min: 500, max: 1000000, step: 500, rules: [{ when: [{ field: 'geometryQuality', equals: 'detailed' }], max: 2000000 }, { when: [{ field: 'topology', equals: 'quad' }], max: 50000 }, { when: [{ field: 'generateParts', equals: true }], min: 10000 }] } },
+  { key: 'geometryQuality', label: 'Ultra Mesh Quality', control: 'toggle', visibleWhen: [{ field: 'modelVersion', equals: 'v3.1-20260211' }] },
+  { key: 'aiComplete', label: 'AI Complete', control: 'toggle' },
   { key: 'texture', label: 'Texture', control: 'toggle' },
+  { key: 'textureQuality', label: 'Texture Quality', control: 'segmented', options: textureQualities, visibleWhen: [{ field: 'texture', equals: true }] },
   { key: 'pbr', label: 'PBR', control: 'toggle', visibleWhen: [{ field: 'texture', equals: true }] },
+  { key: 'topology', label: 'Topology', control: 'segmented', options: topology },
+  { key: 'faceCount', label: 'Polycount', control: 'slider', range: { min: 500, max: 1000000, step: 500, rules: [{ when: [{ field: 'geometryQuality', equals: true }], max: 2000000 }, { when: [{ field: 'topology', equals: 'quad' }], max: 50000 }, { when: [{ field: 'generateParts', equals: true }], min: 10000 }] } },
   { key: 'generateParts', label: 'Generate in Parts', control: 'toggle' },
   { key: 'texture8k', label: '8K Texture', control: 'toggle', visibleWhen: [{ field: 'texture', equals: true }] },
   { key: 'privacy', label: 'Privacy', control: 'select', options: options([['sharing-only', 'Sharing Only'], ['private', 'Private']]) },
@@ -114,6 +116,40 @@ export function nodeSchema(type: string) {
 
 export function nodeDefaults(type: string) {
   return structuredClone(nodeSchema(type)?.defaults || {})
+}
+
+export function normalizeNodeConfig(type: string, config: Record<string, unknown> = {}) {
+  const normalized = { ...nodeDefaults(type), ...config }
+  const schema = nodeSchema(type)
+
+  for (const parameter of schema?.parameters || []) {
+    if (parameter.control !== 'select' || !parameter.options?.length) continue
+    if (!parameter.options.some((option) => option.value === normalized[parameter.key])) normalized[parameter.key] = schema.defaults[parameter.key] ?? parameter.options[0].value
+  }
+
+  if (type === 'generate-image' && Array.isArray(normalized.previews) && !normalized.previews.includes(normalized.selectedPreview)) normalized.selectedPreview = normalized.previews[0] || null
+  if (['generate-model', 'multiview-to-3d', 'text-to-3d'].includes(type)) {
+    if (config.quality && !config.modelVersion) normalized.modelVersion = config.quality === 'standard' ? 'v3.0-20250812' : config.quality
+    if (config.modelVersion === 'Smart Mesh') normalized.modelVersion = modelDefaults.modelVersion
+    if (typeof config.geometryQuality === 'string') normalized.geometryQuality = config.geometryQuality === 'detailed'
+    if (config.faceType && !config.topology) normalized.topology = String(config.faceType).toLowerCase() === 'quad' ? 'quad' : 'triangle'
+  }
+  if (type === 'retopology') {
+    if (config.targetFaces && !config.faceLimit) normalized.faceLimit = config.targetFaces
+    if (config.faceType && !config.topology) normalized.topology = String(config.faceType).toLowerCase() === 'quad' ? 'quad' : 'triangle'
+  }
+  if (type === 'texture') {
+    if (!config.textureQuality && typeof config.resolution === 'string') normalized.textureQuality = { '2K': 'standard', '4K': 'detailed', '8K': 'extreme' }[config.resolution.toUpperCase()] || 'standard'
+    delete normalized.model
+    delete normalized.resolution
+    delete normalized.style
+  }
+  if (type === 'model-preview') delete normalized.background
+  if (type === 'export-model') {
+    if (config.format && !config.modelFormat) normalized.modelFormat = String(config.format).toLowerCase() === 'glb' ? 'gltf' : String(config.format).toLowerCase()
+    if (String(config.modelFormat).toLowerCase() === 'glb') normalized.modelFormat = 'gltf'
+  }
+  return normalized
 }
 
 export function conditionsMatch(conditions: ParameterCondition[] | undefined, config: Record<string, unknown>) {

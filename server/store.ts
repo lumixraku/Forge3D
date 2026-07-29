@@ -1,6 +1,7 @@
 import { access, mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { normalizeNodeConfig } from '../src/workflow-schema.js'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
 const dataDirectory = path.join(root, 'data')
@@ -18,13 +19,10 @@ export function migrateWorkflow(workflow, now = () => new Date().toISOString()) 
   migrated.nodes = retainedNodes.map((node) => {
     if (node.type === 'split') {
       changed = true
-      return { ...node, type: 'segments', name: node.name === 'Split' ? 'Segments' : node.name }
+      return { ...node, type: 'segments', name: node.name === 'Split' ? 'Segments' : node.name, config: normalizeNodeConfig('segments', node.config) }
     }
-    if (node.type !== 'export-model' || (!Object.hasOwn(node.config || {}, 'background') && !Object.hasOwn(node.config || {}, 'format'))) return node
-    const config = { ...node.config }
-    if (config.format && !config.modelFormat) config.modelFormat = String(config.format).toLowerCase() === 'glb' ? 'gltf' : String(config.format).toLowerCase()
-    delete config.background
-    delete config.format
+    const config = normalizeNodeConfig(node.type, node.config)
+    if (JSON.stringify(config) === JSON.stringify(node.config)) return node
     changed = true
     return { ...node, config }
   })
