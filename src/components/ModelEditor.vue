@@ -12,7 +12,7 @@ const modelUrl = '/models/shark-gardener.glb'
 
 const editorMode = computed(() => {
   const type = props.node.data.workflowType
-  if (type === 'split') return 'split'
+  if (type === 'segments') return 'split'
   if (type === 'rigging') return 'rig'
   if (props.node.data.config.wireframe) return 'wireframe'
   return 'model'
@@ -51,7 +51,7 @@ function update(key: string, value: unknown) {
 
       <div class="model-viewport">
         <Model3D :mode="editorMode" :auto-rotate="node.data.config.autoRotate !== false" />
-        <div class="viewport-status"><i /> REALTIME · GLB · {{ editorMode === 'split' ? 'SPLIT' : editorMode === 'rig' ? 'RIG' : 'PBR' }}</div>
+        <div class="viewport-status"><i /> REALTIME · GLB · {{ editorMode === 'split' ? 'SEGMENTS' : editorMode === 'rig' ? 'RIG' : 'PBR' }}</div>
         <div class="viewport-hint">Drag to orbit · Scroll to zoom · Double-click to focus</div>
         <div class="axis-widget"><b>Z</b><span>X</span><i>Y</i></div>
         <div class="view-cube"><span>FRONT</span></div>

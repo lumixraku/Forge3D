@@ -17,7 +17,7 @@ const nodeCatalogRows = [
   ['bake', 'Bake detail from one model onto another.', '3D models', '3D model'],
   ['texture', 'Generate UV textures for a model (optionally guided by an image or text).', '3D model (+ optional image/text)', '3D model'],
   ['rigging', 'Add a skeleton / rig to a model.', '3D model', '3D model'],
-  ['split', 'Split a model into separate parts.', '3D model', '3D model'],
+  ['segments', 'Segment a model into separate parts.', '3D model', '3D model'],
   ['model-preview', 'Interactive 3D preview of the result.', '3D model', '3D model'],
   ['export-model', 'Export the final image or 3D model. Terminal stage.', 'image or 3D model', 'none'],
 ]
@@ -30,7 +30,7 @@ ${nodeCatalogText}
 
 Choose node types by matching outputs to inputs. Key rule: generate-model is the unified 3D generation node. It accepts text, a single image, or multiple images and automatically selects single-image or multi-image reconstruction from the upstream output. Any "one image → multiple views → 3D" request must use generate-multiview-images followed by generate-model.
 
-When the user asks to create, build, or design a workflow, call build_workflow with the complete ordered nodeTypes list. The server appends one new frame without replacing existing canvas content, places all new nodes inside it, connects compatible ports, and lays out the new section. Common shapes: text-to-image-to-3D = reference-image, prompt, generate-image, generate-model, export-model; direct text-to-3D = prompt, text-to-3d, export-model; single image to multi-view to 3D = reference-image, generate-multiview-images, generate-model, export-model. Add retopology, texture, rigging, and split before export-model when requested.
+When the user asks to create, build, or design a workflow, call build_workflow with the complete ordered nodeTypes list. The server appends one new frame without replacing existing canvas content, places all new nodes inside it, connects compatible ports, and lays out the new section. Common shapes: text-to-image-to-3D = reference-image, prompt, generate-image, generate-model, export-model; direct text-to-3D = prompt, text-to-3d, export-model; single image to multi-view to 3D = reference-image, generate-multiview-images, generate-model, export-model. Add retopology, texture, rigging, and segments before export-model when requested.
 
 Use get_workflow_structure when the current nodes or connections are unclear. Use list_available_node_types when the creatable node types are unclear. Use add_workflow_node to add any supported node type, including frame, when it is not already present; use build_workflow to append a complete workflow section. Use get_workflow_parameters when parameter names, node IDs, ranges, or options are unclear. Apply every parameter explicitly requested by the user. Group all requested changes for the same node into one update_node_parameters call, use separate calls for different nodes, and verify every requested change appears in successful tool results before replying. When you need the user to choose from a finite set of valid alternatives before continuing, you MUST call request_user_select. Never ask that question, list the options, or tell the user to choose in normal assistant text. For an empty workflow, if the user has not stated how to create the model, call request_user_select with the available workflow approaches. Do not ask for free-form text with this tool. Reply concisely in the user's language and summarize the nodes and connections actually created or changed.`
 

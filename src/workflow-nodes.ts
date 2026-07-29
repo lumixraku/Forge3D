@@ -24,18 +24,15 @@ export function canConnectNodeTypes(sourceType: string, targetType: string) {
 
 export function nodeInputPorts(type: string): NodePort[] {
   const definition = nodeDefinition(type)
-  if (definition?.inputPorts) return definition.inputPorts
-  return definition?.inputTypes.map((portType, index) => ({
-    id: definition.inputTypes.length === 1 ? 'input' : `${portType}-${index + 1}`,
-    label: portType[0].toUpperCase() + portType.slice(1),
-    type: portType,
-  })) || []
+  return definition && (definition.inputTypes.length > 0 || definition.inputPorts?.length)
+    ? [{ id: 'input', label: 'Input', type: 'any' }]
+    : []
 }
 
 export function nodeOutputPorts(type: string): NodePort[] {
   const definition = nodeDefinition(type)
-  if (definition?.outputPorts) return definition.outputPorts
-  return definition?.outputType ? [{ id: 'output', label: 'Output', type: definition.outputType }] : []
+  const outputType = definition?.outputType || definition?.outputPorts?.[0]?.type
+  return outputType ? [{ id: 'output', label: 'Output', type: outputType }] : []
 }
 
 export function canConnectPorts(sourceType: string, sourcePortId: string, targetType: string, targetPortId: string) {

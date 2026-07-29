@@ -16,6 +16,10 @@ export function migrateWorkflow(workflow, now = () => new Date().toISOString()) 
   let changed = retainedNodes.length !== migrated.nodes.length
 
   migrated.nodes = retainedNodes.map((node) => {
+    if (node.type === 'split') {
+      changed = true
+      return { ...node, type: 'segments', name: node.name === 'Split' ? 'Segments' : node.name }
+    }
     if (node.type !== 'export-model' || (!Object.hasOwn(node.config || {}, 'background') && !Object.hasOwn(node.config || {}, 'format'))) return node
     const config = { ...node.config }
     if (config.format && !config.modelFormat) config.modelFormat = String(config.format).toLowerCase() === 'glb' ? 'gltf' : String(config.format).toLowerCase()

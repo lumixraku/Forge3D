@@ -173,7 +173,7 @@ Hidden nodes remain valid definitions so older persisted workflows can still loa
 | 3D | `bake` | Bake | Model A, model B | Model | Visible |
 | 3D | `texture` | UV Texture | Model, image, text | Model | Visible |
 | 3D | `rigging` | Rigging | Model | Model | Visible |
-| 3D | `split` | Split | Model | Model | Visible |
+| 3D | `segments` | Segments | Model | Model | Visible |
 | 3D | `model-preview` | Model preview | Model | Model | Visible |
 | Output | `generated-image` | Image | Image | Image | Hidden compatibility type |
 | Output | `export-model` | Export | Image, model | None | Visible |
@@ -184,9 +184,11 @@ Hidden nodes remain valid definitions so older persisted workflows can still loa
 
 The catalog describes semantic input types, but the current rendered canvas intentionally collapses them:
 
-- Every node with at least one input receives one handle: `{ id: "input", type: "any" }`.
-- Every producing node receives one handle: `{ id: "output", type: <result type> }`.
+- Every node with at least one input receives exactly one handle: `{ id: "input", type: "any" }`.
+- Every producing node receives exactly one handle: `{ id: "output", type: <result metadata> }`.
 - Multi-view, Bake, and Texture therefore render a single universal input/output handle rather than every conceptual port.
+- Input and output values may be arrays. Array length and item types are data concerns and must never create additional handles.
+- Do not add typed, indexed, or per-item handles. An output may retain result metadata for UI/runtime inspection, but it never affects handle count or connection validation.
 - Multiple upstream edges may target the same universal input handle.
 - Connection validation checks handle existence, missing nodes, self-connections, and exact duplicate edges; it does not currently enforce image/text/model type compatibility.
 
@@ -380,18 +382,16 @@ No editable parameters in the current card.
 
 No editable parameters in the node card. The Model Editor uses a rig visualization mode.
 
-#### `split`
+#### `segments`
 
 ```json
 {
-  "subdivision": "Medium",
-  "complete": true,
+  "detailLevel": "low",
   "preview": "/shark-model.png"
 }
 ```
 
-- Subdivision: `Low`, `Medium`, `High`.
-- Complete parts: boolean.
+- Detail level: `low`, `medium`, `high`.
 - The Model Editor uses an exploded segmented-model mode.
 
 #### `model-preview`

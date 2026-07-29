@@ -96,7 +96,7 @@ Lists every node type the agent can create. This data is separate from the curre
     "bake",
     "texture",
     "rigging",
-    "split",
+    "segments",
     "model-preview",
     "export-model"
   ]
@@ -129,7 +129,7 @@ retopology
 bake
 texture
 rigging
-split
+segments
 model-preview
 export-model
 ```

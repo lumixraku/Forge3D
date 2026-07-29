@@ -66,40 +66,38 @@ function fitFrame(nodes, options = {}) {
 export function rebuildDagEdges(nodes) {
   const byType = new Map(nodes.map((node) => [node.type, node]))
   const edges = []
-  const connect = (sourceType, sourcePort, targetType, targetPort) => {
+  const connect = (sourceType, targetType) => {
     const source = byType.get(sourceType)
     const target = byType.get(targetType)
     if (!source || !target) return
     edges.push({
-      id: sourcePort === targetPort && sourcePort !== 'front' && sourcePort !== 'back' && sourcePort !== 'left' && sourcePort !== 'right'
-        ? `${source.id}-${target.id}`
-        : `${source.id}-${sourcePort}-${target.id}-${targetPort}`,
-      source: { nodeId: source.id, port: sourcePort },
-      target: { nodeId: target.id, port: targetPort },
+      id: `${source.id}-${target.id}`,
+      source: { nodeId: source.id, port: 'output' },
+      target: { nodeId: target.id, port: 'input' },
     })
   }
 
-  connect('reference-image', 'image', 'generate-image', 'image')
-  connect('prompt', 'prompt', 'generate-image', 'prompt')
-  connect('generate-image', 'image', 'generate-model', 'image')
-  connect('reference-image', 'image', 'generate-multiview-images', 'image')
-  connect('prompt', 'text', 'generate-multiview-images', 'text')
-  connect('prompt', 'text', 'text-to-3d', 'text')
-  connect('generate-image', 'image', 'smart-mesh', 'image')
-  connect('prompt', 'text', 'smart-mesh', 'text')
+  connect('reference-image', 'generate-image')
+  connect('prompt', 'generate-image')
+  connect('generate-image', 'generate-model')
+  connect('reference-image', 'generate-multiview-images')
+  connect('prompt', 'generate-multiview-images')
+  connect('prompt', 'text-to-3d')
+  connect('generate-image', 'smart-mesh')
+  connect('prompt', 'smart-mesh')
   // Multi-view images feed the 3D reconstruction stage. Without this the
   // generate-multiview-images node is left dangling before the model node.
-  connect('generate-multiview-images', 'image', 'multiview-to-3d', 'image')
-  connect('generate-multiview-images', 'image', 'generate-model', 'image')
-  connect('generate-multiview-images', 'image', 'smart-mesh', 'image')
+  connect('generate-multiview-images', 'multiview-to-3d')
+  connect('generate-multiview-images', 'generate-model')
+  connect('generate-multiview-images', 'smart-mesh')
 
   // When no intermediate image node exists, the reference image and prompt feed
   // the 3D model node directly (generate-model / smart-mesh accept image + text).
   // Without this, an image→3D chain leaves reference-image and prompt dangling.
   if (!byType.has('generate-image') && !byType.has('generate-multiview-images')) {
-    connect('reference-image', 'image', 'generate-model', 'image')
-    connect('reference-image', 'image', 'smart-mesh', 'image')
-    connect('prompt', 'text', 'generate-model', 'text')
+    connect('reference-image', 'generate-model')
+    connect('reference-image', 'smart-mesh')
+    connect('prompt', 'generate-model')
   }
 
   const modelSource = byType.has('text-to-3d')
@@ -109,11 +107,11 @@ export function rebuildDagEdges(nodes) {
       : byType.has('smart-mesh')
         ? 'smart-mesh'
         : 'generate-model'
-  const modelChain = [modelSource, 'retopology', 'texture', 'rigging', 'split'].filter((type) => byType.has(type))
-  modelChain.slice(1).forEach((type, index) => connect(modelChain[index], 'model', type, 'model'))
+  const modelChain = [modelSource, 'retopology', 'texture', 'rigging', 'segments'].filter((type) => byType.has(type))
+  modelChain.slice(1).forEach((type, index) => connect(modelChain[index], type))
   const finalModelType = modelChain.at(-1)
   const finalNodeType = byType.has('export-model') ? 'export-model' : 'model-preview'
-  connect(finalModelType, 'model', finalNodeType, 'model')
+  connect(finalModelType, finalNodeType)
 
   return edges
 }
@@ -232,7 +230,7 @@ export function addWorkflowStage(workflow, type, message = '') {
 }
 
 function parameterHelpType(message) {
-  if (/split|拆件|拆分|分件/i.test(message)) return 'split'
+  if (/segments?|split|拆件|拆分|分件/i.test(message)) return 'segments'
   if (/smart[ -]?mesh|智能网格/i.test(message)) return 'smart-mesh'
   if (/retopo|拓扑|减面/i.test(message)) return 'retopology'
   if (/texture|贴图|纹理/i.test(message)) return 'texture'
@@ -327,10 +325,10 @@ export function planWorkflow(message, existingWorkflow) {
     if (insertBefore(workflow, 'texture', ['export-model', 'model-preview'])) structuralChanges.push(workflow.nodes.find((node) => node.type === 'texture').id)
   }
   if (/rigging|rig|骨骼|绑定/.test(lower)) {
-    if (insertBefore(workflow, 'rigging', ['split', 'export-model', 'model-preview'])) structuralChanges.push(workflow.nodes.find((node) => node.type === 'rigging').id)
+    if (insertBefore(workflow, 'rigging', ['segments', 'export-model', 'model-preview'])) structuralChanges.push(workflow.nodes.find((node) => node.type === 'rigging').id)
   }
-  if (/split|拆件|拆分|分件/.test(lower)) {
-    if (insertBefore(workflow, 'split', ['export-model', 'model-preview'])) structuralChanges.push(workflow.nodes.find((node) => node.type === 'split').id)
+  if (/segments?|split|拆件|拆分|分件/.test(lower)) {
+    if (insertBefore(workflow, 'segments', ['export-model', 'model-preview'])) structuralChanges.push(workflow.nodes.find((node) => node.type === 'segments').id)
   }
 
   if (existingWorkflow) applyParameterChanges(message, workflow, changes)

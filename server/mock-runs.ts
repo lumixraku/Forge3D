@@ -4,7 +4,7 @@ const terminalStatuses = new Set(['succeeded', 'failed', 'waiting_review'])
 
 // The single input handle is untyped, so inbound media is read from what each
 // upstream node produces rather than from a named target port.
-const modelProducingTypes = new Set(['generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'bake', 'texture', 'rigging', 'split', 'model-preview'])
+const modelProducingTypes = new Set(['generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'bake', 'texture', 'rigging', 'segments', 'model-preview'])
 
 function inboundSources(node, workflow) {
   const nodesById = new Map(workflow.nodes.map((item) => [item.id, item]))
@@ -75,7 +75,7 @@ function nodeOutput(node, workflow, run) {
     const image = resolveInputImage(node, workflow, run) || node.config?.preview || null
     return { message: node.config?.approved ? 'Image approved' : 'Awaiting image approval', image, preview: image }
   }
-  if (['generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'bake', 'texture', 'rigging', 'split', 'model-preview'].includes(node.type)) {
+  if (['generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'bake', 'texture', 'rigging', 'segments', 'model-preview'].includes(node.type)) {
     if (node.type === 'generate-model') {
       const inputImages = resolveInputImages(node, workflow, run)
       return { message: `${node.name} generated from ${inputImages.length > 1 ? `${inputImages.length} images` : inputImages.length === 1 ? '1 image' : 'text'}`, preview: node.config?.preview || null, inputMode: inputImages.length > 1 ? 'multi-image' : inputImages.length === 1 ? 'single-image' : 'text', inputImages }

@@ -271,7 +271,7 @@ test('adds any supported node type through add_workflow_node', async () => {
   assert.ok(nodeTypes.includes('smart-mesh'))
   assert.ok(nodeTypes.includes('bake'))
   assert.ok(nodeTypes.includes('rigging'))
-  assert.ok(nodeTypes.includes('split'))
+  assert.ok(nodeTypes.includes('segments'))
   assert.ok(result.workflow.nodes.some((node) => node.type === 'generate-image'))
   assert.deepEqual(result.changedNodeIds, ['generate-image'])
   assert.equal(result.structureChanged, true)

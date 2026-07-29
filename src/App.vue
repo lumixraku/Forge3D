@@ -327,7 +327,7 @@ const panOnDrag = computed(() => canvasMode.value === 'move')
 
 // Aggregate every produced asset from the current workflow's nodes into the three
 // library buckets (reference / 2D / 3D). Purely derived — the canvas data is untouched.
-const MODEL_ASSET_TYPES = new Set(['generate-model', 'text-to-3d', 'multiview-to-3d', 'smart-mesh', 'texture', 'retopology', 'bake', 'rigging', 'split', 'model-preview', 'export-model'])
+const MODEL_ASSET_TYPES = new Set(['generate-model', 'text-to-3d', 'multiview-to-3d', 'smart-mesh', 'texture', 'retopology', 'bake', 'rigging', 'segments', 'model-preview', 'export-model'])
 const assetLibrary = computed(() => {
   const reference = [], images = [], models = []
   for (const node of nodes.value) {
@@ -391,7 +391,7 @@ async function toCanvas(workflow) {
         data: { label: node.name, description: node.config?.description || '', manualSize: Boolean(node.config?.manualSize) },
       }
     }
-    const type = node.type
+    const type = node.type === 'split' ? 'segments' : node.type
     const [kind, detail, tone] = nodePresentation[type] || ['STEP', type, 'cyan']
     return {
       id: node.id,
@@ -964,7 +964,7 @@ function updateNodeName(id, name) {
 function openModelEditor(id) {
   if (!id) return
   const node = nodes.value.find((candidate) => candidate.id === id)
-  const modelTypes = ['model-preview', 'texture', 'retopology', 'generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'bake', 'rigging', 'split', 'export-model']
+  const modelTypes = ['model-preview', 'texture', 'retopology', 'generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'bake', 'rigging', 'segments', 'export-model']
   if (!node || !modelTypes.includes(node.data.workflowType) || nodeRuns.value[id]?.status !== 'succeeded') return
   modelEditorNodeId.value = node.id
   workspaceMode.value = 'model-editor'

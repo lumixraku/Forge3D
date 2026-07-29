@@ -44,6 +44,7 @@ test('creates a reusable workflow', () => {
     ['generate-image', 'generate-model'],
     ['generate-model', 'export-model'],
   ])
+  assert.ok(workflow.edges.every((edge) => edge.source.port === 'output' && edge.target.port === 'input'))
 })
 
 test('creates a named frame for a Blahaj reconstruction request', () => {
@@ -136,7 +137,7 @@ test('adds requested stages without duplicates', () => {
   ])
 })
 
-test('adds rigging and split to the model pipeline', () => {
+test('adds rigging and segments to the model pipeline', () => {
   const initial = planWorkflow('Create a text-to-3D workflow').workflow
   const result = planWorkflow('Add rigging and Split拆件', initial)
 
@@ -144,14 +145,14 @@ test('adds rigging and split to the model pipeline', () => {
     'prompt',
     'text-to-3d',
     'rigging',
-    'split',
+    'segments',
     'export-model',
   ])
   assert.deepEqual(result.workflow.edges.map((edge) => [edge.source.nodeId, edge.target.nodeId]), [
     ['prompt', 'text-to-3d'],
     ['text-to-3d', 'rigging'],
-    ['rigging', 'split'],
-    ['split', 'export-model'],
+    ['rigging', 'segments'],
+    ['segments', 'export-model'],
   ])
 })
 
