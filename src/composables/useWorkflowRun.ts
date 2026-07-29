@@ -3,7 +3,7 @@ import { request } from '../api'
 import { mergeNodeRuns } from '../node-runs'
 import { formatDuration, summarizeRun } from '../run-summary'
 
-export function useWorkflowRun({ activeWorkflow, nodes, run, nodeRuns, busy, error, runToken, saveWorkflow }) {
+export function useWorkflowRun({ activeWorkflow, nodes, run, nodeRuns, busy, error, runToken, saveWorkflow, materializeRunBatch }) {
   const downloadedExportRuns = new Set()
   const isRunning = computed(() => run.value?.status === 'running')
   const runDetails = computed(() => summarizeRun(run.value, nodes.value))
@@ -15,6 +15,17 @@ export function useWorkflowRun({ activeWorkflow, nodes, run, nodeRuns, busy, err
     const duration = totalDurationMs ? ` · ${formatDuration(totalDurationMs)}` : ''
     return run.value.status === 'running' ? `Running · ${completed}/${runs.length} steps${duration}` : `${runs.length} steps · ${run.value.status}${duration}`
   })
+
+  // Image batches land on the canvas as soon as their node succeeds, so a long
+  // run reveals results progressively instead of all at the end.
+  function materializeImageBatches(currentRun) {
+    for (const [nodeId, nodeRun] of Object.entries(currentRun.nodeRuns)) {
+      if (nodeRun.status !== 'succeeded') continue
+      if (nodes.value.find((node) => node.id === nodeId)?.data.workflowType !== 'generate-image') continue
+      const previews = nodeRun.output?.previews
+      if (Array.isArray(previews) && previews.length) materializeRunBatch(nodeId, currentRun.id, previews)
+    }
+  }
 
   function downloadExport(nodeRun) {
     const outputs = nodeRun?.output?.outputs || (nodeRun?.output?.downloadUrl ? [nodeRun.output] : [])
@@ -42,6 +53,7 @@ export function useWorkflowRun({ activeWorkflow, nodes, run, nodeRuns, busy, err
       })
       run.value = startedRun
       nodeRuns.value = targetNodeId ? mergeNodeRuns(nodeRuns.value, startedRun.nodeRuns) : startedRun.nodeRuns
+      materializeImageBatches(startedRun)
       const runId = run.value.id
       busy.value = false
 
@@ -51,6 +63,7 @@ export function useWorkflowRun({ activeWorkflow, nodes, run, nodeRuns, busy, err
         if (runToken.value !== pollToken || activeWorkflow.value?.id !== workflowId) return
         run.value = nextRun
         nodeRuns.value = targetNodeId ? mergeNodeRuns(nodeRuns.value, nextRun.nodeRuns) : nextRun.nodeRuns
+        materializeImageBatches(nextRun)
         if (nextRun.status === 'succeeded' && !downloadedExportRuns.has(nextRun.id)) {
           downloadedExportRuns.add(nextRun.id)
           for (const [nodeId, nodeRun] of Object.entries(nextRun.nodeRuns)) {

@@ -152,6 +152,7 @@ const { isRunning, runDetails, runSummary, runWorkflow } = useWorkflowRun({
   error,
   runToken,
   saveWorkflow: () => saveWorkflow(),
+  materializeRunBatch: (sourceId, runId, previews) => materializeRunBatch(sourceId, runId, previews),
 })
 
 const panOnDrag = computed(() => canvasMode.value === 'move')
@@ -294,8 +295,8 @@ function resetWorkspace() {
   modelEditorNodeId.value = null
 }
 
-function nextNodeId(type) {
-  const ids = new Set(nodes.value.map((node) => node.id))
+function nextNodeId(type, taken = new Set()) {
+  const ids = new Set([...nodes.value.map((node) => node.id), ...taken])
   if (!ids.has(type)) return type
   let index = 2
   while (ids.has(`${type}-${index}`)) index += 1
@@ -324,6 +325,30 @@ function focusNode(id, padding = 0.25) {
   nextTick(() => fitView({ nodes: [id], padding, maxZoom: 1, duration: 350 }))
 }
 
+function buildWorkflowNode(type, { id, position, selected = false, config, parentNode } = {}) {
+  const [kind, detail, tone] = nodePresentation[type]
+  return {
+    id: id || nextNodeId(type),
+    type: 'workflow',
+    position,
+    parentNode,
+    selected,
+    data: {
+      kind,
+      label: nodeCatalog.find((item) => item.type === type)?.label || type,
+      detail,
+      tone,
+      status: 'ready',
+      workflowType: type,
+      config: { ...nodeDefaults(type), ...config },
+      inputTypes: nodeDefinition(type)?.inputTypes || [],
+      outputType: nodeDefinition(type)?.outputType || null,
+      inputPorts: nodeInputPorts(type),
+      outputPorts: nodeOutputPorts(type),
+    },
+  }
+}
+
 function addNode(type, sourceId, position) {
   const presentation = nodePresentation[type]
   if (!presentation || !activeWorkflow.value) return
@@ -347,26 +372,7 @@ function addNode(type, sourceId, position) {
     focusNode(frame.id)
     return
   }
-  const [kind, detail, tone] = presentation
-  const node = {
-    id: nextNodeId(type),
-    type: 'workflow',
-    position: position || nodePosition(sourceId),
-    selected: true,
-    data: {
-      kind,
-      label: nodeCatalog.find((item) => item.type === type)?.label || type,
-      detail,
-      tone,
-      status: 'ready',
-      workflowType: type,
-      config: nodeDefaults(type),
-      inputTypes: nodeDefinition(type)?.inputTypes || [],
-      outputType: nodeDefinition(type)?.outputType || null,
-      inputPorts: nodeInputPorts(type),
-      outputPorts: nodeOutputPorts(type),
-    },
-  }
+  const node = buildWorkflowNode(type, { position: position || nodePosition(sourceId), selected: true })
   nodes.value = [...nodes.value.map((item) => ({ ...item, selected: false })), node]
   closeContextMenu()
   scheduleSave()
@@ -378,6 +384,49 @@ function addNode(type, sourceId, position) {
       if (sourceHandle && targetHandle) addConnection({ source: sourceId, sourceHandle, target: node.id, targetHandle })
     }
     fitView({ nodes: [node.id], padding: 1.5, maxZoom: 1, duration: 350 })
+  })
+}
+
+// Generated images are paid artifacts, so a rerun never overwrites an earlier
+// batch: each run appends a fresh column of generated-image nodes to the right
+// of the source, stacked below whatever previous batches already occupy.
+const BATCH_COLUMN_GAP = 340
+const BATCH_ROW_GAP = 150
+
+function batchOrigin(sourceNode) {
+  const existing = nodes.value.filter((node) => node.data?.config?.runBatch?.sourceId === sourceNode.id)
+  const x = sourceNode.position.x + BATCH_COLUMN_GAP
+  if (!existing.length) return { x, y: sourceNode.position.y }
+  return { x, y: Math.max(...existing.map((node) => node.position.y)) + BATCH_ROW_GAP }
+}
+
+function materializeRunBatch(sourceId, runId, previews) {
+  const source = nodes.value.find((node) => node.id === sourceId)
+  if (!source || !previews.length) return
+  // Idempotent: polling delivers the same succeeded output repeatedly.
+  if (nodes.value.some((node) => node.data?.config?.runBatch?.runId === runId && node.data?.config?.runBatch?.sourceId === sourceId)) return
+
+  const origin = batchOrigin(source)
+  const taken = new Set()
+  const created = previews.map((preview, index) => {
+    const id = nextNodeId('generated-image', taken)
+    taken.add(id)
+    return buildWorkflowNode('generated-image', {
+      id,
+      position: { x: origin.x + index * BATCH_COLUMN_GAP, y: origin.y },
+      parentNode: source.parentNode,
+      config: { preview, runBatch: { runId, sourceId, index } },
+    })
+  })
+
+  nodes.value = [...nodes.value, ...created]
+  nextTick(() => {
+    const sourceHandle = source.data.outputPorts?.[0]?.id
+    for (const node of created) {
+      const targetHandle = node.data.inputPorts.find((port) => canConnectPorts(source.data.workflowType, sourceHandle, 'generated-image', port.id))?.id
+      if (sourceHandle && targetHandle) addConnection({ source: sourceId, sourceHandle, target: node.id, targetHandle })
+    }
+    scheduleSave()
   })
 }
 
