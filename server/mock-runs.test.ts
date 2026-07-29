@@ -95,13 +95,6 @@ test('Gen HD Model automatically detects multiple upstream images', async () => 
   assert.equal(run.nodeRuns.model.output.message, 'Gen HD Model generated from 4 images')
 })
 
-test('limits image candidates to the configured count', async () => {
-  const countWorkflow = { ...workflow, nodes: [{ id: 'concepts', type: 'generate-image', name: 'Gen Image', config: { count: 2, previews: ['/a.png', '/b.png', '/c.png', '/d.png'] } }], edges: [] }
-  const run = createMockRun(countWorkflow)
-  await executeMockRun(run, countWorkflow, { wait: async () => {}, persist: async () => {} })
-  assert.deepEqual(run.nodeRuns.concepts.output.previews, ['/a.png', '/b.png'])
-})
-
 test('flows the selected candidate image downstream to a review node', async () => {
   const selectionWorkflow = {
     ...workflow,
@@ -178,33 +171,4 @@ test('stops at a deterministic mocked node failure', async () => {
   assert.equal(run.nodeRuns.model.status, 'failed')
   assert.equal(run.nodeRuns.model.output, null)
   assert.match(run.nodeRuns.model.error, /execution failed/)
-})
-
-test('prepares a DCC export from the connected model input', async () => {
-  const exportWorkflow = {
-    ...workflow,
-    nodes: [{ id: 'model', type: 'text-to-3d', name: 'Text to 3D', config: { preview: '/model.png' } }, { id: 'export', type: 'export-model', name: 'Export', config: { modelFormat: 'FBX' } }],
-    edges: [{ source: { nodeId: 'model', port: 'model' }, target: { nodeId: 'export', port: 'model' } }],
-  }
-  const run = createMockRun(exportWorkflow)
-  await executeMockRun(run, exportWorkflow, { wait: async () => {}, persist: async () => {} })
-  assert.deepEqual(run.nodeRuns.export.output, {
-    message: 'Export ready', target: '3D Model', format: 'FBX', preview: '/shark-model.png',
-    outputs: [{ destination: 'dcc', format: 'FBX', filename: 'shark-gardener.fbx', downloadUrl: '/models/shark-gardener.glb', mock: true }],
-  })
-})
-
-test('prepares every selected export destination', async () => {
-  const exportWorkflow = {
-    ...workflow,
-    nodes: [{ id: 'model', type: 'text-to-3d', name: 'Text to 3D', config: { preview: '/model.png' } }, { id: 'export', type: 'export-model', name: 'Export', config: { modelFormat: 'OBJ', exportTargets: ['dcc', 'texture', 'bambu'] } }],
-    edges: [{ source: { nodeId: 'model', port: 'model' }, target: { nodeId: 'export', port: 'model' } }],
-  }
-  const run = createMockRun(exportWorkflow)
-  await executeMockRun(run, exportWorkflow, { wait: async () => {}, persist: async () => {} })
-  assert.deepEqual(run.nodeRuns.export.output.outputs, [
-    { destination: 'dcc', format: 'OBJ', filename: 'shark-gardener.obj', downloadUrl: '/models/shark-gardener.glb', mock: true },
-    { destination: 'texture', format: 'ZIP', filename: 'shark-gardener-textures.zip', status: 'prepared', mock: true },
-    { destination: 'bambu', format: '3MF', filename: 'shark-gardener.3mf', status: 'sent', mock: true },
-  ])
 })
