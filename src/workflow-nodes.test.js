@@ -81,6 +81,8 @@ test('registers the image decomposition demo as an image node', () => {
 })
 
 test('matches the Tripo Studio parameters without changing node types', () => {
+  const prompt = nodeSchema('prompt')
+  const generateImage = nodeSchema('generate-image')
   const generateModel = nodeSchema('generate-model')
   const smartMesh = nodeSchema('smart-mesh')
   const segmentation = nodeSchema('segments')
@@ -91,6 +93,10 @@ test('matches the Tripo Studio parameters without changing node types', () => {
   assert.equal(smartMesh.type, 'smart-mesh')
   assert.equal(segmentation.type, 'segments')
   assert.equal(segmentation.label, 'Segments')
+  assert.equal(Object.hasOwn(prompt.defaults, 'tPose'), false)
+  assert.equal(prompt.parameters.some(({ key }) => key === 'tPose'), false)
+  assert.equal(generateImage.defaults.tPose, false)
+  assert.equal(generateImage.parameters.find(({ key }) => key === 'tPose').control, 'toggle')
   assert.equal(generateModel.defaults.generateParts, false)
   assert.equal(generateModel.defaults.geometryQuality, true)
   assert.equal(generateModel.defaults.aiComplete, false)
