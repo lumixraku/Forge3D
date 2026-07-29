@@ -1,4 +1,17 @@
-export function summarizeRun(run, nodes) {
+import type { NodeRunMap } from './node-runs'
+
+interface SummaryNode {
+  id: string
+  data: { label: string }
+}
+
+interface WorkflowRun {
+  id: string
+  status: string
+  nodeRuns: NodeRunMap
+}
+
+export function summarizeRun(run: WorkflowRun | null, nodes: SummaryNode[]) {
   if (!run) return null
   const nodeRuns = run.nodeRuns || {}
   const steps = nodes

@@ -1,4 +1,4 @@
-<script setup>
+<script setup lang="ts">
 import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { SelectionMode, VueFlow, addEdge, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
@@ -12,11 +12,11 @@ import Placeholder from '@tiptap/extension-placeholder'
 import StarterKit from '@tiptap/starter-kit'
 import WorkflowNode from './components/WorkflowNode.vue'
 import FrameNode from './components/FrameNode.vue'
-import { Attachment } from './editor/attachment.js'
-import { mergeNodeRuns } from './node-runs.js'
-import { summarizeRun } from './run-summary.js'
-import { frameComponentGap, frameInsets, layoutWorkflow } from './workflow-layout.js'
-import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeCategories, nodeDefinition, nodeDisplayName, nodeInputPorts, nodeOutputPorts } from './workflow-nodes.js'
+import { Attachment } from './editor/attachment'
+import { mergeNodeRuns } from './node-runs'
+import { summarizeRun } from './run-summary'
+import { frameComponentGap, frameInsets, layoutWorkflow } from './workflow-layout'
+import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeCategories, nodeDefinition, nodeDisplayName, nodeInputPorts, nodeOutputPorts } from './workflow-nodes'
 
 const ModelEditor = defineAsyncComponent(() => import('./components/ModelEditor.vue'))
 
@@ -48,7 +48,7 @@ const nodeConfigDefaults = {
   'generated-image': { sourceType: 'Generated', reference: '', background: 'Keep', preview: '/shark-concept-front.png' },
   prompt: { prompt: 'Production-ready stylized 3D asset', strength: 80 },
   'generate-image': { model: 'GPT Image 2', count: 4, aspectRatio: '1:1', referenceMode: 'Image + Prompt', previews: ['/shark-concept-front.png', '/shark-concept-left.png', '/shark-concept-right.png', '/shark-concept-back.png'] },
-  'image-decomposition': { mode: 'Objects', partCount: 4, preview: '/shark-reference.png' },
+  'image-decomposition': { modelVersion: 'gemini_2.5_flash_image_preview', prompt: '', amount: 4, scale: '1:1', resolution: '1K', templateKey: 'asset_extraction', previews: [] },
   'generate-multiview-images': { model: 'GPT Image 2', aspectRatio: '1:1', referenceMode: 'Image + Prompt', viewPreviews: { front: '/shark-concept-front.png', back: '/shark-concept-back.png', left: '/shark-concept-left.png', right: '/shark-concept-right.png' } },
   review: { instruction: 'Review the generated image before continuing.', preview: '/shark-concept-front.png', approved: false },
   'generate-model': { modelVersion: 'Smart Mesh', textureMode: 'PBR', faceType: 'Triangle', faceCount: 20000, preview: '/shark-model.png' },

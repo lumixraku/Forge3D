@@ -1,10 +1,13 @@
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue'
 import NodeSelect from './NodeSelect.vue'
 import Model3D from './Model3D.vue'
 
-const props = defineProps({ node: { type: Object, required: true } })
-const emit = defineEmits(['back', 'update-config'])
+type ModelConfig = Record<string, unknown> & { wireframe?: boolean; autoRotate?: boolean; preview?: string; environment?: string }
+interface ModelNode { data: { label: string; workflowType: string; config: ModelConfig } }
+
+const props = defineProps<{ node: ModelNode }>()
+const emit = defineEmits<{ back: []; 'update-config': [config: ModelConfig] }>()
 const modelUrl = '/models/shark-gardener.glb'
 
 const editorMode = computed(() => {
@@ -15,7 +18,7 @@ const editorMode = computed(() => {
   return 'model'
 })
 
-function update(key, value) {
+function update(key: string, value: unknown) {
   emit('update-config', { ...props.node.data.config, [key]: value })
 }
 </script>

@@ -1,4 +1,25 @@
-export const nodeCatalog = [
+export type PortType = 'image' | 'text' | 'model' | 'any'
+
+export interface NodePort {
+  id: string
+  label: string
+  type: PortType
+  required?: boolean
+}
+
+export interface NodeDefinition {
+  category: string
+  type: string
+  label: string
+  description: string
+  inputTypes: PortType[]
+  outputType: PortType | null
+  inputPorts?: NodePort[]
+  outputPorts?: NodePort[]
+  hidden?: boolean
+}
+
+export const nodeCatalog: NodeDefinition[] = [
   { category: 'Annotate', type: 'frame', label: 'Section', description: 'Group related workflow steps', inputTypes: [], outputType: null },
   { category: 'Input', type: 'reference-image', label: 'Image Upload', description: 'Add an image or asset input', inputTypes: [], outputType: 'image' },
   { category: 'Output', type: 'generated-image', label: 'Image', description: 'An image created by a workflow step', inputTypes: ['image'], outputType: 'image', hidden: true },
@@ -45,18 +66,18 @@ export const nodeCatalog = [
   { category: 'Output', type: 'export-model', label: 'Export', description: 'Export an image or 3D model', inputTypes: ['image', 'model'], outputType: null },
 ]
 
-function multiViewPorts() {
+function multiViewPorts(): NodePort[] {
   return ['front', 'back', 'left', 'right'].map((id) => ({ id, label: id[0].toUpperCase() + id.slice(1), type: 'image' }))
 }
 
-function bakePorts() {
+function bakePorts(): NodePort[] {
   return [
     { id: 'model-a', label: 'Model A', type: 'model' },
     { id: 'model-b', label: 'Model B', type: 'model' },
   ]
 }
 
-function texturePorts() {
+function texturePorts(): NodePort[] {
   return [
     { id: 'model', label: 'Model', type: 'model', required: true },
     { id: 'image', label: 'Image', type: 'image' },
@@ -86,38 +107,38 @@ const lycheeNodeNames = new Map([
 
 export const nodeCategories = ['Annotate', 'Input', '2D', '3D', 'Output', 'Video']
 
-export function nodeDefinition(type) {
+export function nodeDefinition(type: string) {
   return nodeCatalog.find((item) => item.type === type)
 }
 
-export function nodeDisplayName(type, fallback) {
+export function nodeDisplayName(type: string, fallback?: string) {
   return lycheeNodeNames.get(type) || fallback || type
 }
 
-export function canConnectNodeTypes(sourceType, targetType) {
+export function canConnectNodeTypes(sourceType: string, targetType: string) {
   return nodeOutputPorts(sourceType).length > 0 && nodeInputPorts(targetType).length > 0
 }
 
 // Each node exposes at most one connection handle per side: a single universal
 // input (accepts image/text/model from any number of upstream nodes) and a
 // single output carrying its result type.
-export function nodeInputPorts(type) {
+export function nodeInputPorts(type: string): NodePort[] {
   const definition = nodeDefinition(type)
   return definition?.inputPorts?.length || definition?.inputTypes?.length ? [{ id: 'input', label: 'Input', type: 'any' }] : []
 }
 
-export function nodeOutputPorts(type) {
+export function nodeOutputPorts(type: string): NodePort[] {
   const definition = nodeDefinition(type)
   const outputType = definition?.outputType || definition?.outputPorts?.[0]?.type
   return outputType ? [{ id: 'output', label: 'Output', type: outputType }] : []
 }
 
-export function canConnectPorts(sourceType, sourcePortId, targetType, targetPortId) {
+export function canConnectPorts(sourceType: string, sourcePortId: string, targetType: string, targetPortId: string) {
   const sourcePort = nodeOutputPorts(sourceType).find((port) => port.id === sourcePortId)
   const targetPort = nodeInputPorts(targetType).find((port) => port.id === targetPortId)
   return Boolean(sourcePort && targetPort)
 }
 
-export function compatibleNodeTypes(sourceType) {
+export function compatibleNodeTypes(sourceType: string) {
   return nodeCatalog.filter((item) => !item.hidden && canConnectNodeTypes(sourceType, item.type))
 }

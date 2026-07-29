@@ -1,4 +1,4 @@
-<script setup>
+<script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -8,18 +8,27 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 
 // A real interactive three.js viewer for the workflow's 3D model.
 // mode: 'model' (solid) | 'wireframe' | 'rig' (skeleton overlay) | 'split' (exploded mesh parts)
-const props = defineProps({
-  mode: { type: String, default: 'model' },
-  src: { type: String, default: '/models/shark-gardener.glb' },
+type ViewerMode = 'model' | 'wireframe' | 'rig' | 'split'
+
+const props = withDefaults(defineProps<{
+  mode?: ViewerMode
+  src?: string
   // Tripo AI part-segmentation result: each node is a real semantic part.
-  segSrc: { type: String, default: '/models/shark-gardener-segmented.glb' },
-  autoRotate: { type: Boolean, default: true },
-})
+  segSrc?: string
+  autoRotate?: boolean
+}>(), { mode: 'model', src: '/models/shark-gardener.glb', segSrc: '/models/shark-gardener-segmented.glb', autoRotate: true })
 
-const host = ref(null)
-let renderer, scene, camera, controls, pivot, raf, resizeObserver, disposed = false
+const host = ref<HTMLElement | null>(null)
+let renderer: THREE.WebGLRenderer | undefined
+let scene: THREE.Scene | undefined
+let camera: THREE.PerspectiveCamera | undefined
+let controls: OrbitControls | undefined
+let pivot: THREE.Group | undefined
+let raf: number | undefined
+let resizeObserver: ResizeObserver | undefined
+let disposed = false
 
-function fitAndCenter(geometry) {
+function fitAndCenter(geometry: THREE.BufferGeometry) {
   geometry.computeBoundingBox()
   const box = geometry.boundingBox
   const center = new THREE.Vector3()
@@ -32,10 +41,10 @@ function fitAndCenter(geometry) {
 
 // Explode the real Tripo part-segmentation result: each mesh node is a semantic
 // part; push each part outward from the model centre so they separate in 3D.
-function explodeParts(root, explodeFactor) {
+function explodeParts(root: THREE.Group, explodeFactor: number) {
   root.updateMatrixWorld(true)
-  const meshes = []
-  root.traverse((o) => { if (o.isMesh) meshes.push(o) })
+  const meshes: THREE.Mesh[] = []
+  root.traverse((object) => { if (object instanceof THREE.Mesh) meshes.push(object) })
 
   const box = new THREE.Box3().setFromObject(root)
   const center = new THREE.Vector3()
@@ -63,9 +72,9 @@ function explodeParts(root, explodeFactor) {
   return content
 }
 
-function buildSkeleton(size) {
+function buildSkeleton(size: THREE.Vector3) {
   const sx = size.x, sy = size.y, sz = size.z
-  const P = (x, y, z) => new THREE.Vector3(x * sx, y * sy, z * sz)
+  const P = (x: number, y: number, z: number) => new THREE.Vector3(x * sx, y * sy, z * sz)
   const head = P(0, 0.44, 0.02), neck = P(0, 0.30, 0), chest = P(0, 0.12, 0), pelvis = P(0, -0.10, 0)
   const shL = P(-0.13, 0.14, 0), shR = P(0.13, 0.14, 0)
   const elbowL = P(-0.22, -0.02, 0.02), elbowR = P(0.22, -0.02, 0.02)
@@ -98,10 +107,10 @@ function buildSkeleton(size) {
   return group
 }
 
-function applyMode(root, mode) {
-  let mesh = null
+function applyMode(root: THREE.Group, mode: ViewerMode) {
+  let mesh: THREE.Mesh | undefined
   root.updateMatrixWorld(true)
-  root.traverse((o) => { if (!mesh && o.isMesh) mesh = o })
+  root.traverse((object) => { if (!mesh && object instanceof THREE.Mesh) mesh = object })
   if (!mesh) return root
 
   const geo = mesh.geometry.clone()
@@ -131,6 +140,7 @@ function applyMode(root, mode) {
 
 function init() {
   const el = host.value
+  if (!el) return
   const width = el.clientWidth || 320
   const height = el.clientHeight || 320
 
@@ -167,10 +177,10 @@ function init() {
   const clock = new THREE.Clock()
   const loop = () => {
     raf = requestAnimationFrame(loop)
-    if (props.autoRotate) pivot.rotation.y += clock.getDelta() * 0.4
+    if (props.autoRotate) pivot!.rotation.y += clock.getDelta() * 0.4
     else clock.getDelta()
-    controls.update()
-    renderer.render(scene, camera)
+    controls!.update()
+    renderer!.render(scene!, camera!)
   }
   loop()
 
@@ -178,8 +188,8 @@ function init() {
     if (!renderer) return
     const w = el.clientWidth, h = el.clientHeight
     if (!w || !h) return
-    camera.aspect = w / h
-    camera.updateProjectionMatrix()
+    camera!.aspect = w / h
+    camera!.updateProjectionMatrix()
     renderer.setSize(w, h)
   })
   resizeObserver.observe(el)

@@ -1,13 +1,15 @@
-<script setup>
+<script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
-import { NodeResizeControl } from '@vue-flow/node-resizer'
+import { NodeResizeControl, type ControlPosition } from '@vue-flow/node-resizer'
 
-const props = defineProps({ id: { type: String, required: true }, data: { type: Object, required: true }, selected: Boolean, running: Boolean, zoom: { type: Number, default: 1 } })
-const emit = defineEmits(['update-name', 'run-workflow', 'resize-start', 'resize-end'])
+interface FrameData { label: string; description?: string }
+
+const props = withDefaults(defineProps<{ id: string; data: FrameData; selected?: boolean; running?: boolean; zoom?: number }>(), { selected: false, running: false, zoom: 1 })
+const emit = defineEmits<{ 'update-name': [name: string]; 'run-workflow': []; 'resize-start': []; 'resize-end': [] }>()
 const editingName = ref(false)
 const draftName = ref('')
-const nameInput = ref(null)
-const resizeCorners = ['top-left', 'top-right', 'bottom-left', 'bottom-right']
+const nameInput = ref<HTMLInputElement | null>(null)
+const resizeCorners: ControlPosition[] = ['top-left', 'top-right', 'bottom-left', 'bottom-right']
 const headerStyle = computed(() => ({
   transform: `translateY(${-8 / props.zoom}px) scale(${1 / props.zoom})`,
 }))

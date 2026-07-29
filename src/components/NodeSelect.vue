@@ -1,18 +1,18 @@
-<script setup>
+<script setup lang="ts">
 import { SelectContent, SelectIcon, SelectItem, SelectItemIndicator, SelectItemText, SelectPortal, SelectRoot, SelectTrigger, SelectValue, SelectViewport } from 'reka-ui'
 
-defineProps({
-  modelValue: { type: [String, Number], required: true },
-  options: { type: Array, required: true },
-})
+type SelectValue = string | number
+type SelectOption = SelectValue | { value: SelectValue; label: string }
 
-const emit = defineEmits(['update:modelValue'])
+defineProps<{ modelValue: SelectValue; options: SelectOption[] }>()
 
-function optionValue(option) {
+const emit = defineEmits<{ 'update:modelValue': [value: SelectValue] }>()
+
+function optionValue(option: SelectOption): SelectValue {
   return typeof option === 'object' ? option.value : option
 }
 
-function optionLabel(option) {
+function optionLabel(option: SelectOption): string {
   return typeof option === 'object' ? option.label : option
 }
 </script>

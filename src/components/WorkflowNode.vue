@@ -1,17 +1,31 @@
-<script setup>
+<script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import NodeSelect from './NodeSelect.vue'
 import NodeSlider from './NodeSlider.vue'
 
-const props = defineProps({ id: { type: String, required: true }, data: { type: Object, required: true }, selected: Boolean, nodeRun: { type: Object, default: null }, runId: { type: String, default: null }, inboundType: { type: String, default: null }, inboundImage: { type: String, default: null }, nodeCatalog: { type: Array, default: () => [] } })
-const emit = defineEmits(['update-config', 'update-name', 'open-model-editor', 'preview-image', 'add-next', 'run-workflow', 'run-downstream'])
+import type { NodeRun } from '../node-runs'
+import type { NodeDefinition, NodePort } from '../workflow-nodes'
+
+type NodeConfig = Record<string, unknown> & { preview?: string; previews?: string[]; viewPreviews?: Record<string, string>; exportTargets?: string[]; modelFormat?: string; approved?: boolean }
+interface WorkflowNodeData { label: string; status?: string; workflowType: string; config: NodeConfig; inputPorts?: NodePort[]; outputPorts?: NodePort[] }
+
+const props = withDefaults(defineProps<{ id: string; data: WorkflowNodeData; selected?: boolean; nodeRun?: NodeRun | null; runId?: string | null; inboundType?: string | null; inboundImage?: string | null; nodeCatalog?: NodeDefinition[] }>(), { selected: false, nodeRun: null, runId: null, inboundType: null, inboundImage: null, nodeCatalog: () => [] })
+const emit = defineEmits<{
+  'update-config': [config: NodeConfig]
+  'update-name': [name: string]
+  'open-model-editor': []
+  'preview-image': [preview: { src: string; alt: string }]
+  'add-next': [payload: unknown]
+  'run-workflow': []
+  'run-downstream': [id: string]
+}>()
 const nextMenuOpen = ref(false)
 const parametersOpen = ref(false)
 const runDetailsOpen = ref(false)
 const editingName = ref(false)
 const draftName = ref('')
-const nameInput = ref(null)
+const nameInput = ref<HTMLInputElement | null>(null)
 const runtimeStatus = computed(() => props.nodeRun?.status || props.data.status)
 const executableTypes = ['generate-image', 'generate-multiview-images', 'generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'bake', 'texture', 'rigging', 'split', 'model-preview', 'export-model']
 const isExecutableNode = computed(() => executableTypes.includes(props.data.workflowType))
@@ -45,6 +59,7 @@ const runConfig = computed(() => {
   if (props.data.workflowType === 'export-model') return [['target', exportTarget.value], ['format', exportFormat.value], ['outputs', exportTargets.value.join(', ')]]
   const keys = {
     'generate-image': ['model', 'count', 'aspectRatio'],
+    'image-decomposition': ['modelVersion', 'amount', 'scale', 'resolution'],
     'generate-multiview-images': ['model', 'aspectRatio'],
     'generate-model': ['modelVersion', 'textureMode', 'faceCount'],
     'smart-mesh': ['faceType', 'faceCount', 'textureQuality'],
@@ -64,7 +79,7 @@ function toggleApprove() {
   if (next) emit('run-downstream', props.id)
 }
 
-function update(key, value) {
+function update(key: string, value: unknown) {
   emit('update-config', { ...props.data.config, [key]: value })
 }
 
@@ -89,7 +104,7 @@ function cancelNameEdit() {
   draftName.value = props.data.label
 }
 
-function selectGeneratedImage(image, index) {
+function selectGeneratedImage(image: string, index: number) {
   update('selectedPreview', image)
   emit('preview-image', { src: image, alt: `Generated concept ${index + 1}` })
 }
@@ -111,21 +126,21 @@ const countOptions = [1, 2, 4].map((value) => ({ value, label: String(value) }))
     </template>
     <p class="node-detail">{{ data.detail }}</p>
 
-    <div v-if="data.workflowType === 'generate-image' && showResult" class="node-output image-grid" aria-label="Generated image candidates">
+    <div v-if="['generate-image', 'image-decomposition'].includes(data.workflowType) && showResult" class="node-output image-grid" :aria-label="data.workflowType === 'image-decomposition' ? 'Extracted image assets' : 'Generated image candidates'">
       <button v-for="(image, index) in runtimePreviews" :key="`${image}-${index}`" type="button" class="image-candidate nodrag nopan" :class="{ selected: data.config.selectedPreview === image }" :aria-label="`Select and preview generated concept ${index + 1}`" :aria-pressed="data.config.selectedPreview === image" @click.stop="selectGeneratedImage(image, index)">
         <img :src="image" :alt="`Generated concept ${index + 1}`" />
       </button>
-      <span class="output-badge">{{ runtimePreviews.length }} candidates</span>
+      <span class="output-badge">{{ runtimePreviews.length }} {{ data.workflowType === 'image-decomposition' ? 'assets' : 'candidates' }}</span>
     </div>
     <div v-else-if="data.workflowType === 'generate-multiview-images' && showResult" class="node-output image-grid" aria-label="Generated multi-view images">
       <button v-for="view in viewPorts" :key="view" type="button" class="image-candidate nodrag nopan" :aria-label="`Preview ${view} view`" @click.stop="emit('preview-image', { src: runtimeViewPreviews[view], alt: `${view} view` })">
         <img :src="runtimeViewPreviews[view]" :alt="`${view} view`" />
       </button>
     </div>
-    <button v-else-if="['reference-image', 'generated-image', 'image-decomposition', 'generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'bake', 'texture', 'rigging', 'split', 'model-preview'].includes(data.workflowType) && showResult" type="button" class="node-output nodrag nopan" :class="{ 'model-output': !['reference-image', 'generated-image', 'image-decomposition'].includes(data.workflowType) }" :aria-label="['reference-image', 'generated-image', 'image-decomposition'].includes(data.workflowType) ? `Preview ${data.label} image` : `Open ${data.label} in Model Editor`" @click.stop="['reference-image', 'generated-image', 'image-decomposition'].includes(data.workflowType) ? emit('preview-image', { src: runtimePreview, alt: `${data.label} result` }) : emit('open-model-editor')">
+    <button v-else-if="['reference-image', 'generated-image', 'generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'bake', 'texture', 'rigging', 'split', 'model-preview'].includes(data.workflowType) && showResult" type="button" class="node-output nodrag nopan" :class="{ 'model-output': !['reference-image', 'generated-image'].includes(data.workflowType) }" :aria-label="['reference-image', 'generated-image'].includes(data.workflowType) ? `Preview ${data.label} image` : `Open ${data.label} in Model Editor`" @click.stop="['reference-image', 'generated-image'].includes(data.workflowType) ? emit('preview-image', { src: runtimePreview, alt: `${data.label} result` }) : emit('open-model-editor')">
       <img :src="runtimePreview" :alt="`${data.label} result`" />
       <div v-if="!['reference-image', 'generated-image', 'image-decomposition'].includes(data.workflowType)" class="model-orbit"><span /><span /><span /></div>
-       <span class="output-badge">{{ data.workflowType === 'reference-image' ? 'Input image' : data.workflowType === 'generated-image' ? 'Generated view' : data.workflowType === 'image-decomposition' ? `${data.config.partCount} parts · ${data.config.mode}` : data.workflowType === 'retopology' ? `${Number(data.config.faceLimit).toLocaleString()} faces` : data.workflowType === 'texture' ? `${data.config.textureQuality}${data.config.pbr ? ' PBR' : ''}` : data.workflowType === 'rigging' ? 'Rigged' : data.workflowType === 'split' ? `Split · ${data.config.subdivision}` : data.workflowType === 'smart-mesh' ? 'Smart mesh' : data.workflowType === 'bake' ? 'Baked' : '3D result' }}</span>
+       <span class="output-badge">{{ data.workflowType === 'reference-image' ? 'Input image' : data.workflowType === 'generated-image' ? 'Generated view' : data.workflowType === 'retopology' ? `${Number(data.config.faceLimit).toLocaleString()} faces` : data.workflowType === 'texture' ? `${data.config.textureQuality}${data.config.pbr ? ' PBR' : ''}` : data.workflowType === 'rigging' ? 'Rigged' : data.workflowType === 'split' ? `Split · ${data.config.subdivision}` : data.workflowType === 'smart-mesh' ? 'Smart mesh' : data.workflowType === 'bake' ? 'Baked' : '3D result' }}</span>
     </button>
     <button v-else-if="data.workflowType === 'export-model' && showResult" type="button" class="node-output model-output nodrag nopan" :aria-label="`Open ${data.label} in Model Editor`" @click.stop="emit('open-model-editor')">
       <img :src="runtimePreview" :alt="`${data.label} asset`" />
@@ -164,8 +179,9 @@ const countOptions = [1, 2, 4].map((value) => ({ value, label: String(value) }))
       </template>
 
       <template v-else-if="data.workflowType === 'image-decomposition'">
-        <label>Decompose by<NodeSelect :model-value="data.config.mode" :options="['Objects', 'Layers', 'Regions']" @update:model-value="update('mode', $event)" /></label>
-        <label>Parts<NodeSelect :model-value="data.config.partCount" :options="[2, 4, 6].map((value) => ({ value, label: String(value) }))" @update:model-value="update('partCount', $event)" /></label>
+        <label>Image model<NodeSelect :model-value="data.config.modelVersion" :options="[{ value: 'gemini_3.1_flash_image_preview', label: 'Nano Banana 2' }, { value: 'gemini_2.5_flash_image_preview', label: 'Nano Banana' }, { value: 'gemini_3_pro_image_preview', label: 'Nano Banana Pro' }, { value: 'gpt_image_2', label: 'GPT Image 2' }, { value: 'gpt_image_1.5', label: 'GPT Image 1.5' }]" @update:model-value="update('modelVersion', $event)" /></label>
+        <label>Prompt<textarea :value="data.config.prompt" rows="3" placeholder="Optional extraction instructions" @input="update('prompt', $event.target.value)" /></label>
+        <div class="field-grid"><label>Outputs<NodeSelect :model-value="data.config.amount" :options="[1, 2, 3, 4].map((value) => ({ value, label: String(value) }))" @update:model-value="update('amount', $event)" /></label><label>Aspect ratio<NodeSelect :model-value="data.config.scale" :options="['1:1', '3:4', '4:3', '9:16', '16:9']" @update:model-value="update('scale', $event)" /></label></div>
       </template>
 
       <template v-else-if="['generate-model', 'multiview-to-3d', 'text-to-3d'].includes(data.workflowType)">

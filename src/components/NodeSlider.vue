@@ -1,8 +1,8 @@
-<script setup>
+<script setup lang="ts">
 import { SliderRange, SliderRoot, SliderThumb, SliderTrack } from 'reka-ui'
 
-const props = defineProps({ modelValue: { type: Number, required: true }, min: { type: Number, required: true }, max: { type: Number, required: true }, step: { type: Number, default: 1 } })
-const emit = defineEmits(['update:model-value'])
+const props = withDefaults(defineProps<{ modelValue: number; min: number; max: number; step?: number }>(), { step: 1 })
+const emit = defineEmits<{ 'update:model-value': [value: number] }>()
 </script>
 
 <template>

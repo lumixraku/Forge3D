@@ -1,8 +1,8 @@
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue'
-import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3'
+import { NodeViewWrapper, nodeViewProps, type NodeViewProps } from '@tiptap/vue-3'
 
-const props = defineProps(nodeViewProps)
+const props = defineProps<NodeViewProps>()
 const isImage = computed(() => props.node.attrs.type.startsWith('image/'))
 </script>
 

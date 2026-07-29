@@ -2,6 +2,21 @@ import { Node, mergeAttributes } from '@tiptap/core'
 import { VueNodeViewRenderer } from '@tiptap/vue-3'
 import ComposerAttachment from '../components/ComposerAttachment.vue'
 
+declare module '@tiptap/core' {
+  interface Commands<ReturnType> {
+    attachment: {
+      insertAttachment: (attributes: AttachmentAttributes) => ReturnType
+    }
+  }
+}
+
+export interface AttachmentAttributes {
+  id: string
+  name: string
+  type: string
+  preview: string | null
+}
+
 export const Attachment = Node.create({
   name: 'attachment',
   group: 'inline',
@@ -28,7 +43,7 @@ export const Attachment = Node.create({
 
   addCommands() {
     return {
-      insertAttachment: attributes => ({ commands }) => commands.insertContent({ type: this.name, attrs: attributes }),
+      insertAttachment: (attributes: AttachmentAttributes) => ({ commands }) => commands.insertContent({ type: this.name, attrs: attributes }),
     }
   },
 

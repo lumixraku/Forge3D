@@ -4,12 +4,30 @@ export const FRAME_PADDING = 64
 export const FRAME_TITLE_SCREEN_HEIGHT = 42
 let elkPromise
 
+interface LayoutNode {
+  id: string
+  width?: number
+  height?: number
+  dimensions?: { width?: number; height?: number }
+  data?: { inputPorts?: { id: string }[]; outputPorts?: { id: string }[] }
+}
+
+interface LayoutEdge {
+  id?: string
+  source: string
+  target: string
+  sourceHandle?: string | null
+  targetHandle?: string | null
+}
+
+interface LayoutOptions { originX?: number; originY?: number; columnGap?: number; rowGap?: number; componentGap?: number }
+
 function getElk() {
   elkPromise ||= import('elkjs/lib/elk.bundled.js').then(({ default: ELK }) => new ELK())
   return elkPromise
 }
 
-function sizeOf(node) {
+function sizeOf(node: LayoutNode) {
   return {
     width: node.dimensions?.width || node.width || DEFAULT_WIDTH,
     height: node.dimensions?.height || node.height || DEFAULT_HEIGHT,
@@ -31,7 +49,7 @@ export function frameComponentGap(zoom = 1, spacing = 32) {
   return insets.bottom + insets.top + FRAME_TITLE_SCREEN_HEIGHT / Math.max(Number(zoom) || 1, 0.01) + spacing
 }
 
-export async function layoutWorkflow(nodes, edges, { originX = 0, originY = 120, columnGap = 100, rowGap = 80, componentGap = rowGap * 1.5 } = {}) {
+export async function layoutWorkflow(nodes: LayoutNode[], edges: LayoutEdge[], { originX = 0, originY = 120, columnGap = 100, rowGap = 80, componentGap = rowGap * 1.5 }: LayoutOptions = {}) {
   if (!nodes.length) return new Map()
 
   const nodeIds = new Set(nodes.map((node) => node.id))
