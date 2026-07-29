@@ -285,7 +285,7 @@ id: 3-0
 
 ## Tool Call Boundary
 
-DeepSeek tools, including `get_workflow_structure`, `get_workflow_parameters`, `build_workflow`, `update_node_parameters`, and `add_workflow_stage`, run only between the application server and DeepSeek.
+DeepSeek tools, including `get_workflow_structure`, `list_available_node_types`, `get_workflow_parameters`, `build_workflow`, `update_node_parameters`, and `add_workflow_node`, run only between the application server and DeepSeek.
 
 The browser receives safe `progress` labels rather than raw tool calls or raw tool outputs. In particular, `workflow-updated` is an invalidation event, not an `update_node_parameters` payload and not a full workflow document.
 

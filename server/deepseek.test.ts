@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { runDeepSeekAgent } from './deepseek.js'
+import { runDeepSeekAgent, workflowNodeTypes } from './deepseek.js'
 import { planWorkflow } from './planner.js'
 
 function response(body, status = 200) {
@@ -94,6 +94,31 @@ test('requires the exact node ID selected by the model', async () => {
   assert.deepEqual(result.changedNodeIds, ['generate-model'])
 })
 
+test('separates current workflow structure from available node types', async () => {
+  const workflow = planWorkflow('Create a text-to-3D workflow').workflow
+  const replies = [
+    response({ choices: [{ message: { role: 'assistant', tool_calls: [{ id: 'call-structure', type: 'function', function: { name: 'get_workflow_structure', arguments: '{}' } }] } }] }),
+    response({ choices: [{ message: { role: 'assistant', tool_calls: [{ id: 'call-types', type: 'function', function: { name: 'list_available_node_types', arguments: '{}' } }] } }] }),
+    response({ choices: [{ message: { role: 'assistant', content: 'Inspected.' } }] }),
+  ]
+  const requests = []
+
+  await runDeepSeekAgent({
+    apiKey: 'test-key',
+    message: 'Inspect the workflow and available node types',
+    workflow,
+    fetchImpl: async (_url, options) => {
+      requests.push(JSON.parse(options.body))
+      return replies.shift()
+    },
+  })
+
+  const structureResult = JSON.parse(requests[1].messages.find((entry) => entry.tool_call_id === 'call-structure').content)
+  const nodeTypesResult = JSON.parse(requests[2].messages.find((entry) => entry.tool_call_id === 'call-types').content)
+  assert.deepEqual(Object.keys(structureResult), ['nodes', 'edges'])
+  assert.deepEqual(nodeTypesResult, { nodeTypes: workflowNodeTypes })
+})
+
 test('describes every adjustable field in the update tool schema', async () => {
   const workflow = planWorkflow('Create a text-to-3D workflow with retopology and texture').workflow
   let requestBody
@@ -144,7 +169,7 @@ test('uses DeepSeek to append a framed workflow with nodes and connections', asy
       type: 'function',
       function: {
         name: 'build_workflow',
-        arguments: JSON.stringify({ stages: ['reference-image', 'prompt', 'generate-image', 'generate-model', 'export-model'] }),
+        arguments: JSON.stringify({ nodeTypes: ['reference-image', 'prompt', 'generate-image', 'generate-model', 'export-model'] }),
       },
     }] } }] }),
     response({ choices: [{ message: { role: 'assistant', content: '已创建常用的图生 3D 工作流。' } }] }),
@@ -222,10 +247,10 @@ test('does not expose the API key in upstream errors', async () => {
   )
 })
 
-test('adds any supported node type through add_workflow_stage', async () => {
+test('adds any supported node type through add_workflow_node', async () => {
   const workflow = planWorkflow('Create a text-to-3D workflow').workflow
   const replies = [
-    response({ choices: [{ message: { role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'add_workflow_stage', arguments: JSON.stringify({ type: 'generate-image' }) } }] } }] }),
+    response({ choices: [{ message: { role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'add_workflow_node', arguments: JSON.stringify({ type: 'generate-image' }) } }] } }] }),
     response({ choices: [{ message: { role: 'assistant', content: 'Added Image to Image.' } }] }),
   ]
   let requestBody
@@ -239,14 +264,14 @@ test('adds any supported node type through add_workflow_stage', async () => {
     },
   })
 
-  const addTool = requestBody.tools.find((tool) => tool.function.name === 'add_workflow_stage')
-  const stageTypes = addTool.function.parameters.properties.type.enum
-  assert.ok(stageTypes.includes('generate-image'))
+  const addTool = requestBody.tools.find((tool) => tool.function.name === 'add_workflow_node')
+  const nodeTypes = addTool.function.parameters.properties.type.enum
+  assert.ok(nodeTypes.includes('generate-image'))
   assert.ok(addTool.function.parameters.properties.type.enum.includes('frame'))
-  assert.ok(stageTypes.includes('smart-mesh'))
-  assert.ok(stageTypes.includes('bake'))
-  assert.ok(stageTypes.includes('rigging'))
-  assert.ok(stageTypes.includes('split'))
+  assert.ok(nodeTypes.includes('smart-mesh'))
+  assert.ok(nodeTypes.includes('bake'))
+  assert.ok(nodeTypes.includes('rigging'))
+  assert.ok(nodeTypes.includes('split'))
   assert.ok(result.workflow.nodes.some((node) => node.type === 'generate-image'))
   assert.deepEqual(result.changedNodeIds, ['generate-image'])
   assert.equal(result.structureChanged, true)

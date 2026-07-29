@@ -16,13 +16,11 @@ export function migrateWorkflow(workflow, now = () => new Date().toISOString()) 
   let changed = retainedNodes.length !== migrated.nodes.length
 
   migrated.nodes = retainedNodes.map((node) => {
-    if (node.type === 'model-preview') {
-      changed = true
-      return { ...node, type: 'export-model', name: node.name === 'Review 3D Result' ? 'Export Model' : node.name, config: { format: node.config?.format || 'GLB' } }
-    }
-    if (node.type !== 'export-model' || !Object.hasOwn(node.config || {}, 'background')) return node
+    if (node.type !== 'export-model' || (!Object.hasOwn(node.config || {}, 'background') && !Object.hasOwn(node.config || {}, 'format'))) return node
     const config = { ...node.config }
+    if (config.format && !config.modelFormat) config.modelFormat = String(config.format).toLowerCase() === 'glb' ? 'gltf' : String(config.format).toLowerCase()
     delete config.background
+    delete config.format
     changed = true
     return { ...node, config }
   })

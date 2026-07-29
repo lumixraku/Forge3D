@@ -59,10 +59,14 @@ function nodeOutput(node, workflow, run) {
   }
   if (node.type === 'generate-image') {
     const all = node.config?.previews || []
-    const count = Number(node.config?.count) > 0 ? Number(node.config.count) : all.length
+    const count = Number(node.config?.amount) > 0 ? Number(node.config.amount) : all.length
     const previews = all.slice(0, count)
     const selected = previews.includes(node.config?.selectedPreview) ? node.config.selectedPreview : previews[0] || null
     return { message: 'Image candidates generated', previews, image: selected }
+  }
+  if (node.type === 'image-decomposition') {
+    const previews = (node.config?.previews || []).slice(0, Number(node.config?.amount) || 4)
+    return { message: 'Image assets extracted', previews, image: previews[0] || null }
   }
   if (node.type === 'generate-multiview-images') {
     return { message: 'Front, back, left, and right views generated', viewPreviews: node.config?.viewPreviews || {} }
@@ -77,17 +81,13 @@ function nodeOutput(node, workflow, run) {
       return { message: `${node.name} generated from ${inputImages.length > 1 ? `${inputImages.length} images` : inputImages.length === 1 ? '1 image' : 'text'}`, preview: node.config?.preview || null, inputMode: inputImages.length > 1 ? 'multi-image' : inputImages.length === 1 ? 'single-image' : 'text', inputImages }
     }
     return node.type === 'texture'
-      ? { message: 'UV texture generated', preview: node.config?.preview || null, textureQuality: node.config?.textureQuality || '2K', pbr: Boolean(node.config?.pbr) }
+      ? { message: 'UV texture generated', preview: node.config?.preview || null, textureQuality: node.config?.textureQuality || 'detailed' }
       : { message: `${node.name} generated`, preview: node.config?.preview || null }
   }
   if (node.type === 'export-model') {
-    const targets = Array.isArray(node.config?.exportTargets) && node.config.exportTargets.length ? node.config.exportTargets : ['dcc']
-    const format = ['GLB', 'OBJ', 'FBX', 'STL'].includes(node.config?.modelFormat) ? node.config.modelFormat : 'GLB'
-    const outputs = targets.map((destination) => {
-      if (destination === 'texture') return { destination, format: 'ZIP', filename: 'shark-gardener-textures.zip', status: 'prepared', mock: true }
-      if (destination === 'bambu') return { destination, format: '3MF', filename: 'shark-gardener.3mf', status: 'sent', mock: true }
-      return { destination: 'dcc', format, filename: `shark-gardener.${format.toLowerCase()}`, downloadUrl: '/models/shark-gardener.glb', mock: format !== 'GLB' }
-    })
+    const format = ['usdz', 'fbx', 'obj', 'stl', 'gltf', '3mf'].includes(node.config?.modelFormat) ? node.config.modelFormat : 'gltf'
+    const fileName = node.config?.fileName || 'shark-gardener'
+    const outputs = [{ destination: 'dcc', format, filename: `${fileName}.${format === 'gltf' ? 'glb' : format}`, downloadUrl: '/models/shark-gardener.glb', mock: format !== 'gltf' }]
     return { message: `${node.name} ready`, target: exportTarget(node, workflow), format, outputs, preview: node.config?.preview || '/shark-model.png' }
   }
   return { message: `Mock ${node.type} result` }

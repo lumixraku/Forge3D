@@ -1,34 +1,39 @@
-import { nodeDefaults } from './planner.js'
 import { workflowParameterJsonSchema } from './workflow-parameters.js'
+import { workflowNodeSchema } from '../src/workflow-schema.js'
 
-export const workflowStageTypes = Object.keys(nodeDefaults)
+export const workflowNodeTypes = workflowNodeSchema.filter((node) => !['frame', 'generated-image'].includes(node.type)).map((node) => node.type)
 
 export const workflowToolDefinitions = [
   {
     name: 'get_workflow_structure',
-    description: 'Inspect the current workflow nodes and connections, plus every stage type that can be created.',
+    description: 'Inspect every node and connection on the current canvas, across all workflow sections.',
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'list_available_node_types',
+    description: 'List every node type that can be created in a workflow.',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     name: 'build_workflow',
-    description: 'Append a workflow section from an ordered list of stages without replacing existing canvas content. All new stages are placed inside one frame and compatible stages are connected automatically.',
+    description: 'Append a workflow section from an ordered list of node types without replacing existing canvas content. All new nodes are placed inside one frame and compatible nodes are connected automatically.',
     parameters: {
       type: 'object',
       properties: {
-        stages: {
+        nodeTypes: {
           type: 'array',
-          description: 'Complete ordered stage list. Do not include frame; it is created automatically.',
-          items: { type: 'string', enum: workflowStageTypes },
+          description: 'Complete ordered node type list. Do not include frame; it is created automatically.',
+          items: { type: 'string', enum: workflowNodeTypes },
           minItems: 1,
         },
       },
-      required: ['stages'],
+      required: ['nodeTypes'],
       additionalProperties: false,
     },
   },
   {
     name: 'get_workflow_parameters',
-    description: 'List current workflow nodes and their adjustable parameters, valid ranges, and options.',
+    description: 'List all nodes on the current canvas and their adjustable parameters, valid ranges, and options.',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -37,7 +42,7 @@ export const workflowToolDefinitions = [
     parameters: {
       type: 'object',
       properties: {
-        nodeId: { type: 'string', description: 'Exact node ID from the current workflow.' },
+        nodeId: { type: 'string', description: 'Exact ID of a node on the current canvas.' },
         parameters: workflowParameterJsonSchema(),
       },
       required: ['nodeId', 'parameters'],
@@ -45,11 +50,11 @@ export const workflowToolDefinitions = [
     },
   },
   {
-    name: 'add_workflow_stage',
+    name: 'add_workflow_node',
     description: 'Add one workflow node of the requested type when that node type does not already exist. Frame can also be added as a separate workflow container.',
     parameters: {
       type: 'object',
-      properties: { type: { type: 'string', enum: ['frame', ...workflowStageTypes] } },
+      properties: { type: { type: 'string', enum: ['frame', ...workflowNodeTypes] } },
       required: ['type'],
       additionalProperties: false,
     },

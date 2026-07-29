@@ -1,9 +1,9 @@
 import { describeWorkflowParameters, updateNodeParameters } from './workflow-parameters.js'
 import { addWorkflowStage, buildWorkflowStructure, planWorkflow } from './planner.js'
-import { workflowStageTypes, workflowToolDefinitions } from './workflow-tools.js'
+import { workflowNodeTypes, workflowToolDefinitions } from './workflow-tools.js'
 
-// Every selectable stage, with what it does and the media it consumes/produces.
-// This is what lets the model match each stage to the media it consumes.
+// Every selectable node type, with what it does and the media it consumes/produces.
+// This is what lets the model match each node to the media it consumes.
 const nodeCatalogRows = [
   ['reference-image', 'Upload or reference a single source image.', 'none', 'image'],
   ['prompt', 'A text description / creative direction.', 'none', 'text'],
@@ -25,22 +25,23 @@ const nodeCatalogText = nodeCatalogRows.map(([type, summary, input, output]) => 
 
 export const systemPrompt = `You are the builder agent for a 3D production workflow canvas. You can build workflow structures and adjust node parameters. Use tools for every workflow change; never claim a change unless a tool succeeded.
 
-Node catalog (each stage, what it does, and the media it takes/produces). A stage can only receive what a previous stage produces:
+Node catalog (each node type, what it does, and the media it takes/produces). A node can only receive what a previous node produces:
 ${nodeCatalogText}
 
-Choose stages by matching outputs to inputs. Key rule: generate-model is the unified 3D generation stage. It accepts text, a single image, or multiple images and automatically selects single-image or multi-image reconstruction from the upstream output. Any "one image → multiple views → 3D" request must use generate-multiview-images followed by generate-model.
+Choose node types by matching outputs to inputs. Key rule: generate-model is the unified 3D generation node. It accepts text, a single image, or multiple images and automatically selects single-image or multi-image reconstruction from the upstream output. Any "one image → multiple views → 3D" request must use generate-multiview-images followed by generate-model.
 
-When the user asks to create, build, or design a workflow, call build_workflow with the complete ordered list of stages. The server appends one new frame without replacing existing canvas content, places all new stages inside it, connects compatible ports, and lays out the new section. Common shapes: text-to-image-to-3D = reference-image, prompt, generate-image, generate-model, export-model; direct text-to-3D = prompt, text-to-3d, export-model; single image to multi-view to 3D = reference-image, generate-multiview-images, generate-model, export-model. Add retopology, texture, rigging, and split before export-model when requested.
+When the user asks to create, build, or design a workflow, call build_workflow with the complete ordered nodeTypes list. The server appends one new frame without replacing existing canvas content, places all new nodes inside it, connects compatible ports, and lays out the new section. Common shapes: text-to-image-to-3D = reference-image, prompt, generate-image, generate-model, export-model; direct text-to-3D = prompt, text-to-3d, export-model; single image to multi-view to 3D = reference-image, generate-multiview-images, generate-model, export-model. Add retopology, texture, rigging, and split before export-model when requested.
 
-Use get_workflow_structure when the current nodes or available stage types are unclear. Use add_workflow_stage to add any supported node type, including frame, when it is not already present; use build_workflow to append a complete workflow section. Use get_workflow_parameters when parameter names, node IDs, ranges, or options are unclear. Apply every parameter explicitly requested by the user. Group all requested changes for the same node into one update_node_parameters call, use separate calls for different nodes, and verify every requested change appears in successful tool results before replying. When you need the user to choose from a finite set of valid alternatives before continuing, you MUST call request_user_select. Never ask that question, list the options, or tell the user to choose in normal assistant text. For an empty workflow, if the user has not stated how to create the model, call request_user_select with the available workflow approaches. Do not ask for free-form text with this tool. Reply concisely in the user's language and summarize the nodes and connections actually created or changed.`
+Use get_workflow_structure when the current nodes or connections are unclear. Use list_available_node_types when the creatable node types are unclear. Use add_workflow_node to add any supported node type, including frame, when it is not already present; use build_workflow to append a complete workflow section. Use get_workflow_parameters when parameter names, node IDs, ranges, or options are unclear. Apply every parameter explicitly requested by the user. Group all requested changes for the same node into one update_node_parameters call, use separate calls for different nodes, and verify every requested change appears in successful tool results before replying. When you need the user to choose from a finite set of valid alternatives before continuing, you MUST call request_user_select. Never ask that question, list the options, or tell the user to choose in normal assistant text. For an empty workflow, if the user has not stated how to create the model, call request_user_select with the available workflow approaches. Do not ask for free-form text with this tool. Reply concisely in the user's language and summarize the nodes and connections actually created or changed.`
 
-export { workflowStageTypes } from './workflow-tools.js'
+export { workflowNodeTypes } from './workflow-tools.js'
 const progressLabelByTool = {
   get_workflow_structure: 'Inspecting workflow structure',
+  list_available_node_types: 'Listing available node types',
   get_workflow_parameters: 'Inspecting adjustable parameters',
   build_workflow: 'Building workflow',
   update_node_parameters: 'Updating node parameters',
-  add_workflow_stage: 'Adding workflow stage',
+  add_workflow_node: 'Adding workflow node',
   request_user_select: 'Waiting for your selection',
 }
 
@@ -114,14 +115,15 @@ export async function runDeepSeekAgent({ apiKey, message, workflow, history = []
         result = {
           nodes: nextWorkflow.nodes.map(({ id, type, name }) => ({ id, type, name })),
           edges: nextWorkflow.edges,
-          availableStageTypes: workflowStageTypes,
         }
+      } else if (call.function.name === 'list_available_node_types') {
+        result = { nodeTypes: workflowNodeTypes }
       } else if (call.function.name === 'build_workflow') {
-        if (!Array.isArray(args.stages) || !args.stages.length || args.stages.some((type) => !workflowStageTypes.includes(type))) {
+        if (!Array.isArray(args.nodeTypes) || !args.nodeTypes.length || args.nodeTypes.some((type) => !workflowNodeTypes.includes(type))) {
           throw new DeepSeekError('DeepSeek requested an invalid workflow structure.')
         }
         const existingNodeIds = new Set(nextWorkflow.nodes.map((node) => node.id))
-        nextWorkflow = buildWorkflowStructure(message, args.stages, nextWorkflow)
+        nextWorkflow = buildWorkflowStructure(message, args.nodeTypes, nextWorkflow)
         const addedNodes = nextWorkflow.nodes.filter((node) => !existingNodeIds.has(node.id))
         structureChanged = true
         for (const node of addedNodes) changes.push({ nodeId: node.id, added: true })
@@ -139,7 +141,7 @@ export async function runDeepSeekAgent({ apiKey, message, workflow, history = []
         const applied = updateNodeParameters(nextWorkflow, args.nodeId, args.parameters)
         changes.push(...applied)
         result = { changes: applied }
-      } else if (call.function.name === 'add_workflow_stage') {
+      } else if (call.function.name === 'add_workflow_node') {
         let planned
         try {
           planned = addWorkflowStage(nextWorkflow, args.type, message)

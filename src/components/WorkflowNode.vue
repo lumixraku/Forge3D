@@ -5,7 +5,8 @@ import NodeSelect from './NodeSelect.vue'
 import NodeSlider from './NodeSlider.vue'
 
 import type { NodeRun } from '../node-runs'
-import type { NodeDefinition, NodePort } from '../workflow-nodes'
+import { applyNodeParameter, conditionsMatch, nodeSchema, parameterRange } from '../workflow-nodes'
+import type { NodeDefinition, NodeParameter, NodePort } from '../workflow-nodes'
 
 type NodeConfig = Record<string, unknown> & { preview?: string; previews?: string[]; viewPreviews?: Record<string, string>; exportTargets?: string[]; modelFormat?: string; approved?: boolean }
 interface WorkflowNodeData { label: string; status?: string; workflowType: string; config: NodeConfig; inputPorts?: NodePort[]; outputPorts?: NodePort[] }
@@ -27,10 +28,10 @@ const editingName = ref(false)
 const draftName = ref('')
 const nameInput = ref<HTMLInputElement | null>(null)
 const runtimeStatus = computed(() => props.nodeRun?.status || props.data.status)
-const executableTypes = ['generate-image', 'generate-multiview-images', 'generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'bake', 'texture', 'rigging', 'split', 'model-preview', 'export-model']
-const isExecutableNode = computed(() => executableTypes.includes(props.data.workflowType))
-const editorTypes = ['reference-image', 'prompt', 'generate-image', 'image-decomposition', 'generate-multiview-images', 'generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'texture', 'split', 'model-preview', 'export-model']
-const hasEditor = computed(() => editorTypes.includes(props.data.workflowType))
+const schema = computed(() => nodeSchema(props.data.workflowType))
+const isExecutableNode = computed(() => Boolean(schema.value?.executable))
+const visibleParameters = computed(() => (schema.value?.parameters || []).filter((parameter) => conditionsMatch(parameter.visibleWhen, props.data.config)))
+const hasEditor = computed(() => visibleParameters.value.length > 0)
 const showResult = computed(() => !isExecutableNode.value || runtimeStatus.value === 'succeeded')
 const actionLabel = computed(() => {
   if (runtimeStatus.value === 'running') return 'Generating…'
@@ -54,23 +55,9 @@ const viewPorts = ['front', 'back', 'left', 'right']
 const densePorts = computed(() => Math.max(props.data.inputPorts?.length || 0, props.data.outputPorts?.length || 0) > 2)
 const exportTarget = computed(() => props.inboundType || '3D Model')
 const exportFormat = computed(() => props.data.config.modelFormat || 'GLB')
-const exportTargets = computed(() => props.data.config.exportTargets || ['dcc'])
 const runConfig = computed(() => {
-  if (props.data.workflowType === 'export-model') return [['target', exportTarget.value], ['format', exportFormat.value], ['outputs', exportTargets.value.join(', ')]]
-  const keys = {
-    'generate-image': ['model', 'count', 'aspectRatio'],
-    'image-decomposition': ['modelVersion', 'amount', 'scale', 'resolution'],
-    'generate-multiview-images': ['model', 'aspectRatio'],
-    'generate-model': ['modelVersion', 'textureMode', 'faceCount'],
-    'smart-mesh': ['faceType', 'faceCount', 'textureQuality'],
-    'multiview-to-3d': ['modelVersion', 'textureMode', 'faceCount'],
-    'text-to-3d': ['modelVersion', 'textureMode', 'faceCount'],
-    retopology: ['modelVersion', 'faceType', 'faceLimit'],
-    texture: ['textureQuality', 'pbr'],
-    split: ['subdivision', 'complete'],
-    'model-preview': ['environment', 'autoRotate', 'wireframe'],
-  }[props.data.workflowType] || []
-  return keys.map((key) => [key, props.data.config[key]])
+  if (props.data.workflowType === 'export-model') return [['target', exportTarget.value], ['format', exportFormat.value]]
+  return visibleParameters.value.map((parameter) => [parameter.key, props.data.config[parameter.key]])
 })
 
 function toggleApprove() {
@@ -80,7 +67,11 @@ function toggleApprove() {
 }
 
 function update(key: string, value: unknown) {
-  emit('update-config', { ...props.data.config, [key]: value })
+  emit('update-config', applyNodeParameter(props.data.workflowType, props.data.config, key, value))
+}
+
+function range(parameter: NodeParameter) {
+  return parameterRange(parameter, props.data.config)
 }
 
 function startNameEdit() {
@@ -109,7 +100,6 @@ function selectGeneratedImage(image: string, index: number) {
   emit('preview-image', { src: image, alt: `Generated concept ${index + 1}` })
 }
 
-const countOptions = [1, 2, 4].map((value) => ({ value, label: String(value) }))
 </script>
 
 <template>
@@ -140,12 +130,12 @@ const countOptions = [1, 2, 4].map((value) => ({ value, label: String(value) }))
     <button v-else-if="['reference-image', 'generated-image', 'generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'bake', 'texture', 'rigging', 'split', 'model-preview'].includes(data.workflowType) && showResult" type="button" class="node-output nodrag nopan" :class="{ 'model-output': !['reference-image', 'generated-image'].includes(data.workflowType) }" :aria-label="['reference-image', 'generated-image'].includes(data.workflowType) ? `Preview ${data.label} image` : `Open ${data.label} in Model Editor`" @click.stop="['reference-image', 'generated-image'].includes(data.workflowType) ? emit('preview-image', { src: runtimePreview, alt: `${data.label} result` }) : emit('open-model-editor')">
       <img :src="runtimePreview" :alt="`${data.label} result`" />
       <div v-if="!['reference-image', 'generated-image', 'image-decomposition'].includes(data.workflowType)" class="model-orbit"><span /><span /><span /></div>
-       <span class="output-badge">{{ data.workflowType === 'reference-image' ? 'Input image' : data.workflowType === 'generated-image' ? 'Generated view' : data.workflowType === 'retopology' ? `${Number(data.config.faceLimit).toLocaleString()} faces` : data.workflowType === 'texture' ? `${data.config.textureQuality}${data.config.pbr ? ' PBR' : ''}` : data.workflowType === 'rigging' ? 'Rigged' : data.workflowType === 'split' ? `Split · ${data.config.subdivision}` : data.workflowType === 'smart-mesh' ? 'Smart mesh' : data.workflowType === 'bake' ? 'Baked' : '3D result' }}</span>
+       <span class="output-badge">{{ data.workflowType === 'reference-image' ? 'Input image' : data.workflowType === 'generated-image' ? 'Generated view' : data.workflowType === 'retopology' ? `${Number(data.config.faceLimit).toLocaleString()} faces` : data.workflowType === 'texture' ? `${data.config.textureQuality}` : data.workflowType === 'rigging' ? 'Rigged' : data.workflowType === 'split' ? `Split · ${data.config.detailLevel}` : data.workflowType === 'smart-mesh' ? 'Smart mesh' : data.workflowType === 'bake' ? 'Baked' : '3D result' }}</span>
     </button>
     <button v-else-if="data.workflowType === 'export-model' && showResult" type="button" class="node-output model-output nodrag nopan" :aria-label="`Open ${data.label} in Model Editor`" @click.stop="emit('open-model-editor')">
       <img :src="runtimePreview" :alt="`${data.label} asset`" />
       <div class="model-orbit"><span /><span /><span /></div>
-       <span class="output-badge">{{ exportTargets.join(' + ') }} · {{ nodeRun?.output?.format || exportFormat }}</span>
+        <span class="output-badge">{{ nodeRun?.output?.format || exportFormat }}</span>
     </button>
     <div v-else-if="data.workflowType === 'review'" class="node-review-state" :class="runtimeStatus">
       <strong>{{ data.config.approved ? 'Approved' : runtimeStatus === 'waiting_review' ? 'Awaiting approval' : 'Checkpoint' }}</strong>
@@ -161,74 +151,18 @@ const countOptions = [1, 2, 4].map((value) => ({ value, label: String(value) }))
 
     <button v-if="data.workflowType === 'text-to-3d'" type="button" class="node-parameters-toggle nodrag" :aria-expanded="parametersOpen" @click.stop="parametersOpen = !parametersOpen"><span>Parameters</span><b :class="{ open: parametersOpen }"><svg class="chevron-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></b></button>
     <div v-if="hasEditor" v-show="data.workflowType !== 'text-to-3d' || parametersOpen" class="node-editor nodrag">
-      <template v-if="data.workflowType === 'reference-image'">
-        <label>Source<NodeSelect :model-value="data.config.sourceType" :options="['Upload', 'Asset Library', 'URL']" @update:model-value="update('sourceType', $event)" /></label>
-        <label>Image reference<input :value="data.config.reference" placeholder="Select image or paste URL" @input="update('reference', $event.target.value)" /></label>
-        <label>Background<NodeSelect :model-value="data.config.background" :options="['Keep', 'Remove']" @update:model-value="update('background', $event)" /></label>
-      </template>
-
-      <template v-else-if="data.workflowType === 'prompt'">
-        <label>Prompt<textarea :value="data.config.prompt" rows="4" @input="update('prompt', $event.target.value)" /></label>
-        <label>Prompt strength<div class="range-row"><NodeSlider :model-value="data.config.strength" :min="0" :max="100" @update:model-value="update('strength', $event)" /><output>{{ data.config.strength }}%</output></div></label>
-      </template>
-
-      <template v-else-if="['generate-image', 'generate-multiview-images'].includes(data.workflowType)">
-        <label>Image model<NodeSelect :model-value="data.config.model" :options="['GPT Image 2', 'Flux 1.1 Pro', 'Stable Diffusion 3.5']" @update:model-value="update('model', $event)" /></label>
-        <div class="field-grid"><label v-if="data.workflowType === 'generate-image'">Count<NodeSelect :model-value="data.config.count" :options="countOptions" @update:model-value="update('count', $event)" /></label><label>Aspect ratio<NodeSelect :model-value="data.config.aspectRatio" :options="['1:1', '4:3', '3:4', '16:9']" @update:model-value="update('aspectRatio', $event)" /></label></div>
-        <label>Reference mode<NodeSelect :model-value="data.config.referenceMode" :options="['Image + Prompt', 'Prompt only', 'Image variation']" @update:model-value="update('referenceMode', $event)" /></label>
-      </template>
-
-      <template v-else-if="data.workflowType === 'image-decomposition'">
-        <label>Image model<NodeSelect :model-value="data.config.modelVersion" :options="[{ value: 'gemini_3.1_flash_image_preview', label: 'Nano Banana 2' }, { value: 'gemini_2.5_flash_image_preview', label: 'Nano Banana' }, { value: 'gemini_3_pro_image_preview', label: 'Nano Banana Pro' }, { value: 'gpt_image_2', label: 'GPT Image 2' }, { value: 'gpt_image_1.5', label: 'GPT Image 1.5' }]" @update:model-value="update('modelVersion', $event)" /></label>
-        <label>Prompt<textarea :value="data.config.prompt" rows="3" placeholder="Optional extraction instructions" @input="update('prompt', $event.target.value)" /></label>
-        <div class="field-grid"><label>Outputs<NodeSelect :model-value="data.config.amount" :options="[1, 2, 3, 4].map((value) => ({ value, label: String(value) }))" @update:model-value="update('amount', $event)" /></label><label>Aspect ratio<NodeSelect :model-value="data.config.scale" :options="['1:1', '3:4', '4:3', '9:16', '16:9']" @update:model-value="update('scale', $event)" /></label></div>
-      </template>
-
-      <template v-else-if="['generate-model', 'multiview-to-3d', 'text-to-3d'].includes(data.workflowType)">
-        <label>Model version<NodeSelect :model-value="data.config.modelVersion" :options="['Smart Mesh', 'v2.5', 'v2.0']" @update:model-value="update('modelVersion', $event)" /></label>
-        <fieldset><legend>Texture</legend><div class="segmented"><button v-for="option in ['None', 'HD', 'PBR']" :key="option" type="button" :class="{ active: data.config.textureMode === option }" @click="update('textureMode', option)">{{ option }}</button></div></fieldset>
-        <fieldset><legend>Face type</legend><div class="segmented"><button v-for="option in ['Triangle', 'Quad']" :key="option" type="button" :class="{ active: data.config.faceType === option }" @click="update('faceType', option)">{{ option }}</button></div></fieldset>
-        <label>Face count<div class="range-row"><NodeSlider :model-value="data.config.faceCount" :min="1000" :max="50000" :step="1000" @update:model-value="update('faceCount', $event)" /><output>{{ Number(data.config.faceCount).toLocaleString() }}</output></div></label>
-      </template>
-
-      <template v-else-if="data.workflowType === 'retopology'">
-        <label>Model version<NodeSelect :model-value="data.config.modelVersion" :options="['v2.0', 'v1.0']" @update:model-value="update('modelVersion', $event)" /></label>
-        <label>Face type<NodeSelect :model-value="data.config.faceType" :options="['Triangle', 'Quad']" @update:model-value="update('faceType', $event)" /></label>
-        <label>Face limit<div class="range-row"><NodeSlider :model-value="data.config.faceLimit" :min="500" :max="20000" :step="500" @update:model-value="update('faceLimit', $event)" /><output>{{ Number(data.config.faceLimit).toLocaleString() }}</output></div></label>
-        <label class="toggle-row"><span>Bake textures</span><input type="checkbox" :checked="data.config.bakeTextures" @change="update('bakeTextures', $event.target.checked)" /></label>
-      </template>
-
-      <template v-else-if="data.workflowType === 'texture'">
-        <label>Texture quality<NodeSelect :model-value="data.config.textureQuality" :options="['2K', '4K', '8K']" @update:model-value="update('textureQuality', $event)" /></label>
-        <label class="toggle-row"><span>Generate PBR maps</span><input type="checkbox" :checked="data.config.pbr" @change="update('pbr', $event.target.checked)" /></label>
-      </template>
-
-      <template v-else-if="data.workflowType === 'smart-mesh'">
-        <fieldset><legend>Face type</legend><div class="segmented"><button v-for="option in ['Triangle', 'Quad']" :key="option" type="button" :class="{ active: data.config.faceType === option }" @click="update('faceType', option)">{{ option }}</button></div></fieldset>
-        <label>Face count<div class="range-row"><NodeSlider :model-value="data.config.faceCount" :min="1000" :max="50000" :step="1000" @update:model-value="update('faceCount', $event)" /><output>{{ Number(data.config.faceCount).toLocaleString() }}</output></div></label>
-        <label>Texture quality<NodeSelect :model-value="data.config.textureQuality" :options="['No texture', '2K', '4K', '8K']" @update:model-value="update('textureQuality', $event)" /></label>
-        <label class="toggle-row"><span>Generate PBR maps</span><input type="checkbox" :checked="data.config.pbr" @change="update('pbr', $event.target.checked)" /></label>
-      </template>
-
-      <template v-else-if="data.workflowType === 'split'">
-        <label>Subdivision<NodeSelect :model-value="data.config.subdivision" :options="['Low', 'Medium', 'High']" @update:model-value="update('subdivision', $event)" /></label>
-        <label class="toggle-row"><span>Complete parts</span><input type="checkbox" :checked="data.config.complete" @change="update('complete', $event.target.checked)" /></label>
-      </template>
-
-      <template v-else-if="data.workflowType === 'model-preview'">
-        <label>Environment<NodeSelect :model-value="data.config.environment" :options="['Studio', 'Outdoor', 'Neutral']" @update:model-value="update('environment', $event)" /></label>
-        <label class="toggle-row"><span>Auto rotate</span><input type="checkbox" :checked="data.config.autoRotate" @change="update('autoRotate', $event.target.checked)" /></label>
-        <label class="toggle-row"><span>Wireframe</span><input type="checkbox" :checked="data.config.wireframe" @change="update('wireframe', $event.target.checked)" /></label>
-      </template>
-      <template v-else-if="data.workflowType === 'export-model'">
-        <label>Model format<NodeSelect :model-value="data.config.modelFormat" :options="['GLB', 'OBJ', 'FBX', 'STL']" @update:model-value="update('modelFormat', $event)" /></label>
-        <fieldset class="export-outputs"><legend>Export outputs</legend><label class="toggle-row"><span>DCC</span><input type="checkbox" :checked="exportTargets.includes('dcc')" @change="update('exportTargets', $event.target.checked ? [...exportTargets, 'dcc'] : exportTargets.filter((target) => target !== 'dcc'))" /></label><label class="toggle-row"><span>Texture</span><input type="checkbox" :checked="exportTargets.includes('texture')" @change="update('exportTargets', $event.target.checked ? [...exportTargets, 'texture'] : exportTargets.filter((target) => target !== 'texture'))" /></label><label class="toggle-row"><span>Send to Bambu</span><input type="checkbox" :checked="exportTargets.includes('bambu')" @change="update('exportTargets', $event.target.checked ? [...exportTargets, 'bambu'] : exportTargets.filter((target) => target !== 'bambu'))" /></label></fieldset>
-        <small>{{ inboundType ? `Connected ${exportTarget} input` : 'Connect a 3D model — defaults to 3D Model' }} · demo only.</small>
+      <template v-for="parameter in visibleParameters" :key="parameter.key">
+        <label v-if="parameter.control === 'text'">{{ parameter.label }}<input :value="data.config[parameter.key]" :placeholder="parameter.placeholder" @input="update(parameter.key, $event.target.value)" /></label>
+        <label v-else-if="parameter.control === 'textarea'">{{ parameter.label }}<textarea :value="data.config[parameter.key]" rows="3" :placeholder="parameter.placeholder" @input="update(parameter.key, $event.target.value)" /></label>
+        <label v-else-if="parameter.control === 'select'">{{ parameter.label }}<NodeSelect :model-value="data.config[parameter.key]" :options="parameter.options || []" @update:model-value="update(parameter.key, $event)" /></label>
+        <fieldset v-else-if="parameter.control === 'segmented'"><legend>{{ parameter.label }}</legend><div class="segmented"><button v-for="option in parameter.options" :key="String(option.value)" type="button" :class="{ active: data.config[parameter.key] === option.value }" @click="update(parameter.key, option.value)">{{ option.label }}</button></div></fieldset>
+        <label v-else-if="parameter.control === 'slider'">{{ parameter.label }}<div class="range-row"><NodeSlider :model-value="data.config[parameter.key]" :min="range(parameter).min" :max="range(parameter).max" :step="range(parameter).step" @update:model-value="update(parameter.key, $event)" /><output>{{ Number(data.config[parameter.key]).toLocaleString() }}</output></div></label>
+        <label v-else-if="parameter.control === 'toggle'" class="toggle-row"><span>{{ parameter.label }}</span><input type="checkbox" :checked="Boolean(data.config[parameter.key])" @change="update(parameter.key, $event.target.checked)" /></label>
       </template>
     </div>
 
     <div v-if="data.workflowType === 'export-model'" class="node-run-actions single nodrag">
-      <button type="button" class="generate-node" :disabled="['queued', 'running'].includes(runtimeStatus)" @click.stop="emit('run-workflow', props.id)">{{ ['queued', 'running'].includes(runtimeStatus) ? 'Preparing…' : `Export ${exportTargets.join(' + ')}` }}</button>
+      <button type="button" class="generate-node" :disabled="['queued', 'running'].includes(runtimeStatus)" @click.stop="emit('run-workflow', props.id)">{{ ['queued', 'running'].includes(runtimeStatus) ? 'Preparing…' : 'Export' }}</button>
     </div>
     <div v-else-if="isExecutableNode" class="node-run-actions nodrag">
       <button type="button" class="generate-node" :disabled="['queued', 'running'].includes(runtimeStatus)" @click.stop="emit('run-workflow', props.id)">{{ actionLabel }}</button>

@@ -1,22 +1,23 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { workflowStageTypes, workflowToolDefinitions } from './workflow-tools.js'
+import { workflowNodeTypes, workflowToolDefinitions } from './workflow-tools.js'
 
 test('defines complete closed schemas for every workflow agent tool', () => {
   assert.deepEqual(workflowToolDefinitions.map((tool) => tool.name), [
     'get_workflow_structure',
+    'list_available_node_types',
     'build_workflow',
     'get_workflow_parameters',
     'update_node_parameters',
-    'add_workflow_stage',
+    'add_workflow_node',
     'request_user_select',
   ])
   assert.ok(workflowToolDefinitions.every((tool) => tool.parameters.additionalProperties === false))
 
   const tools = Object.fromEntries(workflowToolDefinitions.map((tool) => [tool.name, tool]))
-  assert.equal(tools.build_workflow.parameters.properties.stages.minItems, 1)
-  assert.deepEqual(tools.build_workflow.parameters.properties.stages.items.enum, workflowStageTypes)
-  assert.deepEqual(tools.add_workflow_stage.parameters.properties.type.enum, ['frame', ...workflowStageTypes])
+  assert.equal(tools.build_workflow.parameters.properties.nodeTypes.minItems, 1)
+  assert.deepEqual(tools.build_workflow.parameters.properties.nodeTypes.items.enum, workflowNodeTypes)
+  assert.deepEqual(tools.add_workflow_node.parameters.properties.type.enum, ['frame', ...workflowNodeTypes])
 
   const updateParameters = tools.update_node_parameters.parameters.properties.parameters
   assert.equal(updateParameters.additionalProperties, false)

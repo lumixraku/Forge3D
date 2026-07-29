@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeDisplayName, nodeInputPorts, nodeOutputPorts } from './workflow-nodes.js'
+import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeDisplayName, nodeInputPorts, nodeOutputPorts, nodeSchema, parameterRange } from './workflow-nodes.js'
 
 test('uses Lychee node names while preserving unmatched node names', () => {
   assert.equal(nodeDisplayName('reference-image', 'Reference Image'), 'Image Upload')
@@ -77,4 +77,35 @@ test('registers the image decomposition demo as an image node', () => {
   assert.deepEqual(nodeInputPorts(decomposition.type), [{ id: 'input', label: 'Input', type: 'any' }])
   assert.deepEqual(nodeOutputPorts(decomposition.type), [{ id: 'output', label: 'Output', type: 'image' }])
   assert.ok(compatibleNodeTypes('reference-image').some((node) => node.type === decomposition.type))
+})
+
+test('matches the Tripo Studio parameters without changing node types', () => {
+  const generateModel = nodeSchema('generate-model')
+  const smartMesh = nodeSchema('smart-mesh')
+  const segmentation = nodeSchema('split')
+  const retopology = nodeSchema('retopology')
+  const texture = nodeSchema('texture')
+
+  assert.equal(generateModel.type, 'generate-model')
+  assert.equal(smartMesh.type, 'smart-mesh')
+  assert.equal(generateModel.defaults.generateParts, false)
+  assert.equal(generateModel.defaults.texture8k, true)
+  assert.equal(generateModel.defaults.privacy, 'sharing-only')
+  assert.equal(generateModel.parameters.find(({ key }) => key === 'texture8k').control, 'toggle')
+
+  assert.equal(segmentation.defaults.detailLevel, 'low')
+  assert.deepEqual(segmentation.parameters[0].options.map(({ label }) => label), [
+    'Simple · 3-6 parts',
+    'Balanced · 6-15 parts',
+    'Detailed · 15+ parts',
+  ])
+
+  assert.deepEqual(retopology.parameters[0].options.map(({ value }) => value), ['quad', 'triangle'])
+  assert.equal(retopology.parameters[1].label, 'Smart Low Poly v2')
+  assert.deepEqual(parameterRange(retopology.parameters[2], retopology.defaults), { min: 500, max: 50000, step: 500 })
+  assert.equal(retopology.defaults.faceLimit, 10000)
+
+  assert.equal(texture.defaults.textureQuality, 'extreme')
+  assert.equal(texture.parameters.find(({ key }) => key === 'textureQuality').control, 'segmented')
+  assert.deepEqual(texture.parameters.find(({ key }) => key === 'textureQuality').options.map(({ label }) => label), ['2K', '4K', '8K'])
 })

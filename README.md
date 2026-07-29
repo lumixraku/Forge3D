@@ -698,18 +698,19 @@ The two paths are intentionally similar but not identical:
 
 ## Agent Tools
 
-The Agent has six validated tools. Tool calls are server-side only; the browser receives safe progress summaries and an authoritative workflow invalidation event.
+The Agent has seven validated tools. Tool calls are server-side only; the browser receives safe progress summaries and an authoritative workflow invalidation event.
 
 | Tool | Purpose |
 | --- | --- |
-| `get_workflow_structure` | Inspect current nodes, edges, and available stage types. |
-| `build_workflow` | Rebuild the complete graph from an ordered stage list, with a generated frame, placement, and compatible edges. |
+| `get_workflow_structure` | Inspect every node and edge on the current canvas. |
+| `list_available_node_types` | List node types that can be created. |
+| `build_workflow` | Append a workflow section from an ordered node type list, with a generated frame, placement, and compatible edges. |
 | `get_workflow_parameters` | Inspect adjustable parameters for nodes currently in the workflow. |
 | `update_node_parameters` | Validate and update canonical parameters on one exact node ID. |
-| `add_workflow_stage` | Add one supported stage or a separate frame. |
+| `add_workflow_node` | Add one supported node or a separate frame. |
 | `request_user_select` | Pause the turn and request a finite user choice. |
 
-### Available Agent Stage Types
+### Available Agent Node Types
 
 ```text
 reference-image
@@ -730,7 +731,7 @@ model-preview
 export-model
 ```
 
-`frame` can be added separately but is not supplied as a `build_workflow` stage. Duplicate stage types in a build request are de-duplicated.
+`frame` can be added separately but is not supplied as a `build_workflow` node type. Duplicate node types in a build request are de-duplicated.
 
 ### `get_workflow_structure`
 
@@ -740,7 +741,17 @@ Input:
 {}
 ```
 
-Returns current `{ id, type, name }` nodes, edges, and all available stage types. Extra properties are rejected.
+Returns every `{ id, type, name }` node and edge on the current canvas, across all workflow sections. Extra properties are rejected.
+
+### `list_available_node_types`
+
+Input:
+
+```json
+{}
+```
+
+Returns all node types that can be created.
 
 ### `build_workflow`
 
@@ -748,7 +759,7 @@ Input:
 
 ```json
 {
-  "stages": [
+  "nodeTypes": [
     "reference-image",
     "generate-multiview-images",
     "multiview-to-3d",
@@ -757,7 +768,7 @@ Input:
 }
 ```
 
-The list must be non-empty and contain supported non-frame stages. The planner creates a frame, creates default-configured nodes, places them, connects adjacent compatible stages, increments the workflow revision, and returns the new frame ID, node summaries, and edges.
+The list must be non-empty and contain supported non-frame node types. The planner creates a frame, creates default-configured nodes, places them, connects adjacent compatible nodes, increments the workflow revision, and returns the new frame ID, node summaries, and edges.
 
 ### `get_workflow_parameters`
 
@@ -794,7 +805,7 @@ Rules:
 - Unchanged values do not create change records.
 - Group changes for one node into one call; use separate calls for different nodes.
 
-### `add_workflow_stage`
+### `add_workflow_node`
 
 Input:
 
@@ -804,7 +815,7 @@ Input:
 }
 ```
 
-Normal stage types are not duplicated. A new stage is inserted before `export-model` or `model-preview` where applicable, edges are rebuilt, and frame bounds are updated. `review` is inserted before the model-generation stage. Frames can be added repeatedly as independent containers.
+Normal node types are not duplicated. A new node is inserted before `export-model` or `model-preview` where applicable, edges are rebuilt, and frame bounds are updated. `review` is inserted before the model-generation node. Frames can be added repeatedly as independent containers.
 
 ### `request_user_select`
 

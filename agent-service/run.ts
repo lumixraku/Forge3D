@@ -4,7 +4,7 @@ import { streamSimple } from '@earendil-works/pi-ai/api/openai-completions'
 import { addWorkflowStage, buildWorkflowStructure } from '../server/planner.js'
 import { describeWorkflowParameters, updateNodeParameters } from '../server/workflow-parameters.js'
 import { systemPrompt } from '../server/deepseek.js'
-import { workflowStageTypes, workflowToolDefinition } from '../server/workflow-tools.js'
+import { workflowNodeTypes, workflowToolDefinition } from '../server/workflow-tools.js'
 
 // Mirrors the contract of runDeepSeekAgent in server/deepseek.ts, but drives the
 // loop with the Pi agent framework (@earendil-works/pi-*). DeepSeek is reached
@@ -44,10 +44,11 @@ export interface RunOptions {
 // this run went through the Pi agent framework rather than the built-in loop.
 const progressLabelByTool: Record<string, string> = {
   get_workflow_structure: 'Pi · Inspecting workflow structure',
+  list_available_node_types: 'Pi · Listing available node types',
   get_workflow_parameters: 'Pi · Inspecting adjustable parameters',
   build_workflow: 'Pi · Building workflow',
   update_node_parameters: 'Pi · Updating node parameters',
-  add_workflow_stage: 'Pi · Adding workflow stage',
+  add_workflow_node: 'Pi · Adding workflow node',
   request_user_select: 'Pi · Requesting your selection',
 }
 
@@ -96,7 +97,17 @@ export function startPiAgent(opts: RunOptions): LiveRun {
       parameters: toolSchema('get_workflow_structure'),
       execute: async () => {
         await emit('get_workflow_structure')
-        return result(JSON.stringify({ nodes: nodeSummary(), edges: session.workflow.edges, availableStageTypes: workflowStageTypes }))
+        return result(JSON.stringify({ nodes: nodeSummary(), edges: session.workflow.edges }))
+      },
+    },
+    {
+      name: 'list_available_node_types',
+      label: 'List node types',
+      description: workflowToolDefinition('list_available_node_types')!.description,
+      parameters: toolSchema('list_available_node_types'),
+      execute: async () => {
+        await emit('list_available_node_types')
+        return result(JSON.stringify({ nodeTypes: workflowNodeTypes }))
       },
     },
     {
@@ -106,11 +117,11 @@ export function startPiAgent(opts: RunOptions): LiveRun {
       parameters: toolSchema('build_workflow'),
       execute: async (_id: string, params: any) => {
         await emit('build_workflow')
-        if (!Array.isArray(params.stages) || !params.stages.length || params.stages.some((type: string) => !workflowStageTypes.includes(type))) {
+        if (!Array.isArray(params.nodeTypes) || !params.nodeTypes.length || params.nodeTypes.some((type: string) => !workflowNodeTypes.includes(type))) {
           return errorResult('Invalid workflow structure requested.')
         }
         const existingNodeIds = new Set(session.workflow.nodes.map((node: any) => node.id))
-        session.workflow = buildWorkflowStructure(opts.message, params.stages, session.workflow)
+        session.workflow = buildWorkflowStructure(opts.message, params.nodeTypes, session.workflow)
         const addedNodes = session.workflow.nodes.filter((node: any) => !existingNodeIds.has(node.id))
         session.structureChanged = true
         for (const node of addedNodes) session.changes.push({ nodeId: node.id })
@@ -148,12 +159,12 @@ export function startPiAgent(opts: RunOptions): LiveRun {
       },
     },
     {
-      name: 'add_workflow_stage',
-      label: 'Add stage',
-      description: workflowToolDefinition('add_workflow_stage')!.description,
-      parameters: toolSchema('add_workflow_stage'),
+      name: 'add_workflow_node',
+      label: 'Add node',
+      description: workflowToolDefinition('add_workflow_node')!.description,
+      parameters: toolSchema('add_workflow_node'),
       execute: async (_id: string, params: any) => {
-        await emit('add_workflow_stage')
+        await emit('add_workflow_node')
         try {
           const planned = addWorkflowStage(session.workflow, params.type, opts.message)
           session.workflow = planned.workflow

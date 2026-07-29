@@ -11,7 +11,7 @@ Both paths consume the shared definitions in `server/workflow-tools.ts`. That fi
 
 ## General Rules
 
-- All six tools receive one JSON object as their arguments.
+- All seven tools receive one JSON object as their arguments.
 - Every top-level argument object is closed with `additionalProperties: false`.
 - The model must use exact node IDs returned by `get_workflow_structure` when updating an existing node.
 - `build_workflow` appends a new framed section. It does not replace existing canvas content.
@@ -22,16 +22,17 @@ Both paths consume the shared definitions in `server/workflow-tools.ts`. That fi
 
 | Tool | Purpose | Required arguments |
 | --- | --- | --- |
-| `get_workflow_structure` | Inspect current nodes, edges, and creatable stage types. | None |
-| `build_workflow` | Append a complete framed workflow section. | `stages` |
+| `get_workflow_structure` | Inspect every node and edge on the current canvas. | None |
+| `list_available_node_types` | List node types that can be created. | None |
+| `build_workflow` | Append a complete framed workflow section. | `nodeTypes` |
 | `get_workflow_parameters` | Inspect adjustable parameters and valid values. | None |
 | `update_node_parameters` | Update validated parameters on one existing node. | `nodeId`, `parameters` |
-| `add_workflow_stage` | Add one supported stage if it is not already present. | `type` |
+| `add_workflow_node` | Add one supported node if it is not already present. | `type` |
 | `request_user_select` | Pause and ask the user to select from finite options. | `prompt`, `options`, `min`, `max` |
 
 ## 1. `get_workflow_structure`
 
-Inspects the current workflow. The result includes a node summary, current edges, and all stage types the agent can create.
+Inspects the complete current canvas. The result includes every node and edge across all workflow sections, rather than one frame or one workflow chain.
 
 ### Arguments
 
@@ -63,8 +64,25 @@ No arguments or additional properties are accepted.
       "source": { "nodeId": "generate-model", "port": "output" },
       "target": { "nodeId": "export-model", "port": "input" }
     }
-  ],
-  "availableStageTypes": [
+  ]
+}
+```
+
+## 2. `list_available_node_types`
+
+Lists every node type the agent can create. This data is separate from the current workflow structure.
+
+### Arguments
+
+```json
+{}
+```
+
+### Example Result
+
+```json
+{
+  "nodeTypes": [
     "reference-image",
     "prompt",
     "generate-image",
@@ -85,17 +103,17 @@ No arguments or additional properties are accepted.
 }
 ```
 
-## 2. `build_workflow`
+## 3. `build_workflow`
 
-Appends a new workflow section from an ordered stage list. The server creates the frame, places the new stages inside it, and connects compatible stages automatically.
+Appends a new workflow section from an ordered node type list. The server creates the frame, places the new nodes inside it, and connects compatible nodes automatically.
 
 ### Arguments
 
 | Field | Type | Constraints |
 | --- | --- | --- |
-| `stages` | `string[]` | Required; at least one entry; every entry must be a supported stage type. Do not include `frame`. |
+| `nodeTypes` | `string[]` | Required; at least one entry; every entry must be a supported node type. Do not include `frame`. |
 
-Supported stage types:
+Supported node types:
 
 ```text
 reference-image
@@ -122,7 +140,7 @@ export-model
 {
   "name": "build_workflow",
   "arguments": {
-    "stages": [
+    "nodeTypes": [
       "reference-image",
       "generate-multiview-images",
       "generate-model",
@@ -154,9 +172,9 @@ export-model
 }
 ```
 
-## 3. `get_workflow_parameters`
+## 4. `get_workflow_parameters`
 
-Lists adjustable parameters for nodes currently present in the workflow, including valid ranges and enum options.
+Lists adjustable parameters for all nodes currently present on the canvas, including valid ranges and enum options.
 
 ### Arguments
 
@@ -187,7 +205,7 @@ No arguments or additional properties are accepted.
 }
 ```
 
-## 4. `update_node_parameters`
+## 5. `update_node_parameters`
 
 Updates one existing node. `nodeId` must be the exact ID returned by `get_workflow_structure`; a display name or node type is not sufficient.
 
@@ -256,7 +274,7 @@ Not every parameter applies to every node type. Execution-time validation reject
 }
 ```
 
-## 5. `add_workflow_stage`
+## 6. `add_workflow_node`
 
 Adds one supported workflow node when that node type is not already present. Unlike `build_workflow`, this tool can explicitly add a `frame`.
 
@@ -264,13 +282,13 @@ Adds one supported workflow node when that node type is not already present. Unl
 
 | Field | Type | Constraints |
 | --- | --- | --- |
-| `type` | string | Required; `frame` or one of the supported stage types listed under `build_workflow`. |
+| `type` | string | Required; `frame` or one of the supported node types listed under `build_workflow`. |
 
 ### Example Call
 
 ```json
 {
-  "name": "add_workflow_stage",
+  "name": "add_workflow_node",
   "arguments": {
     "type": "texture"
   }
@@ -285,7 +303,7 @@ Adds one supported workflow node when that node type is not already present. Unl
 }
 ```
 
-## 6. `request_user_select`
+## 7. `request_user_select`
 
 Pauses the current task and asks the user to select one or more items from a finite option set. It is not intended for free-form input.
 
@@ -335,8 +353,8 @@ The following illustrative log shows one agent turn that inspects the canvas, ap
 {"timestamp":"2026-07-28T09:00:00.000Z","event":"user_message","turnId":"turn-42","message":"Create an image-to-3D workflow, use quad retopology at 8000 faces, and export STL."}
 {"timestamp":"2026-07-28T09:00:00.120Z","event":"tool_call","turnId":"turn-42","toolCallId":"call-1","name":"get_workflow_structure","arguments":{}}
 {"timestamp":"2026-07-28T09:00:00.121Z","event":"progress","turnId":"turn-42","toolCallId":"call-1","label":"Inspecting workflow structure","status":"running"}
-{"timestamp":"2026-07-28T09:00:00.130Z","event":"tool_result","turnId":"turn-42","toolCallId":"call-1","name":"get_workflow_structure","isError":false,"result":{"nodes":[],"edges":[],"availableStageTypes":["reference-image","prompt","generate-image","generate-multiview-images","generate-model","smart-mesh","multiview-to-3d","review","text-to-3d","retopology","bake","texture","rigging","split","model-preview","export-model"]}}
-{"timestamp":"2026-07-28T09:00:00.310Z","event":"tool_call","turnId":"turn-42","toolCallId":"call-2","name":"build_workflow","arguments":{"stages":["reference-image","generate-model","retopology","export-model"]}}
+{"timestamp":"2026-07-28T09:00:00.130Z","event":"tool_result","turnId":"turn-42","toolCallId":"call-1","name":"get_workflow_structure","isError":false,"result":{"nodes":[],"edges":[]}}
+{"timestamp":"2026-07-28T09:00:00.310Z","event":"tool_call","turnId":"turn-42","toolCallId":"call-2","name":"build_workflow","arguments":{"nodeTypes":["reference-image","generate-model","retopology","export-model"]}}
 {"timestamp":"2026-07-28T09:00:00.311Z","event":"progress","turnId":"turn-42","toolCallId":"call-2","label":"Building workflow","status":"running"}
 {"timestamp":"2026-07-28T09:00:00.340Z","event":"tool_result","turnId":"turn-42","toolCallId":"call-2","name":"build_workflow","isError":false,"result":{"frameId":"frame-main","nodes":[{"id":"reference-image","type":"reference-image","name":"Image Upload"},{"id":"generate-model","type":"generate-model","name":"Gen HD Model"},{"id":"retopology","type":"retopology","name":"Retopology"},{"id":"export-model","type":"export-model","name":"Export"}],"edges":[{"source":"reference-image","target":"generate-model"},{"source":"generate-model","target":"retopology"},{"source":"retopology","target":"export-model"}]}}
 {"timestamp":"2026-07-28T09:00:00.510Z","event":"tool_call","turnId":"turn-42","toolCallId":"call-3","name":"update_node_parameters","arguments":{"nodeId":"retopology","parameters":{"faceLimit":8000,"faceType":"Quad"}}}

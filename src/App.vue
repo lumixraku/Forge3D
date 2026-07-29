@@ -16,53 +16,11 @@ import { Attachment } from './editor/attachment'
 import { mergeNodeRuns } from './node-runs'
 import { summarizeRun } from './run-summary'
 import { frameComponentGap, frameInsets, layoutWorkflow } from './workflow-layout'
-import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeCategories, nodeDefinition, nodeDisplayName, nodeInputPorts, nodeOutputPorts } from './workflow-nodes'
+import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeCategories, nodeDefaults, nodeDefinition, nodeDisplayName, nodeInputPorts, nodeOutputPorts } from './workflow-nodes'
 
 const ModelEditor = defineAsyncComponent(() => import('./components/ModelEditor.vue'))
 
-const nodePresentation = {
-  frame: ['SECTION', 'Workflow group', 'slate'],
-  'reference-image': ['INPUT', 'Reference source', 'cyan'],
-  'generated-image': ['OUTPUT', 'Generated view', 'amber'],
-  prompt: ['PROMPT', 'Creative direction', 'violet'],
-  'generate-image': ['IMAGE', 'Concept generation', 'amber'],
-  'image-decomposition': ['DECOMPOSE', 'Image parts', 'cyan'],
-  'generate-multiview-images': ['MULTI-VIEW', 'Four-view generation', 'amber'],
-  review: ['CHECK', 'Approval gate', 'rose'],
-  'generate-model': ['3D MODEL', 'Image or text to 3D', 'green'],
-  'smart-mesh': ['3D MODEL', 'Smart mesh generation', 'green'],
-  'multiview-to-3d': ['3D MODEL', 'Four-view reconstruction', 'green'],
-  'text-to-3d': ['3D MODEL', 'Text to 3D', 'green'],
-  retopology: ['MESH', 'Geometry optimization', 'rose'],
-  bake: ['BAKE', 'Bake two models', 'rose'],
-  texture: ['MATERIAL', 'UV texture generation', 'violet'],
-  rigging: ['RIG', 'Auto rigging', 'violet'],
-  split: ['SPLIT', 'Part segmentation', 'cyan'],
-  'model-preview': ['REVIEW', 'Interactive preview', 'cyan'],
-  'export-model': ['EXPORT', 'Export image or 3D model', 'amber'],
-}
-
-const nodeConfigDefaults = {
-  frame: {},
-  'reference-image': { sourceType: 'Upload', reference: '', background: 'Keep', preview: '/shark-reference.png' },
-  'generated-image': { sourceType: 'Generated', reference: '', background: 'Keep', preview: '/shark-concept-front.png' },
-  prompt: { prompt: 'Production-ready stylized 3D asset', strength: 80 },
-  'generate-image': { model: 'GPT Image 2', count: 4, aspectRatio: '1:1', referenceMode: 'Image + Prompt', previews: ['/shark-concept-front.png', '/shark-concept-left.png', '/shark-concept-right.png', '/shark-concept-back.png'] },
-  'image-decomposition': { modelVersion: 'gemini_2.5_flash_image_preview', prompt: '', amount: 4, scale: '1:1', resolution: '1K', templateKey: 'asset_extraction', previews: [] },
-  'generate-multiview-images': { model: 'GPT Image 2', aspectRatio: '1:1', referenceMode: 'Image + Prompt', viewPreviews: { front: '/shark-concept-front.png', back: '/shark-concept-back.png', left: '/shark-concept-left.png', right: '/shark-concept-right.png' } },
-  review: { instruction: 'Review the generated image before continuing.', preview: '/shark-concept-front.png', approved: false },
-  'generate-model': { modelVersion: 'Smart Mesh', textureMode: 'PBR', faceType: 'Triangle', faceCount: 20000, preview: '/shark-model.png' },
-  'smart-mesh': { faceType: 'Triangle', faceCount: 20000, textureQuality: 'No texture', pbr: true, preview: '/shark-model.png' },
-  'multiview-to-3d': { modelVersion: 'Smart Mesh', textureMode: 'PBR', faceType: 'Triangle', faceCount: 20000, preview: '/shark-model.png' },
-  'text-to-3d': { modelVersion: 'Smart Mesh', textureMode: 'PBR', faceType: 'Triangle', faceCount: 20000, preview: '/shark-model.png' },
-  retopology: { modelVersion: 'v2.0', faceType: 'Triangle', faceLimit: 10000, bakeTextures: true, preview: '/shark-retopology.png' },
-  bake: { preview: '/shark-model.png' },
-  texture: { textureQuality: '2K', pbr: true, preview: '/shark-textured.png' },
-  rigging: { preview: '/shark-model.png' },
-  split: { subdivision: 'Medium', complete: true, preview: '/shark-model.png' },
-  'model-preview': { environment: 'Studio', autoRotate: true, wireframe: false, preview: '/shark-review.png' },
-  'export-model': { modelFormat: 'GLB', exportTargets: ['dcc'], preview: '/shark-model.png' },
-}
+const nodePresentation = Object.fromEntries(nodeCatalog.map((node) => [node.type, [node.presentation.kind, node.presentation.detail, node.presentation.tone]]))
 
 const workflows = ref([])
 const activeWorkflow = ref(null)
@@ -433,9 +391,7 @@ async function toCanvas(workflow) {
         data: { label: node.name, description: node.config?.description || '', manualSize: Boolean(node.config?.manualSize) },
       }
     }
-    // Image to 3D and Text to 3D are merged into one "Gen Model" node; display
-    // any legacy text-to-3d node as generate-model (identical config, gains a text port).
-    const type = node.type === 'text-to-3d' ? 'generate-model' : node.type
+    const type = node.type
     const [kind, detail, tone] = nodePresentation[type] || ['STEP', type, 'cyan']
     return {
       id: node.id,
@@ -467,8 +423,8 @@ async function toCanvas(workflow) {
   const seenEdges = new Set()
   edges.value = workflow.edges
     .map((edge) => {
-      const sourceType = workflowNodes.get(edge.source.nodeId)?.type === 'text-to-3d' ? 'generate-model' : workflowNodes.get(edge.source.nodeId)?.type
-      const targetType = workflowNodes.get(edge.target.nodeId)?.type === 'text-to-3d' ? 'generate-model' : workflowNodes.get(edge.target.nodeId)?.type
+      const sourceType = workflowNodes.get(edge.source.nodeId)?.type
+      const targetType = workflowNodes.get(edge.target.nodeId)?.type
       const sourceHandle = nodeOutputPorts(sourceType)[0]?.id
       const targetHandle = nodeInputPorts(targetType)[0]?.id
       const key = `${edge.source.nodeId}->${edge.target.nodeId}`
@@ -493,22 +449,23 @@ async function toCanvas(workflow) {
 }
 
 function normalizeNodeConfig(type, config = {}) {
-  const normalized = { ...nodeConfigDefaults[type], ...config }
+  const normalized = { ...nodeDefaults(type), ...config }
   if (type === 'generate-image' && Array.isArray(normalized.previews) && !normalized.previews.includes(normalized.selectedPreview)) normalized.selectedPreview = normalized.previews[0] || null
   if (['generate-model', 'text-to-3d'].includes(type)) {
-    if (config.quality && !config.modelVersion) normalized.modelVersion = config.quality === 'standard' ? 'Smart Mesh' : config.quality
-    if (typeof config.texture === 'boolean' && !config.textureMode) normalized.textureMode = config.texture ? 'PBR' : 'None'
+    if (config.quality && !config.modelVersion) normalized.modelVersion = config.quality === 'standard' ? 'v3.0-20250812' : config.quality
   }
-  if (type === 'retopology' && config.targetFaces && !config.faceLimit) normalized.faceLimit = config.targetFaces
+  if (type === 'retopology') {
+    if (config.targetFaces && !config.faceLimit) normalized.faceLimit = config.targetFaces
+    if (config.faceType && !config.topology) normalized.topology = String(config.faceType).toLowerCase() === 'quad' ? 'quad' : 'triangle'
+  }
   if (type === 'texture') {
-    if (!config.textureQuality && typeof config.resolution === 'string') normalized.textureQuality = ['2K', '4K', '8K'].includes(config.resolution.toUpperCase()) ? config.resolution.toUpperCase() : '2K'
+    if (!config.textureQuality && typeof config.resolution === 'string') normalized.textureQuality = { '2K': 'standard', '4K': 'detailed', '8K': 'extreme' }[config.resolution.toUpperCase()] || 'standard'
     delete normalized.model
     delete normalized.resolution
     delete normalized.style
   }
-  if (type === 'export-model' && !Array.isArray(config.exportTargets)) normalized.exportTargets = ['dcc']
-  if (type === 'model-preview' && config.viewer === 'turntable' && config.autoRotate === undefined) normalized.autoRotate = true
   if (type === 'model-preview') delete normalized.background
+  if (type === 'export-model' && config.format && !config.modelFormat) normalized.modelFormat = String(config.format).toLowerCase() === 'glb' ? 'gltf' : String(config.format).toLowerCase()
   return normalized
 }
 
@@ -1164,7 +1121,7 @@ function addNode(type, sourceId, position) {
       tone,
       status: 'ready',
       workflowType: type,
-      config: structuredClone(nodeConfigDefaults[type]),
+      config: nodeDefaults(type),
       inputTypes: nodeDefinition(type)?.inputTypes || [],
       outputType: nodeDefinition(type)?.outputType || null,
       inputPorts: nodeInputPorts(type),

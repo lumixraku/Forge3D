@@ -1,24 +1,10 @@
 import { describeWorkflowParameters, workflowParameters } from './workflow-parameters.js'
 import { randomUUID } from './ids.js'
+import { applyNodeParameter, nodeDefaults as schemaDefaults, workflowNodeSchema } from '../src/workflow-schema.js'
 
-export const nodeDefaults = {
-  'reference-image': { name: 'Image Upload', config: { sourceType: 'Upload', reference: '', background: 'Keep', preview: '/shark-reference.png' } },
-  prompt: { name: 'Text Prompt', config: { prompt: 'Production-ready stylized 3D asset', strength: 80 } },
-  'generate-image': { name: 'Gen Image', config: { model: 'GPT Image 2', count: 4, aspectRatio: '1:1', referenceMode: 'Image + Prompt', previews: ['/shark-concept-front.png', '/shark-concept-left.png', '/shark-concept-right.png', '/shark-concept-back.png'] } },
-  'generate-multiview-images': { name: 'Generate Multi-view Images', config: { model: 'GPT Image 2', aspectRatio: '1:1', referenceMode: 'Image + Prompt', viewPreviews: { front: '/shark-concept-front.png', back: '/shark-concept-back.png', left: '/shark-concept-left.png', right: '/shark-concept-right.png' } } },
-  'generate-model': { name: 'Gen HD Model', config: { modelVersion: 'Smart Mesh', textureMode: 'PBR', faceType: 'Triangle', faceCount: 20000, preview: '/shark-model.png' } },
-  'smart-mesh': { name: 'Smart Mesh', config: { faceType: 'Triangle', faceCount: 20000, textureQuality: 'No texture', pbr: true, preview: '/shark-model.png' } },
-  'multiview-to-3d': { name: 'Multi-view to 3D', config: { modelVersion: 'Smart Mesh', textureMode: 'PBR', faceType: 'Triangle', faceCount: 20000, preview: '/shark-model.png' } },
-  review: { name: 'Check', config: { instruction: 'Check the generated image before continuing.', preview: '/shark-concept-front.png', approved: false } },
-  'text-to-3d': { name: 'Text to 3D', config: { modelVersion: 'Smart Mesh', textureMode: 'PBR', faceType: 'Triangle', faceCount: 20000, preview: '/shark-model.png' } },
-  retopology: { name: 'Retopology', config: { modelVersion: 'v2.0', faceType: 'Triangle', faceLimit: 10000, bakeTextures: true, preview: '/shark-retopology.png' } },
-  bake: { name: 'Bake', config: { preview: '/shark-model.png' } },
-  texture: { name: 'UV Texture', config: { textureQuality: '2K', pbr: true, preview: '/shark-textured.png' } },
-  rigging: { name: 'Rigging', config: { preview: '/shark-model.png' } },
-  split: { name: 'Split', config: { subdivision: 'Medium', complete: true, preview: '/shark-model.png' } },
-  'model-preview': { name: 'Review 3D Result', config: { environment: 'Studio', autoRotate: true, wireframe: false, preview: '/shark-review.png' } },
-  'export-model': { name: 'Export', config: { modelFormat: 'GLB', exportTargets: ['dcc'] } },
-}
+export const nodeDefaults = Object.fromEntries(workflowNodeSchema
+  .filter((node) => node.type !== 'frame' && node.type !== 'generated-image')
+  .map((node) => [node.type, { name: node.label, config: schemaDefaults(node.type) }]))
 
 function frameName(message) {
   if (/blahaj|鲨鱼/i.test(message)) return 'Blahaj 3D Reconstruction'
@@ -133,7 +119,7 @@ export function rebuildDagEdges(nodes) {
 }
 
 export function buildWorkflowStructure(message, types, existingWorkflow = null) {
-  const normalizedTypes = [...new Set(types.map((type) => type === 'multiview-to-3d' ? 'generate-model' : type))].filter((type) => nodeDefaults[type])
+  const normalizedTypes = [...new Set(types)].filter((type) => nodeDefaults[type])
   if (!normalizedTypes.length) return existingWorkflow ? structuredClone(existingWorkflow) : baseWorkflow(message)
 
   const existingNodes = existingWorkflow ? structuredClone(existingWorkflow.nodes) : []
@@ -222,9 +208,8 @@ function insertBefore(workflow, type, beforeTypes) {
 
 export function addWorkflowStage(workflow, type, message = '') {
   const nextWorkflow = structuredClone(workflow)
-  type = type === 'multiview-to-3d' ? 'generate-model' : type
   const allowedTypes = new Set(['frame', ...Object.keys(nodeDefaults)])
-  if (!allowedTypes.has(type)) throw new Error(`Unsupported workflow stage: ${type}`)
+  if (!allowedTypes.has(type)) throw new Error(`Unsupported workflow node type: ${type}`)
 
   const changedNodeIds = []
   if (type === 'frame') {
@@ -252,7 +237,7 @@ function parameterHelpType(message) {
   if (/retopo|拓扑|减面/i.test(message)) return 'retopology'
   if (/texture|贴图|纹理/i.test(message)) return 'texture'
   if (/text[ -]?to[ -]?3d|文生3d/i.test(message)) return 'text-to-3d'
-  if (/multi[ -]?view|多视角|四视图/i.test(message)) return 'generate-model'
+  if (/multi[ -]?view|多视角|四视图/i.test(message)) return 'multiview-to-3d'
   if (/image[ -]?to[ -]?3d|图生3d/i.test(message)) return 'generate-model'
   if (/prompt|提示词/i.test(message)) return 'prompt'
   return null
@@ -272,7 +257,7 @@ function setParameter(workflow, changes, type, field, value) {
   if (definition.kind === 'enum' && !definition.values.includes(value)) return false
   const previousValue = node.config[field]
   if (previousValue === value) return true
-  node.config = { ...node.config, [field]: value }
+  node.config = applyNodeParameter(type, node.config, field, value)
   changes.push({ nodeId: node.id, nodeLabel: workflowParameters[type].label, fieldLabel: definition.label, previousValue, value })
   return true
 }
@@ -283,10 +268,10 @@ export function applyParameterChanges(message, workflow, changes) {
     ?? numberFrom(lower.match(/(?:face limit|target faces?|目标面数)[^\d]{0,12}(\d[\d,]*)/))
   if (retopoFaces !== null) setParameter(workflow, changes, 'retopology', 'faceLimit', retopoFaces)
 
-  const retopoFaceType = lower.match(/(?:retopo(?:logy)?|拓扑|减面)[^.;；。]{0,50}(triangle|quad|三角面|四边面)/)?.[1]
-    ?? lower.match(/(?:face type|面类型)[^.;；。]{0,12}(triangle|quad|三角面|四边面)/)?.[1]
-  if (retopoFaceType) {
-    setParameter(workflow, changes, 'retopology', 'faceType', /quad|四边面/.test(retopoFaceType) ? 'Quad' : 'Triangle')
+  const retopoTopology = lower.match(/(?:retopo(?:logy)?|拓扑|减面)[^.;；。]{0,50}(triangle|quad|三角面|四边面)/)?.[1]
+    ?? lower.match(/(?:topology|面类型)[^.;；。]{0,12}(triangle|quad|三角面|四边面)/)?.[1]
+  if (retopoTopology) {
+    setParameter(workflow, changes, 'retopology', 'topology', /quad|四边面/.test(retopoTopology) ? 'quad' : 'triangle')
   }
 
   const generatedFaces = numberFrom(lower.match(/(?:text[ -]?to[ -]?3d|image[ -]?to[ -]?3d|generate(?:d)?|生成)[^\d]{0,30}(\d[\d,]*)\s*(?:faces?|面)/))
@@ -296,18 +281,15 @@ export function applyParameterChanges(message, workflow, changes) {
     setParameter(workflow, changes, type, 'faceCount', generatedFaces)
   }
 
-  const resolution = lower.match(/\b(1k|2k|4k)\b/)?.[1]?.toUpperCase()
-  if (resolution && /texture|uv|resolution|贴图|纹理|分辨率/i.test(message)) setParameter(workflow, changes, 'texture', 'textureQuality', resolution)
+  const resolution = lower.match(/\b(2k|4k|8k)\b/)?.[1]
+  if (resolution && /texture|uv|resolution|贴图|纹理|分辨率/i.test(message)) {
+    setParameter(workflow, changes, 'texture', 'textureQuality', { '2k': 'standard', '4k': 'detailed', '8k': 'extreme' }[resolution])
+  }
 
-  const strength = numberFrom(lower.match(/(?:prompt strength|提示词强度)[^\d]{0,12}(\d{1,3})\s*%?/))
-  if (strength !== null) setParameter(workflow, changes, 'prompt', 'strength', strength)
-
-  const version = lower.match(/\b(v(?:1\.0|2\.0|2\.5))\b/)?.[1]
+  const version = lower.match(/\b(v(?:2\.5|3\.0|3\.1)(?:-\d{8})?)\b/)?.[1]
   if (version) {
-    const canonical = `v${version.slice(1)}`
-    const type = /retopo|拓扑|减面/i.test(message)
-      ? 'retopology'
-      : workflow.nodes.some((node) => node.type === 'text-to-3d') ? 'text-to-3d' : workflow.nodes.some((node) => node.type === 'multiview-to-3d') ? 'multiview-to-3d' : 'generate-model'
+    const canonical = { 'v2.5': 'v2.5-20250123', 'v3.0': 'v3.0-20250812', 'v3.1': 'v3.1-20260211' }[version] || version
+    const type = workflow.nodes.some((node) => node.type === 'text-to-3d') ? 'text-to-3d' : workflow.nodes.some((node) => node.type === 'multiview-to-3d') ? 'multiview-to-3d' : 'generate-model'
     setParameter(workflow, changes, type, 'modelVersion', canonical)
   }
 }
@@ -320,7 +302,7 @@ export function planWorkflow(message, existingWorkflow) {
     const workflow = buildWorkflowStructure(message, requestedTypes, existingWorkflow)
     return {
       workflow,
-      reply: `I built a ${requestedTypes.includes('text-to-3d') ? 'text-to-3D' : 'image-first 3D'} workflow with ${requestedTypes.length} stages inside one frame.`,
+      reply: `I built a ${requestedTypes.includes('text-to-3d') ? 'text-to-3D' : 'image-first 3D'} workflow with ${requestedTypes.length} nodes inside one frame.`,
       changedNodeIds: workflow.nodes.filter((node) => !existingNodeIds.has(node.id)).map((node) => node.id),
       structureChanged: true,
     }
@@ -365,7 +347,7 @@ export function planWorkflow(message, existingWorkflow) {
     ? changes.length
       ? changes.map((change) => `${change.nodeLabel}: ${change.fieldLabel} ${change.previousValue} → ${change.value}`).join('\n')
       : structuralChanges.length
-        ? `I added ${structuralChanges.length} requested workflow stage${structuralChanges.length === 1 ? '' : 's'}.`
+        ? `I added ${structuralChanges.length} requested workflow node${structuralChanges.length === 1 ? '' : 's'}.`
         : 'I could not find a supported parameter change. Ask “What parameters can I adjust?” to see the available controls.'
     : `I created “${workflow.name}” as a reusable workflow. You can move nodes freely, edit the structure, and continue refining it through conversation.`
 
