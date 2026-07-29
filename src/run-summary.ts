@@ -11,6 +11,10 @@ interface WorkflowRun {
   nodeRuns: NodeRunMap
 }
 
+export function formatDuration(durationMs: number) {
+  return durationMs >= 1000 ? `${(durationMs / 1000).toFixed(2)} s` : `${durationMs} ms`
+}
+
 export function summarizeRun(run: WorkflowRun | null, nodes: SummaryNode[]) {
   if (!run) return null
   const nodeRuns = run.nodeRuns || {}

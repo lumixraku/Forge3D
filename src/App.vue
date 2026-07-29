@@ -5,18 +5,24 @@ import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
 import '@vue-flow/node-resizer/dist/style.css'
-import DOMPurify from 'dompurify'
-import { marked } from 'marked'
-import { EditorContent, useEditor } from '@tiptap/vue-3'
+import { useEditor } from '@tiptap/vue-3'
 import Placeholder from '@tiptap/extension-placeholder'
 import StarterKit from '@tiptap/starter-kit'
-import WorkflowNode from './components/WorkflowNode.vue'
+import AssetLibraryView from './components/AssetLibraryView.vue'
+import CanvasContextMenu from './components/CanvasContextMenu.vue'
+import CanvasToolbar from './components/CanvasToolbar.vue'
+import ChatPanel from './components/ChatPanel.vue'
 import FrameNode from './components/FrameNode.vue'
+import ImagePreviewOverlay from './components/ImagePreviewOverlay.vue'
+import RunLogPanel from './components/RunLogPanel.vue'
+import TopBar from './components/TopBar.vue'
+import WorkflowNode from './components/WorkflowNode.vue'
 import { Attachment } from './editor/attachment'
 import { buildAssetLibrary, buildAssetRails } from './asset-library'
+import { canContinueSelection, selectedOptionIds } from './chat-selection'
 import { applyLayoutPositions, buildSelectionFrame, fitFrameNodes, pointInAnyFrame, reparentDraggedNodes } from './frame-geometry'
 import { mergeNodeRuns } from './node-runs'
-import { summarizeRun } from './run-summary'
+import { formatDuration, summarizeRun } from './run-summary'
 import { edgeDefaults, nodePresentation, toCanvasGraph, toDomainWorkflow } from './workflow-canvas'
 import { buildFragment, importPlacementOffset, remapFragment, validateImportedWorkflow } from './workflow-fragment'
 import { frameComponentGap, frameInsets, layoutWorkflow } from './workflow-layout'
@@ -29,7 +35,6 @@ const activeWorkflow = ref(null)
 const conversation = ref(null)
 const nodes = ref([])
 const edges = ref([])
-const composerFileInput = ref(null)
 const composerVersion = ref(0)
 const busy = ref(false)
 const selectedOptions = ref({})
@@ -40,18 +45,12 @@ const run = ref(null)
 const nodeRuns = ref({})
 const error = ref('')
 const clipboardFragment = ref(null)
-const workflowImportInput = ref(null)
-const workflowImportDragging = ref(false)
-const workflowNameInput = ref(null)
-const renamingWorkflow = ref(false)
-const workflowNameDraft = ref('')
 const contextMenu = ref(null)
 const nodeMenuOpen = ref(false)
 const nodeMenuContext = ref(null)
 const viewportDismissVersion = ref(0)
 const workflowMenu = ref(null)
 const workflowSwitcherOpen = ref(false)
-const workflowSwitcherAnchor = ref(null)
 const theme = ref(localStorage.getItem('forge3d-theme') || 'system')
 const workspaceMode = ref('workflow')
 const canvasMode = ref('select')
@@ -131,13 +130,7 @@ function clearComposer() {
   composerVersion.value += 1
 }
 
-function openComposerFilePicker() {
-  composerFileInput.value?.click()
-}
-
-function addComposerFiles(event) {
-  const files = [...(event.target.files || [])]
-  event.target.value = ''
+function addComposerFiles(files) {
   for (const file of files) {
     const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : null
     composer.value?.chain().focus().insertAttachment({
@@ -148,9 +141,7 @@ function addComposerFiles(event) {
     }).insertContent(' ').run()
   }
 }
-function renderAssistantMarkdown(content) {
-  return DOMPurify.sanitize(marked.parse(content || '', { async: false, breaks: true, gfm: true, html: false }))
-}
+
 async function submitAgentTask(input) {
   const response = await fetch('/api/chat', {
     method: 'POST',
@@ -233,12 +224,8 @@ async function restoreAgentTasks(workflowId) {
   }
 }
 
-function selectedOptionIds(message) {
-  return message.selection?.selected_option_ids || selectedOptions.value[message.taskId] || []
-}
-
 function toggleSelectedOption(message, optionId) {
-  const current = selectedOptionIds(message)
+  const current = selectedOptionIds(message, selectedOptions.value)
   if (current.includes(optionId)) {
     selectedOptions.value = { ...selectedOptions.value, [message.taskId]: current.filter((id) => id !== optionId) }
   } else if (message.request.max === 1) {
@@ -248,13 +235,8 @@ function toggleSelectedOption(message, optionId) {
   }
 }
 
-function canContinueSelection(message) {
-  const count = selectedOptionIds(message).length
-  return count >= message.request.min && count <= message.request.max
-}
-
 async function continueTask(message) {
-  if (!canContinueSelection(message) || continuingTaskId.value) return
+  if (!canContinueSelection(message, selectedOptions.value) || continuingTaskId.value) return
   continuingTaskId.value = message.taskId
   error.value = ''
   message.pending = true
@@ -262,7 +244,7 @@ async function continueTask(message) {
     const response = await fetch(`/api/tasks/${message.taskId}/continue`, {
       method: 'POST',
       headers: { accept: 'text/event-stream', 'content-type': 'application/json' },
-      body: JSON.stringify({ request_id: message.request.request_id, selected_option_ids: selectedOptionIds(message) }),
+      body: JSON.stringify({ request_id: message.request.request_id, selected_option_ids: selectedOptionIds(message, selectedOptions.value) }),
     })
     if (!response.ok) {
       const data = await response.json().catch(() => ({}))
@@ -279,9 +261,6 @@ async function continueTask(message) {
   }
 }
 
-function formatDuration(durationMs) {
-  return durationMs >= 1000 ? `${(durationMs / 1000).toFixed(2)} s` : `${durationMs} ms`
-}
 const runSummary = computed(() => {
   if (!run.value) return 'Ready to run'
   const nodeRuns = Object.values(run.value.nodeRuns)
@@ -327,6 +306,7 @@ const selectedCount = computed(() => selectedNodes.value.length + selectedEdges.
 const hasSelectedNode = computed(() => selectedNodes.value.length > 0)
 const hasSelection = computed(() => selectedCount.value > 0)
 const panOnDrag = computed(() => canvasMode.value === 'move')
+const toolbarMenuOpen = computed(() => nodeMenuOpen.value && !nodeMenuContext.value)
 
 const assetLibrary = computed(() => buildAssetLibrary(nodes.value))
 const assetRails = computed(() => buildAssetRails(assetLibrary.value))
@@ -647,27 +627,9 @@ async function createWorkflow() {
   }
 }
 
-function startRenameWorkflow() {
-  if (!activeWorkflow.value || busy.value || workspaceMode.value !== 'workflow') return
-  workflowNameDraft.value = activeWorkflow.value.name
-  renamingWorkflow.value = true
-  nextTick(() => {
-    workflowNameInput.value?.focus()
-    workflowNameInput.value?.select()
-  })
-}
-
-async function commitRenameWorkflow() {
-  if (!renamingWorkflow.value) return
-  renamingWorkflow.value = false
-  const name = workflowNameDraft.value.trim()
-  if (!activeWorkflow.value || !name || name === activeWorkflow.value.name) return
+async function renameWorkflow(name) {
   activeWorkflow.value = { ...activeWorkflow.value, name }
   await saveWorkflow()
-}
-
-function cancelRenameWorkflow() {
-  renamingWorkflow.value = false
 }
 
 async function exportWorkflow(workflowId) {
@@ -699,28 +661,6 @@ async function importWorkflowFile(file) {
   } catch (caught) {
     error.value = `Workflow import failed: ${caught.message}`
   }
-}
-
-function importWorkflow(event) {
-  const [file] = event.target.files
-  event.target.value = ''
-  importWorkflowFile(file)
-}
-
-function onWorkflowImportDragOver(event) {
-  event.preventDefault()
-  workflowImportDragging.value = true
-}
-
-function onWorkflowImportDragLeave() {
-  workflowImportDragging.value = false
-}
-
-function onWorkflowImportDrop(event) {
-  event.preventDefault()
-  workflowImportDragging.value = false
-  const [file] = event.dataTransfer.files
-  importWorkflowFile(file)
 }
 
 async function runWorkflow(targetNodeId, scope = 'node') {
@@ -866,11 +806,6 @@ function closeModelEditor() {
 
 function openImagePreview(preview) {
   imagePreview.value = preview
-}
-
-function scrollRail(event, direction) {
-  const track = event.currentTarget.closest('.asset-rail')?.querySelector('.asset-rail-track')
-  track?.scrollBy({ left: direction * Math.min(track.clientWidth * 0.85, 520), behavior: 'smooth' })
 }
 
 function closeImagePreview() {
@@ -1111,17 +1046,8 @@ function closeWorkflowMenu() {
   workflowMenu.value = null
 }
 
-function toggleWorkflowSwitcher() {
-  workflowSwitcherOpen.value = !workflowSwitcherOpen.value
-}
-
 function closeWorkflowSwitcher() {
   workflowSwitcherOpen.value = false
-}
-
-function dismissWorkflowSwitcher(event) {
-  if (!workflowSwitcherOpen.value || workflowSwitcherAnchor.value?.contains(event.target)) return
-  closeWorkflowSwitcher()
 }
 
 function runWorkflowMenuAction(action) {
@@ -1132,7 +1058,7 @@ function runWorkflowMenuAction(action) {
 
 async function constrainContextMenu() {
   await nextTick()
-  const menu = contextMenu.value
+  const menu = contextMenu.value?.$el
   if (!menu || !nodeMenuContext.value) return
   const panel = document.querySelector('.flow-canvas')?.getBoundingClientRect()
   if (!panel) return
@@ -1419,7 +1345,6 @@ function handleKeyboard(event) {
 onMounted(async () => {
   window.addEventListener('keydown', handleKeyboard, true)
   window.addEventListener('pointerdown', closeWorkflowMenu)
-  window.addEventListener('pointerdown', dismissWorkflowSwitcher, true)
   systemTheme.addEventListener('change', handleSystemThemeChange)
   applyTheme()
   try {
@@ -1433,61 +1358,30 @@ onUnmounted(() => {
   composer.value?.destroy()
   window.removeEventListener('keydown', handleKeyboard, true)
   window.removeEventListener('pointerdown', closeWorkflowMenu)
-  window.removeEventListener('pointerdown', dismissWorkflowSwitcher, true)
   systemTheme.removeEventListener('change', handleSystemThemeChange)
 })
 </script>
 
+
 <template>
   <main class="app-shell">
-    <header class="topbar">
-      <div class="brand-lockup flex items-center gap-3 h-full px-[18px] border-r border-line">
-        <span class="brand-mark grid place-items-center w-[35px] h-[35px] rounded-[10px] bg-acid text-text-inverse font-mono font-semibold text-xs transition-all duration-150 hover:scale-105 hover:shadow-[0_0_0_3px] hover:shadow-acid/20">F3</span>
-        <div><strong class="block font-mono font-semibold text-sm tracking-[-0.03em]">Forge3D</strong><small class="block mt-[2px] text-text-muted text-[11px]">Conversational workflow studio</small></div>
-      </div>
-      <div v-if="activeWorkflow" class="workflow-title min-w-0 px-6" @pointerdown.stop>
-        <span class="label-mono">{{ workspaceMode === 'workflow' ? 'WORKFLOW' : 'MODEL EDITOR' }} / {{ activeWorkflow.revision.toString().padStart(2, '0') }}</span>
-        <input v-if="renamingWorkflow" ref="workflowNameInput" v-model="workflowNameDraft" class="workflow-title-input" type="text" @keydown.enter.prevent="commitRenameWorkflow" @keydown.esc.prevent="cancelRenameWorkflow" @blur="commitRenameWorkflow" />
-        <template v-else-if="workspaceMode === 'workflow'">
-          <div class="workflow-title-bar">
-            <strong class="workflow-title-name truncate" title="Double-click to rename" @dblclick="startRenameWorkflow">{{ activeWorkflow.name }}</strong>
-            <div class="workflow-title-actions">
-              <div ref="workflowSwitcherAnchor" class="workflow-switcher-anchor">
-                <div class="workflow-button-group" :class="{ open: workflowSwitcherOpen }">
-                  <button type="button" class="wbg-label" :aria-expanded="workflowSwitcherOpen" @click="toggleWorkflowSwitcher">
-                    <span>Workflows</span>
-                    <svg class="chevron-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
-                  </button>
-                  <button type="button" class="wbg-new" :disabled="busy" @click="createWorkflow">New</button>
-                </div>
-                <div v-if="workflowSwitcherOpen" class="workflow-switcher-panel">
-                  <div class="workflow-switcher-head"><span>WORKFLOWS · {{ workflows.length }}</span></div>
-                  <div class="workflow-switcher-list">
-                    <button v-for="workflow in workflows" :key="workflow.id" class="workflow-list-item" :class="{ active: activeWorkflow?.id === workflow.id }" @click="openWorkflow(workflow.id)" @contextmenu="openWorkflowMenu($event, workflow)">
-                      <span>{{ workflow.name }}</span><small>{{ workflow.nodeCount }} nodes · v{{ workflow.revision }}</small>
-                    </button>
-                  </div>
-                  <p class="workflow-switcher-note">Right-click a workflow for export, duplicate, or delete.</p>
-                </div>
-              </div>
-              <button class="wbg-import" :class="{ dragging: workflowImportDragging }" type="button" :disabled="busy" @click="workflowImportInput.click()" @dragover="onWorkflowImportDragOver" @dragleave="onWorkflowImportDragLeave" @drop="onWorkflowImportDrop">{{ workflowImportDragging ? 'Drop JSON' : 'Import JSON' }}</button>
-              <input ref="workflowImportInput" class="file-input" type="file" accept="application/json,.json" @change="importWorkflow" />
-            </div>
-          </div>
-        </template>
-        <strong v-else class="block mt-[3px] text-sm truncate">{{ activeWorkflow.name }}</strong>
-      </div>
-      <div class="topbar-actions flex items-center gap-2 pr-4">
-        <div v-if="workspaceMode === 'workflow'" class="workspace-view-switch" role="group" aria-label="Workspace view">
-          <button type="button" :class="{ active: canvasView === 'canvas' }" :aria-pressed="canvasView === 'canvas'" title="Workflow canvas" @click="canvasView = 'canvas'"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5.2" height="5.2" rx="1.2" /><rect x="8.8" y="2" width="5.2" height="5.2" rx="1.2" /><rect x="2" y="8.8" width="5.2" height="5.2" rx="1.2" /><rect x="8.8" y="8.8" width="5.2" height="5.2" rx="1.2" /></svg><span>Canvas</span></button>
-          <button type="button" :class="{ active: canvasView === 'assets' }" :aria-pressed="canvasView === 'assets'" title="Asset library" @click="canvasView = 'assets'"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3.5" width="9" height="7" rx="1.4" /><rect x="5" y="6" width="9" height="7" rx="1.4" opacity=".5" /></svg><span>Assets</span></button>
-        </div>
-        <span class="save-state w-[15ch] truncate text-right text-text-muted font-mono text-[9px]">{{ savedState }}</span>
-        <div class="theme-switcher" aria-label="Theme">
-          <button v-for="option in ['light', 'dark', 'system']" :key="option" :class="{ active: theme === option }" :aria-pressed="theme === option" @click="setTheme(option)">{{ option }}</button>
-        </div>
-      </div>
-    </header>
+    <TopBar
+      v-model:switcher-open="workflowSwitcherOpen"
+      :active-workflow="activeWorkflow"
+      :workflows="workflows"
+      :workspace-mode="workspaceMode"
+      :canvas-view="canvasView"
+      :saved-state="savedState"
+      :theme="theme"
+      :busy="busy"
+      @rename="renameWorkflow"
+      @open-workflow="openWorkflow"
+      @create-workflow="createWorkflow"
+      @workflow-context-menu="openWorkflowMenu($event.event, $event.workflow)"
+      @import-file="importWorkflowFile"
+      @set-theme="setTheme"
+      @update:canvas-view="canvasView = $event"
+    />
 
     <div v-if="workflowMenu" class="workflow-menu" :style="{ left: `${workflowMenu.left}px`, top: `${workflowMenu.top}px` }" @pointerdown.stop>
       <button type="button" @click="runWorkflowMenuAction(exportWorkflow)">Export JSON</button>
@@ -1496,71 +1390,65 @@ onUnmounted(() => {
     </div>
 
     <section v-if="workspaceMode === 'workflow'" class="workspace">
-      <section class="chat-panel bg-bg-panel border-r border-line">
-        <header><div><span>WORKFLOW COPILOT</span><b>DeepSeek tool-calling agent</b></div><i /></header>
-        <div class="message-list">
-          <article v-for="message in messages" :key="message.id" class="message" :class="[message.role, { pending: message.pending }]">
-            <span>{{ message.role === 'assistant' ? 'FORGE' : 'YOU' }}</span>
-            <template v-if="message.role === 'assistant'">
-              <div v-if="message.pending" class="thinking-progress"><b>Thinking</b><span>{{ message.progress.at(-1)?.label || 'Preparing workflow agent' }}</span></div>
-              <details v-else-if="message.progress?.length" class="thought-process"><summary>Thought process <small>Tool activity</small></summary><span v-for="(event, index) in message.progress" :key="`${event.label}-${index}`">{{ event.label }}</span></details>
-              <div v-if="message.content" class="message-content" v-html="renderAssistantMarkdown(message.content)" />
-              <section v-if="message.request" class="user-selection">
-                <p>{{ message.request.prompt }}</p>
-                <small>Select {{ message.request.min === message.request.max ? message.request.min : `${message.request.min}–${message.request.max}` }} option{{ message.request.max === 1 ? '' : 's' }}.</small>
-                <div class="user-selection-options">
-                  <button v-for="option in message.request.options" :key="option.id" type="button" :class="{ selected: selectedOptionIds(message).includes(option.id) }" :disabled="Boolean(message.selection) || message.pending || continuingTaskId === message.taskId" @click="toggleSelectedOption(message, option.id)">{{ option.label }}</button>
-                </div>
-                <span v-if="message.selection" class="user-selection-answered">Answered</span>
-                <button v-else class="user-selection-submit" type="button" :disabled="!canContinueSelection(message) || message.pending || continuingTaskId === message.taskId" @click="continueTask(message)">{{ continuingTaskId === message.taskId ? 'Continuing…' : 'Continue' }}</button>
-              </section>
-            </template>
-            <p v-else>{{ message.content }}</p>
-          </article>
-        </div>
-        <p v-if="error" class="error-message">{{ error }}</p>
-        <form class="composer" @submit.prevent="sendMessage">
-          <EditorContent :editor="composer" />
-          <input ref="composerFileInput" class="file-input" type="file" multiple @change="addComposerFiles" />
-          <div class="composer-actions"><button class="composer-attach-button" type="button" title="Attach files" @click="openComposerFilePicker">Attach</button><span>⌘ ENTER TO SEND</span><button :disabled="busy || !composerHasContent">Send ↗</button></div>
-        </form>
-      </section>
+      <ChatPanel
+        :messages="messages"
+        :editor="composer"
+        :busy="busy"
+        :error="error"
+        :composer-has-content="composerHasContent"
+        :continuing-task-id="continuingTaskId"
+        :selected-options="selectedOptions"
+        @send="sendMessage"
+        @attach-files="addComposerFiles"
+        @toggle-option="toggleSelectedOption($event.message, $event.optionId)"
+        @continue-task="continueTask"
+      />
 
       <section class="canvas-panel bg-bg-secondary" @pointerdown.capture="selectCanvasEdge" @pointerdown="closeContextMenu">
-        <div class="canvas-toolbar">
-          <div><span>{{ canvasView === 'assets' ? 'ASSET LIBRARY' : 'CANVAS' }}</span><b v-if="canvasView === 'assets'">{{ assetLibrary.total }} assets · {{ assetLibrary.reference.length }} reference · {{ assetLibrary.images.length }} 2D · {{ assetLibrary.models.length }} 3D</b><b v-else>{{ nodes.length }} nodes · {{ edges.length }} connections · {{ selectedCount }} selected</b></div>
-          <div><div class="canvas-view-switch" role="group" aria-label="Canvas view"><button type="button" :class="{ active: canvasView === 'canvas' }" :aria-pressed="canvasView === 'canvas'" title="Workflow canvas" @click="canvasView = 'canvas'"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5.2" height="5.2" rx="1.2" /><rect x="8.8" y="2" width="5.2" height="5.2" rx="1.2" /><rect x="2" y="8.8" width="5.2" height="5.2" rx="1.2" /><rect x="8.8" y="8.8" width="5.2" height="5.2" rx="1.2" /></svg><span>Canvas</span></button><button type="button" :class="{ active: canvasView === 'assets' }" :aria-pressed="canvasView === 'assets'" title="Asset library" @click="canvasView = 'assets'"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3.5" width="9" height="7" rx="1.4" /><rect x="5" y="6" width="9" height="7" rx="1.4" opacity=".5" /></svg><span>Assets</span></button></div><template v-if="canvasView === 'canvas'"><div class="canvas-mode-switch" role="group" aria-label="Canvas interaction mode"><button type="button" :class="{ active: canvasMode === 'select' }" :aria-pressed="canvasMode === 'select'" title="Select and marquee" @click="canvasMode = 'select'"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 1.8 12.3 9l-4.1.7 2.2 3.7-2.1 1.2-2.1-3.7L3 13.5Z" /></svg><span>Select</span></button><button type="button" :class="{ active: canvasMode === 'move' }" :aria-pressed="canvasMode === 'move'" title="Move canvas" @click="canvasMode = 'move'"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.8 7V3.4a1 1 0 0 1 2 0V6h.4V2.8a1 1 0 0 1 2 0V6h.4V4a1 1 0 0 1 2 0v4.5l.5-.8a1 1 0 0 1 1.7 1l-2 3.5a3.3 3.3 0 0 1-2.9 1.7H8.3a3.3 3.3 0 0 1-2.8-1.6L3.2 8.5a1 1 0 0 1 1.7-1Z" /></svg><span>Move</span></button></div><div class="node-menu"><button class="add-node-button" :disabled="!activeWorkflow" @click="nodeMenuContext = null; nodeMenuOpen = !nodeMenuOpen">+ Add node</button><div v-if="nodeMenuOpen && !nodeMenuContext" class="node-menu-popover canvas-node-menu" @pointerdown.stop>
-            <template v-for="category in nodeCategories" :key="category">
-              <strong v-if="catalogForMenu().some((item) => item.category === category)">{{ category }}</strong>
-              <button v-for="item in catalogForMenu().filter((item) => item.category === category)" :key="item.type" type="button" draggable="true" @dragstart="startNodeDrag($event, item.type)" @click="selectNodeType(item.type)">
-                <span>{{ item.label }}</span><small>{{ item.description }}</small>
-              </button>
-            </template>
-          </div></div><button :disabled="!activeWorkflow" @click="addNode('frame')">Section</button><button @click="fitView({ padding: .18, duration: 400 })">Fit</button><button :disabled="busy || saving || !nodes.length" @click="autoLayout">Auto layout</button></template><button class="run-button" :disabled="busy || isRunning || !activeWorkflow || !hasSelectedNode" @click="runWorkflow()">{{ isRunning ? 'Running current workflow…' : 'Run current workflow' }}</button></div>
-        </div>
-        <div v-if="nodeMenuOpen && nodeMenuContext" ref="contextMenu" class="node-menu-popover canvas-node-menu contextual" :class="{ 'selection-menu': nodeMenuContext.kind === 'selection' }" :style="{ left: `${nodeMenuContext.left}px`, top: `${nodeMenuContext.top}px`, maxWidth: `${nodeMenuContext.maxWidth}px`, maxHeight: `${nodeMenuContext.maxHeight}px` }" @pointerdown.stop>
-          <template v-if="nodeMenuContext.kind === 'selection'">
-             <strong>Selection</strong>
-             <button type="button" :disabled="!canFrameSelection" @click="runContextMenuAction(makeSelectionFrame)"><span>Make as a section</span></button>
-             <button type="button" :disabled="!canDissolveSelection" @click="runContextMenuAction(dissolveSelectedFrames)"><span>Dissolve section</span></button>
-             <button type="button" @click="runContextMenuAction(createWorkflowFromSelection)"><span>Create workflow</span></button>
-             <button type="button" @click="runContextMenuAction(copySelected)"><span>Copy</span></button>
-             <button type="button" :disabled="!clipboardFragment" @click="runContextMenuAction(pasteFragment)"><span>Paste</span></button>
-             <button type="button" @click="runContextMenuAction(duplicateSelected)"><span>Duplicate selected</span></button>
-            <button type="button" @click="runContextMenuAction(deleteSelected)"><span>Delete</span></button>
-           </template>
-           <template v-else>
-             <strong>Canvas</strong>
-             <button type="button" :disabled="!clipboardFragment" @click="runContextMenuAction(pasteFragment)"><span>Paste</span></button>
-             <template v-for="category in nodeCategories" :key="category">
-              <strong v-if="catalogForMenu().some((item) => item.category === category)">{{ category }}</strong>
-              <button v-for="item in catalogForMenu().filter((item) => item.category === category)" :key="item.type" type="button" draggable="true" @dragstart="startNodeDrag($event, item.type)" @click="selectNodeType(item.type)">
-                <span>{{ item.label }}</span><small>{{ item.description }}</small>
-              </button>
-            </template>
-            <small v-if="!catalogForMenu().length" class="node-menu-empty">No compatible node types</small>
-          </template>
-        </div>
+        <CanvasToolbar
+          :canvas-view="canvasView"
+          :canvas-mode="canvasMode"
+          :node-count="nodes.length"
+          :edge-count="edges.length"
+          :selected-count="selectedCount"
+          :asset-library="assetLibrary"
+          :has-workflow="Boolean(activeWorkflow)"
+          :busy="busy"
+          :saving="saving"
+          :is-running="isRunning"
+          :has-selected-node="hasSelectedNode"
+          :menu-open="toolbarMenuOpen"
+          :catalog="catalogForMenu()"
+          :categories="nodeCategories"
+          @update:canvas-view="canvasView = $event"
+          @update:canvas-mode="canvasMode = $event"
+          @toggle-menu="nodeMenuContext = null; nodeMenuOpen = !nodeMenuOpen"
+          @select-node-type="selectNodeType"
+          @drag-node-type="startNodeDrag($event.event, $event.type)"
+          @add-frame="addNode('frame')"
+          @fit-view="fitView({ padding: .18, duration: 400 })"
+          @auto-layout="autoLayout"
+          @run="runWorkflow()"
+        />
+        <CanvasContextMenu
+          v-if="nodeMenuOpen && nodeMenuContext"
+          ref="contextMenu"
+          :context="nodeMenuContext"
+          :catalog="catalogForMenu()"
+          :categories="nodeCategories"
+          :can-frame-selection="canFrameSelection"
+          :can-dissolve-selection="canDissolveSelection"
+          :has-clipboard="Boolean(clipboardFragment)"
+          @frame-selection="runContextMenuAction(makeSelectionFrame)"
+          @dissolve-selection="runContextMenuAction(dissolveSelectedFrames)"
+          @create-workflow="runContextMenuAction(createWorkflowFromSelection)"
+          @copy="runContextMenuAction(copySelected)"
+          @paste="runContextMenuAction(pasteFragment)"
+          @duplicate="runContextMenuAction(duplicateSelected)"
+          @delete="runContextMenuAction(deleteSelected)"
+          @select-node-type="selectNodeType"
+          @drag-node-type="startNodeDrag($event.event, $event.type)"
+        />
         <VueFlow v-show="canvasView === 'canvas'" v-model:nodes="nodes" v-model:edges="edges" :class="['flow-canvas', `canvas-mode-${canvasMode}`]" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="canvasMode === 'select' ? true : null" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @viewport-change-start="dismissCanvasPopups" @pointerdown.capture="onCanvasPointerDown" @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
           <template #node-frame="props"><FrameNode v-bind="props" :running="busy || isRunning" :zoom="viewport.zoom" @update-name="updateNodeName(props.id, $event)" @run-workflow="runWorkflow()" @resize-start="onFrameResizeStart(props.id)" @resize-end="onFrameResizeEnd" /></template>
           <template #node-workflow="props"><WorkflowNode v-bind="props" :node-run="nodeRuns[props.id] || null" :run-id="run?.id || null" :inbound-type="inboundExportTarget(props.id)" :inbound-image="inboundImage(props.id)" :node-catalog="compatibleNodeTypes(props.data.workflowType)" :viewport-dismiss-version="viewportDismissVersion" @update-config="updateNodeConfig(props.id, $event)" @update-name="updateNodeName(props.id, $event)" @open-model-editor="openModelEditor(props.id)" @preview-image="openImagePreview" @add-next="addNode($event, props.id)" @run-workflow="runWorkflow($event, 'downstream')" @run-downstream="runWorkflow($event, 'downstream')" /></template>
@@ -1568,46 +1456,12 @@ onUnmounted(() => {
           <MiniMap position="bottom-right" :width="160" :height="100" :pannable="true" :zoomable="true" :mask-color="resolvedTheme === 'dark' ? 'rgba(10, 12, 12, .7)' : 'rgba(238, 241, 238, .72)'" :node-color="resolvedTheme === 'dark' ? '#606a63' : '#a6afa9'" :node-stroke-color="resolvedTheme === 'dark' ? '#929a94' : '#737d76'" :node-stroke-width="1" :node-border-radius="4" />
           <Controls position="bottom-right" />
         </VueFlow>
-        <div v-if="canvasView === 'assets'" class="asset-library">
-          <div v-if="!assetLibrary.total" class="asset-empty">
-            <strong>No assets yet</strong>
-            <span>References, generated 2D images and 3D models from this workflow collect here.</span>
-          </div>
-          <template v-else>
-            <section v-for="rail in assetRails" :key="rail.key" class="asset-rail">
-              <header class="asset-rail-header">
-                <div><span>{{ rail.title }}</span><b>{{ rail.items.length }}</b></div>
-                <div v-if="rail.items.length" class="asset-rail-nav">
-                  <button type="button" aria-label="Scroll left" @click="scrollRail($event, -1)">‹</button>
-                  <button type="button" aria-label="Scroll right" @click="scrollRail($event, 1)">›</button>
-                </div>
-              </header>
-              <div v-if="rail.items.length" class="asset-rail-track">
-                <article v-for="item in rail.items" :key="item.id" class="asset-card">
-                  <button type="button" class="asset-card-thumb" @click="openImagePreview({ src: item.src, alt: item.label })"><img :src="item.src" :alt="item.label" loading="lazy" /></button>
-                  <div class="asset-card-meta"><strong :title="item.label">{{ item.label }}</strong><span class="asset-card-badge">{{ rail.badge }}</span></div>
-                  <button v-if="rail.key === 'models'" type="button" class="asset-card-open" title="Open in Model Editor" @click="openModelEditor(item.nodeId)">↗</button>
-                </article>
-              </div>
-              <p v-else class="asset-rail-empty">No {{ rail.title.toLowerCase() }} yet</p>
-            </section>
-          </template>
-        </div>
-        <aside v-if="runDetails && runSummaryOpen" class="run-log-panel bg-bg-card border-t border-line-strong">
-          <header><div><span>RUN LOG</span><b>{{ runDetails.id }} · {{ runDetails.completed }}/{{ runDetails.total }} steps · {{ formatDuration(runDetails.totalDurationMs) }}</b></div><button type="button" aria-label="Close run log" @click="runSummaryOpen = false">×</button></header>
-          <div class="run-log-steps">
-            <article v-for="step in runDetails.steps" :key="step.id" class="run-log-step" :class="step.status"><i /><div><strong>{{ step.label }}</strong><small>{{ step.message }}</small></div><span>{{ step.status }}</span><b>{{ step.durationMs === null ? 'Pending' : formatDuration(step.durationMs) }}</b></article>
-          </div>
-        </aside>
+        <AssetLibraryView v-if="canvasView === 'assets'" :rails="assetRails" :total="assetLibrary.total" @preview="openImagePreview" @open-model-editor="openModelEditor" />
+        <RunLogPanel v-if="runDetails && runSummaryOpen" :details="runDetails" @close="runSummaryOpen = false" />
         <footer><div class="run-status"><span><i />{{ runSummary }}</span><button v-if="runDetails" type="button" :aria-expanded="runSummaryOpen" @click="runSummaryOpen = !runSummaryOpen">{{ runSummaryOpen ? 'Hide logs' : 'Logs' }} <b>{{ runSummaryOpen ? '↓' : '↑' }}</b></button></div><span>Click or drag a node from Add node · Drop a connection on empty canvas to create a compatible node · Press / to add</span></footer>
       </section>
     </section>
     <ModelEditor v-else-if="modelEditorNode" :node="modelEditorNode" @back="closeModelEditor" @update-config="updateNodeConfig(modelEditorNode.id, $event)" />
-    <Teleport to="body">
-      <div v-if="imagePreview" class="image-preview-backdrop" role="dialog" aria-modal="true" :aria-label="imagePreview.alt" @click.self="closeImagePreview">
-        <button type="button" class="image-preview-close" aria-label="Close image preview" @click="closeImagePreview">×</button>
-        <img class="image-preview-image" :src="imagePreview.src" :alt="imagePreview.alt" />
-      </div>
-    </Teleport>
+    <ImagePreviewOverlay :preview="imagePreview" @close="closeImagePreview" />
   </main>
 </template>
