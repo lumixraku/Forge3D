@@ -61,7 +61,7 @@ export const canvasToolDefinitions = [
   },
   {
     name: 'request_user_select',
-    description: 'Pause the task and ask the user to select one or more options before continuing.',
+    description: 'Pause the turn and ask the user to select one or more options before continuing.',
     parameters: {
       type: 'object',
       properties: {

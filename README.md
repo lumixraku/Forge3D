@@ -17,7 +17,7 @@ Forge3D combines two editing modes over the same authoritative canvas document:
 1. **Conversational editing**: the Canvas Copilot inspects, builds, and updates the graph through validated tools.
 2. **Direct manipulation**: the user adds, connects, moves, groups, configures, copies, runs, imports, and exports nodes on the canvas.
 
-The important architectural boundary is that Vue Flow is a renderer and interaction surface, not the persisted data model. The server owns a framework-neutral canvas JSON document containing domain nodes, semantic edges, viewport state, revision metadata, conversation history, Agent tasks, and mock execution runs.
+The important architectural boundary is that Vue Flow is a renderer and interaction surface, not the persisted data model. The server owns a framework-neutral canvas JSON document containing domain nodes, semantic edges, viewport state, revision metadata, conversation history, Agent turns, and mock execution runs.
 
 ## Current Product Surface
 
@@ -543,7 +543,7 @@ The current editor is a visualization demo, not a persistent mesh-editing backen
 ```json
 {
   "schemaVersion": "1.0",
-  "id": "wf-example",
+  "id": "canvas-example",
   "name": "Stylized Character Pipeline",
   "description": "Generate and prepare a production model.",
   "revision": 3,
@@ -595,7 +595,7 @@ The persisted edge shape remains semantic and does not persist Vue Flow's comple
 ```json
 {
   "id": "conv-example",
-  "canvasId": "wf-example",
+  "canvasId": "canvas-example",
   "createdAt": "2026-07-27T10:00:00.000Z",
   "updatedAt": "2026-07-27T10:05:00.000Z",
   "messages": [
@@ -609,15 +609,15 @@ The persisted edge shape remains semantic and does not persist Vue Flow's comple
 }
 ```
 
-### Agent Task
+### Agent Turn
 
-Tasks persist queued, active, waiting, successful, and failed Agent turns. Important fields include:
+Turns persist queued, active, waiting, successful, and failed Agent turns. Important fields include:
 
 ```json
 {
-  "id": "task-example",
-  "threadId": "conv-example",
-  "canvasId": "wf-example",
+  "id": "turn-example",
+  "conversationId": "conv-example",
+  "canvasId": "canvas-example",
   "message": "Add retopology and export",
   "status": "waiting_for_user",
   "progress": [],
@@ -642,7 +642,7 @@ Tasks persist queued, active, waiting, successful, and failed Agent turns. Impor
 ```json
 {
   "id": "run-example",
-  "canvasId": "wf-example",
+  "canvasId": "canvas-example",
   "canvasRevision": 3,
   "status": "running",
   "createdAt": "2026-07-27T10:00:00.000Z",
@@ -834,19 +834,18 @@ Input:
 }
 ```
 
-Option IDs must be unique, the option list must be non-empty, and `1 <= min <= max <= options.length`. The task becomes `waiting_for_user`, persists the request, emits the selection event, and closes the current stream.
+Option IDs must be unique, the option list must be non-empty, and `1 <= min <= max <= options.length`. The turn becomes `waiting_for_user`, persists the request, emits the selection event, and closes the current stream.
 
 ## Agent SSE Protocol
 
 The browser opens the stream with `fetch`, not `EventSource`, because the request is a POST:
 
 ```http
-POST /api/chat
+POST /api/canvases/canvas-example/turns
 Accept: text/event-stream
 Content-Type: application/json
 
 {
-  "canvasId": "wf-example",
   "message": "Add retopology and export"
 }
 ```
@@ -863,7 +862,7 @@ Every SSE frame has a transport event name, a JSON business payload, and a trans
 
 ```text
 event: message
-data: {"type":"progress","thread_id":"conv-example","turn_id":"task-example","step_id":"progress-1","label":"Building canvas","status":"running"}
+data: {"type":"progress","conversation_id":"conv-example","turn_id":"turn-example","step_id":"progress-1","label":"Building canvas","status":"running"}
 id: 2-0
 
 ```
@@ -871,8 +870,8 @@ id: 2-0
 - Normal business events use `event: message`.
 - Failures use `event: error`.
 - The business event type is always `data.type`.
-- Every payload contains `thread_id` and `turn_id`.
-- SSE `id:` is `<task.eventId>-0` and is not the same as a chat message's JSON `id`.
+- Every payload contains `conversation_id` and `turn_id`.
+- SSE `id:` is `<turn.eventId>-0` and is not the same as a chat message's JSON `id`.
 - Final assistant text is sent as one complete event, not token deltas.
 - Event replay using `Last-Event-ID` is not implemented.
 
@@ -880,7 +879,7 @@ id: 2-0
 
 | `data.type` | Important fields | Frontend behavior |
 | --- | --- | --- |
-| `task-start` | `canvas_id` | Bind the server task ID to the optimistic assistant message. |
+| `turn-start` | `canvas_id` | Bind the server turn ID to the optimistic assistant message. |
 | `progress` | `step_id`, `label`, `status` | Append safe visible Agent activity. |
 | `request_user_select` | `request` | Stop pending state and render a choice card. |
 | `text` | `step_id`, `id`, `text` | Replace pending text with the complete assistant reply. |
@@ -891,7 +890,7 @@ id: 2-0
 Successful sequence:
 
 ```text
-task-start
+turn-start
 progress × N
 text
 canvas-updated
@@ -901,7 +900,7 @@ finish
 Selection sequence:
 
 ```text
-task-start
+turn-start
 progress × N
 request_user_select
 stream closes
@@ -910,7 +909,7 @@ stream closes
 Failure sequence:
 
 ```text
-task-start
+turn-start
 progress × N
 error
 ```
@@ -920,7 +919,7 @@ The canvas itself is never embedded in `canvas-updated`. The event is an invalid
 ### Continuing A Selection
 
 ```http
-POST /api/tasks/:taskId/continue
+POST /api/turns/:turnId/continue
 Accept: text/event-stream
 Content-Type: application/json
 
@@ -930,7 +929,7 @@ Content-Type: application/json
 }
 ```
 
-The server validates task state, request ID, unique options, allowed option IDs, and min/max selection count. It persists the answer, adds a user conversation message containing selected labels, returns the task to `queued`, and starts a fresh Agent call using the original request plus the selection.
+The server validates turn state, request ID, unique options, allowed option IDs, and min/max selection count. It persists the answer, adds a user conversation message containing selected labels, returns the turn to `queued`, and starts a fresh Agent call using the original request plus the selection.
 
 Submitting the exact same request ID and ordered selection again is idempotent. A conflicting second answer returns `409`.
 
@@ -1059,16 +1058,16 @@ them. Filter with `?kind=reference|image|model`, `?producerNodeId=`,
 }
 ```
 
-### Chat And Tasks
+### Turns
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/api/chat` | Create an Agent task; returns SSE when requested or `202` JSON otherwise. |
+| `POST` | `/api/canvases/:canvasId/turns` | Start an Agent turn; returns SSE when requested or `202` JSON otherwise. Pass `new` as `:canvasId` to create the canvas with the turn. |
 | `GET` | `/api/canvases/:canvasId/conversation` | Return the canvas conversation and its full message history. |
-| `GET` | `/api/tasks` | Filter tasks by `canvasId` and comma-separated `status`. |
-| `POST` | `/api/tasks/:id/continue` | Validate a selection and resume a waiting task. |
+| `GET` | `/api/canvases/:canvasId/turns` | List the canvas's turns, filtered by comma-separated `status`. |
+| `POST` | `/api/turns/:id/continue` | Validate a selection and resume a waiting turn. |
 
-If `/api/chat` omits `canvasId`, the server creates an empty `New canvas`. A missing API key returns `503`; no mock chat reply is generated.
+Posting a turn to `/api/canvases/new/turns` creates an empty `New canvas` first. A missing API key returns `503`; no mock reply is generated.
 
 The conversation is its own resource rather than a field on the canvas document,
 so the canvas and its history are fetched independently. Opening a canvas issues
@@ -1084,7 +1083,7 @@ The application persists four collections:
 canvases
 conversations
 runs
-tasks
+turns
 ```
 
 ### Local JSON Store
@@ -1095,7 +1094,7 @@ The Node server stores runtime state in `server/data/`:
 server/data/canvases/<canvas-id>.json
 server/data/conversations.json
 server/data/runs.json
-server/data/tasks.json
+server/data/turns.json
 ```
 
 Missing files are initialized from committed `server/seed/` examples. Canvas files are split by ID, while the remaining collections use array files.
@@ -1276,7 +1275,7 @@ This runs tests, applies the remote D1 migration, and deploys. It does not run `
 
 Without `AGENT_SERVICE_URL`, the Worker executes the direct DeepSeek tool loop. An external Pi Agent Service can be configured with `AGENT_SERVICE_URL`, but it must be reachable from Cloudflare and secured before public exposure.
 
-The Worker uses `ctx.waitUntil()` for non-streaming background Agent tasks. Its concurrency and steering behavior is not fully equivalent to the local Node server's in-memory canvas queues.
+The Worker uses `ctx.waitUntil()` for non-streaming background Agent turns. Its concurrency and steering behavior is not fully equivalent to the local Node server's in-memory canvas queues.
 
 ## Environment And Bindings
 
@@ -1315,7 +1314,7 @@ The model default is currently not unified across `.env.example`, the direct Age
 │   ├── agent-client.ts              # NDJSON Agent Service client
 │   ├── deepseek.ts                  # Direct DeepSeek tool-call loop
 │   ├── ids.ts                       # ID helpers
-│   ├── index.ts                     # Local HTTP API, SSE, queues, task lifecycle
+│   ├── index.ts                     # Local HTTP API, SSE, queues, turn lifecycle
 │   ├── mock-runs.ts                 # Topological simulated execution
 │   ├── node-state.ts                # Latest per-node run recovery
 │   ├── planner.ts                   # Canvas construction and stage insertion
@@ -1399,8 +1398,8 @@ An independent implementation should preserve these invariants:
 6. Use POST + fetch streaming for SSE, not `EventSource`.
 7. Send full final assistant messages, not token deltas.
 8. Keep raw Agent tool calls private; expose only safe progress labels.
-9. Pause finite decisions as persisted `waiting_for_user` tasks.
-10. Restore queued, running, and waiting tasks when reopening a canvas.
+9. Pause finite decisions as persisted `waiting_for_user` turns.
+10. Restore queued, running, and waiting turns when reopening a canvas.
 11. Keep frames out of DAG edges while preserving compound canvas layout.
 12. Preserve hidden compatibility node definitions for old canvases.
 13. Separate conceptual typed ports from the current universal rendered handles.
@@ -1440,7 +1439,7 @@ When documentation and implementation diverge, use these files in this order:
 3. `src/components/CanvasNode.vue` and `FrameNode.vue` for node UI.
 4. `server/canvas-parameters.ts` for Agent-editable parameter validation.
 5. `server/planner.ts` and `server/deepseek.ts` for Agent graph mutation semantics.
-6. `server/index.ts` for local HTTP/SSE/task lifecycle.
+6. `server/index.ts` for local HTTP/SSE/turn lifecycle.
 7. `worker.ts` for production API and D1 behavior.
 8. `agent-service/run.ts` and `server/agent-client.ts` for Pi/NDJSON behavior.
 9. Tests for intentionally preserved edge cases and migration behavior.

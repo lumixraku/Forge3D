@@ -124,15 +124,15 @@ const {
   syncHistoryCanvas,
   fitFramesAfterRender,
   loadConversation: (id) => loadConversation(id),
-  restoreAgentTasks: (id) => restoreAgentTasks(id),
+  restoreTurns: (id) => restoreTurns(id),
   pasteFragment,
   resetWorkspace,
   closeCanvasSwitcher,
 })
 
 const {
-  composer, composerHasContent, messages, selectedOptions, continuingTaskId, addComposerFiles,
-  loadConversation, restoreAgentTasks, toggleSelectedOption, continueTask, sendMessage,
+  composer, composerHasContent, messages, selectedOptions, continuingTurnId, addComposerFiles,
+  loadConversation, restoreTurns, toggleSelectedOption, continueTurn, sendMessage,
 } = useAgentChat({
   activeCanvas,
   conversation,
@@ -648,12 +648,12 @@ onUnmounted(() => {
         :busy="busy"
         :error="error"
         :composer-has-content="composerHasContent"
-        :continuing-task-id="continuingTaskId"
+        :continuing-turn-id="continuingTurnId"
         :selected-options="selectedOptions"
         @send="sendMessage"
         @attach-files="addComposerFiles"
         @toggle-option="toggleSelectedOption($event.message, $event.optionId)"
-        @continue-task="continueTask"
+        @continue-turn="continueTurn"
       />
 
       <section class="canvas-panel bg-bg-secondary" @pointerdown.capture="selectCanvasEdge" @pointerdown="closeContextMenu">

@@ -11,14 +11,14 @@ const props = defineProps<{
   busy: boolean
   error: string
   composerHasContent: boolean
-  continuingTaskId: string | null
+  continuingTurnId: string | null
   selectedOptions: Record<string, string[]>
 }>()
 const emit = defineEmits<{
   send: []
   'attach-files': [files: File[]]
   'toggle-option': [payload: { message: any; optionId: string }]
-  'continue-task': [message: any]
+  'continue-turn': [message: any]
 }>()
 const fileInput = ref<HTMLInputElement | null>(null)
 
@@ -55,10 +55,10 @@ function addFiles(event) {
             <p>{{ message.request.prompt }}</p>
             <small>Select {{ message.request.min === message.request.max ? message.request.min : `${message.request.min}–${message.request.max}` }} option{{ message.request.max === 1 ? '' : 's' }}.</small>
             <div class="user-selection-options">
-              <button v-for="option in message.request.options" :key="option.id" type="button" :class="{ selected: optionIds(message).includes(option.id) }" :disabled="Boolean(message.selection) || message.pending || continuingTaskId === message.taskId" @click="emit('toggle-option', { message, optionId: option.id })">{{ option.label }}</button>
+              <button v-for="option in message.request.options" :key="option.id" type="button" :class="{ selected: optionIds(message).includes(option.id) }" :disabled="Boolean(message.selection) || message.pending || continuingTurnId === message.turnId" @click="emit('toggle-option', { message, optionId: option.id })">{{ option.label }}</button>
             </div>
             <span v-if="message.selection" class="user-selection-answered">Answered</span>
-            <button v-else class="user-selection-submit" type="button" :disabled="!canContinue(message) || message.pending || continuingTaskId === message.taskId" @click="emit('continue-task', message)">{{ continuingTaskId === message.taskId ? 'Continuing…' : 'Continue' }}</button>
+            <button v-else class="user-selection-submit" type="button" :disabled="!canContinue(message) || message.pending || continuingTurnId === message.turnId" @click="emit('continue-turn', message)">{{ continuingTurnId === message.turnId ? 'Continuing…' : 'Continue' }}</button>
           </section>
         </template>
         <p v-else>{{ message.content }}</p>

@@ -5,7 +5,7 @@ import { createInitialConversation, createCanvas, emptyConversation } from './se
 import { runDeepSeekAgent } from './server/deepseek.js'
 import { runAgentViaService } from './server/agent-client.js'
 
-const collections = ['canvases', 'conversations', 'runs', 'tasks']
+const collections = ['canvases', 'conversations', 'runs', 'turns']
 const terminalStatuses = new Set(['succeeded', 'failed'])
 
 function id() {
@@ -48,11 +48,11 @@ function sseResponse(body) {
   })
 }
 
-function taskEvent(task, type, fields = {}) {
-  task.eventId = (task.eventId || 0) + 1
+function turnEvent(turn, type, fields = {}) {
+  turn.eventId = (turn.eventId || 0) + 1
   return {
-    id: `${task.eventId}-0`,
-    data: { type, thread_id: task.threadId, turn_id: task.id, ...fields },
+    id: `${turn.eventId}-0`,
+    data: { type, conversation_id: turn.conversationId, turn_id: turn.id, ...fields },
   }
 }
 
@@ -68,56 +68,56 @@ function conversationFor(state, canvasId) {
   return state.conversations.find((conversation) => conversation.canvasId === canvasId)
 }
 
-function taskById(state, taskId) {
-  return state.tasks.find((task) => task.id === taskId)
+function turnById(state, turnId) {
+  return state.turns.find((turn) => turn.id === turnId)
 }
 
-async function executeAgentTask(env, state, task, emit = async () => {}) {
+async function executeAgentTurn(env, state, turn, emit = async () => {}) {
   try {
-    task.status = 'running'
-    task.startedAt = new Date().toISOString()
-    await writeCollections(env, state, ['tasks'])
-    await emit(taskEvent(task, 'task-start', { canvas_id: task.canvasId }))
-    const canvas = canvasById(state, task.canvasId)
+    turn.status = 'running'
+    turn.startedAt = new Date().toISOString()
+    await writeCollections(env, state, ['turns'])
+    await emit(turnEvent(turn, 'turn-start', { canvas_id: turn.canvasId }))
+    const canvas = canvasById(state, turn.canvasId)
     if (!canvas) throw new Error('Canvas not found')
-    const conversation = conversationFor(state, task.canvasId)
+    const conversation = conversationFor(state, turn.canvasId)
     const runAgent = env.AGENT_SERVICE_URL ? runAgentViaService : runDeepSeekAgent
     const plan = await runAgent({
       serviceUrl: env.AGENT_SERVICE_URL,
       apiKey: env.DEEPSEEK_API_KEY,
       baseUrl: env.DEEPSEEK_BASE_URL,
       model: env.DEEPSEEK_MODEL,
-      message: task.selection ? `${task.message}\n\nThe user selected: ${task.selection.selected_option_ids.map((optionId) => task.request.options.find((option) => option.id === optionId)?.label || optionId).join(', ')}. Continue the task using this selection.` : task.message,
+      message: turn.selection ? `${turn.message}\n\nThe user selected: ${turn.selection.selected_option_ids.map((optionId) => turn.request.options.find((option) => option.id === optionId)?.label || optionId).join(', ')}. Continue the turn using this selection.` : turn.message,
       canvas,
       history: conversation?.messages || [],
       onProgress: async (event) => {
-        task.progress.push(event)
-        task.updatedAt = new Date().toISOString()
-        await writeCollections(env, state, ['tasks'])
-        await emit(taskEvent(task, 'progress', { step_id: `progress-${task.progress.length}`, ...event }))
+        turn.progress.push(event)
+        turn.updatedAt = new Date().toISOString()
+        await writeCollections(env, state, ['turns'])
+        await emit(turnEvent(turn, 'progress', { step_id: `progress-${turn.progress.length}`, ...event }))
       },
     })
     if (plan.userSelectionRequest) {
-      task.status = 'waiting_for_user'
-      delete task.selection
-      task.request = { request_id: `request-${id()}`, ...plan.userSelectionRequest }
+      turn.status = 'waiting_for_user'
+      delete turn.selection
+      turn.request = { request_id: `request-${id()}`, ...plan.userSelectionRequest }
       const now = new Date().toISOString()
-      const conversationIndex = state.conversations.findIndex((item) => item.canvasId === task.canvasId)
+      const conversationIndex = state.conversations.findIndex((item) => item.canvasId === turn.canvasId)
       const nextConversation = conversationIndex < 0
-        ? { id: task.threadId, canvasId: task.canvasId, messages: [], createdAt: now }
+        ? { id: turn.conversationId, canvasId: turn.canvasId, messages: [], createdAt: now }
         : structuredClone(state.conversations[conversationIndex])
-      if (!nextConversation.messages.some((message) => message.taskId === task.id && message.role === 'user')) {
-        nextConversation.messages.push({ id: `msg-${id()}`, role: 'user', content: task.message, taskId: task.id, createdAt: now })
+      if (!nextConversation.messages.some((message) => message.turnId === turn.id && message.role === 'user')) {
+        nextConversation.messages.push({ id: `msg-${id()}`, role: 'user', content: turn.message, turnId: turn.id, createdAt: now })
       }
-      const requestMessage = { id: `msg-${id()}`, role: 'assistant', content: '', taskId: task.id, request: task.request, progress: task.progress, createdAt: now }
+      const requestMessage = { id: `msg-${id()}`, role: 'assistant', content: '', turnId: turn.id, request: turn.request, progress: turn.progress, createdAt: now }
       nextConversation.messages.push(requestMessage)
       nextConversation.updatedAt = now
-      task.requestMessageId = requestMessage.id
-      task.updatedAt = new Date().toISOString()
+      turn.requestMessageId = requestMessage.id
+      turn.updatedAt = new Date().toISOString()
       if (conversationIndex < 0) state.conversations.push(nextConversation)
       else state.conversations[conversationIndex] = nextConversation
-      await writeCollections(env, state, ['conversations', 'tasks'])
-      await emit(taskEvent(task, 'request_user_select', { request: task.request }))
+      await writeCollections(env, state, ['conversations', 'turns'])
+      await emit(turnEvent(turn, 'request_user_select', { request: turn.request }))
       return
     }
     const index = state.canvases.findIndex((item) => item.id === plan.canvas.id)
@@ -130,24 +130,24 @@ async function executeAgentTask(env, state, task, emit = async () => {}) {
     }
     const now = new Date().toISOString()
     const assistantMessageId = `msg-${id()}`
-    if (!task.requestMessageId) nextConversation.messages.push({ id: `msg-${id()}`, role: 'user', content: task.message, createdAt: now })
-    nextConversation.messages.push({ id: assistantMessageId, role: 'assistant', content: plan.reply, progress: task.progress, createdAt: now })
+    if (!turn.requestMessageId) nextConversation.messages.push({ id: `msg-${id()}`, role: 'user', content: turn.message, createdAt: now })
+    nextConversation.messages.push({ id: assistantMessageId, role: 'assistant', content: plan.reply, progress: turn.progress, createdAt: now })
     nextConversation.updatedAt = now
-    task.status = 'succeeded'
-    task.result = clone({ ...plan, conversation: nextConversation })
-    task.completedAt = new Date().toISOString()
-    task.updatedAt = task.completedAt
-    await writeCollections(env, state, ['canvases', 'conversations', 'tasks'])
-    await emit(taskEvent(task, 'text', { step_id: 'final-response', id: assistantMessageId, text: plan.reply }))
-    await emit(taskEvent(task, 'canvas-updated', { canvas_id: task.canvasId, changed_node_ids: plan.changedNodeIds, structure_changed: plan.structureChanged }))
-    await emit(taskEvent(task, 'finish', { finish_reason: 'stop' }))
+    turn.status = 'succeeded'
+    turn.result = clone({ ...plan, conversation: nextConversation })
+    turn.completedAt = new Date().toISOString()
+    turn.updatedAt = turn.completedAt
+    await writeCollections(env, state, ['canvases', 'conversations', 'turns'])
+    await emit(turnEvent(turn, 'text', { step_id: 'final-response', id: assistantMessageId, text: plan.reply }))
+    await emit(turnEvent(turn, 'canvas-updated', { canvas_id: turn.canvasId, changed_node_ids: plan.changedNodeIds, structure_changed: plan.structureChanged }))
+    await emit(turnEvent(turn, 'finish', { finish_reason: 'stop' }))
   } catch (error) {
-    task.status = 'failed'
-    task.error = error.message
-    task.completedAt = new Date().toISOString()
-    task.updatedAt = task.completedAt
-    await writeCollections(env, state, ['tasks'])
-    await emit(taskEvent(task, 'error', { error: task.error }))
+    turn.status = 'failed'
+    turn.error = error.message
+    turn.completedAt = new Date().toISOString()
+    turn.updatedAt = turn.completedAt
+    await writeCollections(env, state, ['turns'])
+    await emit(turnEvent(turn, 'error', { error: turn.error }))
   }
 }
 
@@ -196,8 +196,8 @@ async function route(request, env, ctx) {
     state.canvases.splice(index, 1)
     state.conversations = state.conversations.filter((conversation) => conversation.canvasId !== parts[2])
     state.runs = state.runs.filter((run) => run.canvasId !== parts[2])
-    state.tasks = state.tasks.filter((task) => task.canvasId !== parts[2] || terminalStatuses.has(task.status))
-    await writeCollections(env, state, ['canvases', 'conversations', 'runs', 'tasks'])
+    state.turns = state.turns.filter((turn) => turn.canvasId !== parts[2] || terminalStatuses.has(turn.status))
+    await writeCollections(env, state, ['canvases', 'conversations', 'runs', 'turns'])
     return response(null, 204)
   }
   if (request.method === 'POST' && parts[1] === 'canvases' && parts[3] === 'duplicate') {
@@ -210,68 +210,76 @@ async function route(request, env, ctx) {
     await writeCollections(env, state, ['canvases', 'conversations'])
     return response(canvas, 201)
   }
-  if (request.method === 'GET' && parts[1] === 'tasks' && parts.length === 2) {
+  // Turns in progress for a canvas. The conversation holds the messages that
+  // already landed; this holds the ones still running, so a reload can pick an
+  // interrupted turn back up.
+  if (request.method === 'GET' && parts[1] === 'canvases' && parts[2] && parts[3] === 'turns' && parts.length === 4) {
+    const canvas = canvasById(state, parts[2])
+    if (!canvas) return response({ error: 'Canvas not found' }, 404)
     const statuses = new Set((url.searchParams.get('status') || '').split(',').filter(Boolean))
-    return response(state.tasks.filter((task) => (!url.searchParams.get('canvasId') || task.canvasId === url.searchParams.get('canvasId')) && (!statuses.size || statuses.has(task.status))))
+    return response(state.turns.filter((turn) => turn.canvasId === canvas.id && (!statuses.size || statuses.has(turn.status))))
   }
-  if (request.method === 'POST' && parts[1] === 'tasks' && parts[3] === 'continue' && parts.length === 4) {
-    const task = taskById(state, parts[2])
-    if (!task) return response({ error: 'Task not found' }, 404)
+  if (request.method === 'POST' && parts[1] === 'turns' && parts[3] === 'continue' && parts.length === 4) {
+    const turn = turnById(state, parts[2])
+    if (!turn) return response({ error: 'Turn not found' }, 404)
     const input = await parseJson(request)
     const selectedOptionIds = input.selected_option_ids
-    const existingSelection = task.selection
+    const existingSelection = turn.selection
     if (existingSelection) {
-      if (input.request_id === existingSelection.request_id && Array.isArray(selectedOptionIds) && selectedOptionIds.length === existingSelection.selected_option_ids.length && selectedOptionIds.every((optionId, index) => optionId === existingSelection.selected_option_ids[index])) return response(task)
+      if (input.request_id === existingSelection.request_id && Array.isArray(selectedOptionIds) && selectedOptionIds.length === existingSelection.selected_option_ids.length && selectedOptionIds.every((optionId, index) => optionId === existingSelection.selected_option_ids[index])) return response(turn)
       return response({ error: 'This selection was already submitted' }, 409)
     }
-    if (task.status !== 'waiting_for_user' || !task.request || input.request_id !== task.request.request_id) return response({ error: 'Task is not waiting for this selection' }, 409)
-    if (!Array.isArray(selectedOptionIds) || selectedOptionIds.some((optionId) => typeof optionId !== 'string') || new Set(selectedOptionIds).size !== selectedOptionIds.length || selectedOptionIds.length < task.request.min || selectedOptionIds.length > task.request.max || selectedOptionIds.some((optionId) => !task.request.options.some((option) => option.id === optionId))) return response({ error: 'Selected options are invalid' }, 400)
-    task.selection = { request_id: task.request.request_id, selected_option_ids: selectedOptionIds }
-    const conversation = state.conversations.find((item) => item.canvasId === task.canvasId)
-    const requestMessage = conversation?.messages.find((message) => message.id === task.requestMessageId)
-    const selectedLabels = selectedOptionIds.map((optionId) => task.request.options.find((option) => option.id === optionId).label)
+    if (turn.status !== 'waiting_for_user' || !turn.request || input.request_id !== turn.request.request_id) return response({ error: 'Turn is not waiting for this selection' }, 409)
+    if (!Array.isArray(selectedOptionIds) || selectedOptionIds.some((optionId) => typeof optionId !== 'string') || new Set(selectedOptionIds).size !== selectedOptionIds.length || selectedOptionIds.length < turn.request.min || selectedOptionIds.length > turn.request.max || selectedOptionIds.some((optionId) => !turn.request.options.some((option) => option.id === optionId))) return response({ error: 'Selected options are invalid' }, 400)
+    turn.selection = { request_id: turn.request.request_id, selected_option_ids: selectedOptionIds }
+    const conversation = state.conversations.find((item) => item.canvasId === turn.canvasId)
+    const requestMessage = conversation?.messages.find((message) => message.id === turn.requestMessageId)
+    const selectedLabels = selectedOptionIds.map((optionId) => turn.request.options.find((option) => option.id === optionId).label)
     if (conversation && requestMessage) {
-      requestMessage.selection = task.selection
-      conversation.messages.push({ id: `msg-${id()}`, role: 'user', content: selectedLabels.join(', '), taskId: task.id, selection: task.selection, createdAt: new Date().toISOString() })
+      requestMessage.selection = turn.selection
+      conversation.messages.push({ id: `msg-${id()}`, role: 'user', content: selectedLabels.join(', '), turnId: turn.id, selection: turn.selection, createdAt: new Date().toISOString() })
       conversation.updatedAt = new Date().toISOString()
     }
-    task.status = 'queued'
-    task.updatedAt = new Date().toISOString()
-    await writeCollections(env, state, ['conversations', 'tasks'])
+    turn.status = 'queued'
+    turn.updatedAt = new Date().toISOString()
+    await writeCollections(env, state, ['conversations', 'turns'])
     if (!request.headers.get('accept')?.includes('text/event-stream')) {
-      ctx.waitUntil(executeAgentTask(env, state, task))
-      return response(task, 202)
+      ctx.waitUntil(executeAgentTurn(env, state, turn))
+      return response(turn, 202)
     }
     const { readable, writable } = new TransformStream()
     const writer = writable.getWriter()
-    const execution = executeAgentTask(env, state, task, (event) => writeSse(writer, event))
+    const execution = executeAgentTurn(env, state, turn, (event) => writeSse(writer, event))
       .catch(() => {})
       .finally(() => writer.close())
     ctx.waitUntil(execution)
     return sseResponse(readable)
   }
-  if (request.method === 'POST' && parts[1] === 'chat' && parts.length === 2) {
+  // Start a turn. `canvasId` may be `new`, which creates the canvas this turn
+  // will build, so the first message does not need a canvas up front.
+  if (request.method === 'POST' && parts[1] === 'canvases' && parts[2] && parts[3] === 'turns' && parts.length === 4) {
     const input = await parseJson(request)
     if (typeof input.message !== 'string' || !input.message.trim()) return response({ error: 'message is required' }, 400)
     if (!env.DEEPSEEK_API_KEY) return response({ error: 'DeepSeek is not configured.' }, 503)
-    const canvas = input.canvasId ? canvasById(state, input.canvasId) : createCanvas({ name: 'New canvas', nodes: [], edges: [] })
+    const isNew = parts[2] === 'new'
+    const canvas = isNew ? createCanvas({ name: 'New canvas', nodes: [], edges: [] }) : canvasById(state, parts[2])
     if (!canvas) return response({ error: 'Canvas not found' }, 404)
-    if (!input.canvasId) {
+    if (isNew) {
       state.canvases.push(canvas)
       state.conversations.push(createInitialConversation(canvas))
     }
     const now = new Date().toISOString()
     const conversation = conversationFor(state, canvas.id)
-    const task = { id: `task-${id()}`, threadId: conversation?.id || `conv-${id()}`, canvasId: canvas.id, message: input.message, status: 'queued', progress: [], eventId: 0, createdAt: now, updatedAt: now }
-    state.tasks.push(task)
-    await writeCollections(env, state, ['canvases', 'conversations', 'tasks'])
+    const turn = { id: `turn-${id()}`, conversationId: conversation?.id || `conv-${id()}`, canvasId: canvas.id, message: input.message, status: 'queued', progress: [], eventId: 0, createdAt: now, updatedAt: now }
+    state.turns.push(turn)
+    await writeCollections(env, state, ['canvases', 'conversations', 'turns'])
     if (!request.headers.get('accept')?.includes('text/event-stream')) {
-      ctx.waitUntil(executeAgentTask(env, state, task))
-      return response(task, 202)
+      ctx.waitUntil(executeAgentTurn(env, state, turn))
+      return response(turn, 202)
     }
     const { readable, writable } = new TransformStream()
     const writer = writable.getWriter()
-    const execution = executeAgentTask(env, state, task, (event) => writeSse(writer, event))
+    const execution = executeAgentTurn(env, state, turn, (event) => writeSse(writer, event))
       .catch(() => {})
       .finally(() => writer.close())
     ctx.waitUntil(execution)

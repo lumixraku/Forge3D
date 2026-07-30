@@ -7,7 +7,7 @@ const root = path.dirname(fileURLToPath(import.meta.url))
 const dataDirectory = path.join(root, 'data')
 const seedDirectory = path.join(root, 'seed')
 const canvasDirectory = path.join(dataDirectory, 'canvases')
-const collections = ['canvases', 'conversations', 'runs', 'tasks']
+const collections = ['canvases', 'conversations', 'runs', 'turns']
 const retiredNodeTypes = new Set(['save-asset'])
 
 export function migrateCanvas(canvas, now = () => new Date().toISOString()) {

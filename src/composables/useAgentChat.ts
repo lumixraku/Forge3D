@@ -7,11 +7,11 @@ import { canContinueSelection, selectedOptionIds } from '../chat-selection'
 import { Attachment } from '../editor/attachment'
 
 // The copilot side of the app: the tiptap composer, the SSE agent stream, and the
-// pending tasks (including user-selection follow-ups) attached to a canvas.
+// in-flight turns (including user-selection follow-ups) attached to a canvas.
 export function useAgentChat({ activeCanvas, conversation, busy, error, runToken, toCanvas, loadCanvasList, flushPendingSave }) {
   const composerVersion = ref(0)
   const selectedOptions = ref({})
-  const continuingTaskId = ref(null)
+  const continuingTurnId = ref(null)
   const messages = computed(() => conversation.value?.messages || [])
   const composer = useEditor({
     extensions: [
@@ -66,8 +66,8 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
     }
   }
 
-  async function submitAgentTask(input) {
-    const response = await fetch('/api/chat', {
+  async function submitTurn(canvasId, input) {
+    const response = await fetch(`/api/canvases/${canvasId}/turns`, {
       method: 'POST',
       headers: { accept: 'text/event-stream', 'content-type': 'application/json' },
       body: JSON.stringify(input),
@@ -84,12 +84,12 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
     conversation.value = await request(`/api/canvases/${canvasId}/conversation`)
   }
 
-  async function refreshCanvas(canvasId, taskId, structureChanged) {
+  async function refreshCanvas(canvasId, turnId, structureChanged) {
     const [document, nextConversation] = await Promise.all([
       request(`/api/canvases/${canvasId}`),
       request(`/api/canvases/${canvasId}/conversation`),
     ])
-    const pendingMessages = conversation.value?.messages.filter((item) => item.pending && item.taskId !== taskId) || []
+    const pendingMessages = conversation.value?.messages.filter((item) => item.pending && item.turnId !== turnId) || []
     activeCanvas.value = document.canvas
     conversation.value = { ...nextConversation, messages: [...nextConversation.messages, ...pendingMessages] }
     await toCanvas(document.canvas)
@@ -98,8 +98,8 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
   }
 
   function applyAgentEvent(event, pendingAssistantId) {
-    const pending = conversation.value?.messages.find((item) => item.id === pendingAssistantId || item.taskId === event.turn_id)
-    if (event.type === 'task-start' && pending) pending.taskId = event.turn_id
+    const pending = conversation.value?.messages.find((item) => item.id === pendingAssistantId || item.turnId === event.turn_id)
+    if (event.type === 'turn-start' && pending) pending.turnId = event.turn_id
     if (event.type === 'progress' && pending) pending.progress = [...(pending.progress || []), { label: event.label, status: event.status }]
     if (event.type === 'text' && pending) {
       pending.streamMessageId = event.id
@@ -110,8 +110,8 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
       pending.request = event.request
       pending.content = ''
     }
-    if (event.type === 'error') throw new Error(event.error || 'Agent task failed')
-    return event.type === 'finish' ? { taskId: event.turn_id } : null
+    if (event.type === 'error') throw new Error(event.error || 'Agent turn failed')
+    return event.type === 'finish' ? { turnId: event.turn_id } : null
   }
 
   async function consumeAgentStream(stream, pendingAssistantId, token = runToken.value) {
@@ -137,19 +137,19 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
       if (done) break
     }
     if (completion) {
-      const pending = conversation.value?.messages.find((item) => item.taskId === completion.taskId)
+      const pending = conversation.value?.messages.find((item) => item.turnId === completion.turnId)
       if (pending) pending.pending = false
     }
   }
 
-  async function restoreAgentTasks(canvasId) {
-    const tasks = await request(`/api/tasks?canvasId=${encodeURIComponent(canvasId)}&status=queued,running,waiting_for_user`)
-    for (const task of tasks) {
-      const existing = conversation.value?.messages.some((item) => item.taskId === task.id)
+  async function restoreTurns(canvasId) {
+    const turns = await request(`/api/canvases/${encodeURIComponent(canvasId)}/turns?status=queued,running,waiting_for_user`)
+    for (const turn of turns) {
+      const existing = conversation.value?.messages.some((item) => item.turnId === turn.id)
       if (!existing) {
         conversation.value.messages.push(
-          { id: `task-user-${task.id}`, role: 'user', content: task.message, taskId: task.id, createdAt: task.createdAt },
-          { id: `task-assistant-${task.id}`, role: 'assistant', content: '', progress: task.progress, taskId: task.id, createdAt: task.createdAt, pending: task.status !== 'waiting_for_user', request: task.status === 'waiting_for_user' ? task.request : null },
+          { id: `turn-user-${turn.id}`, role: 'user', content: turn.message, turnId: turn.id, createdAt: turn.createdAt },
+          { id: `turn-assistant-${turn.id}`, role: 'assistant', content: '', progress: turn.progress, turnId: turn.id, createdAt: turn.createdAt, pending: turn.status !== 'waiting_for_user', request: turn.status === 'waiting_for_user' ? turn.request : null },
         )
       }
     }
@@ -158,21 +158,21 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
   function toggleSelectedOption(message, optionId) {
     const current = selectedOptionIds(message, selectedOptions.value)
     if (current.includes(optionId)) {
-      selectedOptions.value = { ...selectedOptions.value, [message.taskId]: current.filter((id) => id !== optionId) }
+      selectedOptions.value = { ...selectedOptions.value, [message.turnId]: current.filter((id) => id !== optionId) }
     } else if (message.request.max === 1) {
-      selectedOptions.value = { ...selectedOptions.value, [message.taskId]: [optionId] }
+      selectedOptions.value = { ...selectedOptions.value, [message.turnId]: [optionId] }
     } else if (current.length < message.request.max) {
-      selectedOptions.value = { ...selectedOptions.value, [message.taskId]: [...current, optionId] }
+      selectedOptions.value = { ...selectedOptions.value, [message.turnId]: [...current, optionId] }
     }
   }
 
-  async function continueTask(message) {
-    if (!canContinueSelection(message, selectedOptions.value) || continuingTaskId.value) return
-    continuingTaskId.value = message.taskId
+  async function continueTurn(message) {
+    if (!canContinueSelection(message, selectedOptions.value) || continuingTurnId.value) return
+    continuingTurnId.value = message.turnId
     error.value = ''
     message.pending = true
     try {
-      const response = await fetch(`/api/tasks/${message.taskId}/continue`, {
+      const response = await fetch(`/api/turns/${message.turnId}/continue`, {
         method: 'POST',
         headers: { accept: 'text/event-stream', 'content-type': 'application/json' },
         body: JSON.stringify({ request_id: message.request.request_id, selected_option_ids: selectedOptionIds(message, selectedOptions.value) }),
@@ -183,12 +183,12 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
       }
       if (!response.body) throw new Error('Agent stream is unavailable')
       await consumeAgentStream(response.body, message.id, runToken.value)
-      delete selectedOptions.value[message.taskId]
+      delete selectedOptions.value[message.turnId]
     } catch (caught) {
       message.pending = false
       error.value = caught.message
     } finally {
-      continuingTaskId.value = null
+      continuingTurnId.value = null
     }
   }
 
@@ -207,14 +207,14 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
       messages: [
         ...messages.value,
         { id: `pending-user-${Date.now()}`, role: 'user', content: message, createdAt },
-        { id: pendingAssistantId, role: 'assistant', content: '', progress: [], taskId: null, createdAt, pending: true },
+        { id: pendingAssistantId, role: 'assistant', content: '', progress: [], turnId: null, createdAt, pending: true },
       ],
     }
     try {
       await flushPendingSave()
       const canvasId = activeCanvas.value?.id
       busy.value = false
-      const stream = await submitAgentTask({ message, canvasId })
+      const stream = await submitTurn(canvasId || 'new', { message })
       await consumeAgentStream(stream, pendingAssistantId, runToken.value)
     } catch (caught) {
       const current = conversation.value?.messages.find((item) => item.id === pendingAssistantId)
@@ -239,12 +239,12 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
     composerHasContent,
     messages,
     selectedOptions,
-    continuingTaskId,
+    continuingTurnId,
     addComposerFiles,
     loadConversation,
-    restoreAgentTasks,
+    restoreTurns,
     toggleSelectedOption,
-    continueTask,
+    continueTurn,
     sendMessage,
   }
 }

@@ -305,7 +305,7 @@ Adds one supported canvas node when that node type is not already present. Unlik
 
 ## 7. `request_user_select`
 
-Pauses the current task and asks the user to select one or more items from a finite option set. It is not intended for free-form input.
+Pauses the current turn and asks the user to select one or more items from a finite option set. It is not intended for free-form input.
 
 ### Arguments
 

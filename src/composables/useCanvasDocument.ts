@@ -23,7 +23,7 @@ export function useCanvasDocument({
   syncHistoryCanvas,
   fitFramesAfterRender,
   loadConversation,
-  restoreAgentTasks,
+  restoreTurns,
   pasteFragment,
   resetWorkspace,
   closeCanvasSwitcher,
@@ -69,7 +69,7 @@ export function useCanvasDocument({
     nodeRuns.value = data.nodeRuns || {}
     await toCanvas(data.canvas)
     await loadConversation(id)
-    await restoreAgentTasks(id)
+    await restoreTurns(id)
     fitView({ padding: 0.18, duration: 500 })
   }
 

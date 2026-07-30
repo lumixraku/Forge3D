@@ -9,4 +9,4 @@ INSERT OR IGNORE INTO app_state (collection, value, updated_at) VALUES
   ('conversations', '[]', datetime('now')),
   ('runs', '[]', datetime('now')),
   ('fragments', '[]', datetime('now')),
-  ('tasks', '[]', datetime('now'));
+  ('turns', '[]', datetime('now'));
