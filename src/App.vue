@@ -103,7 +103,7 @@ const { syncHistoryCanvas, recordHistory, undo, redo } = useCanvasHistory({
 })
 
 const {
-  hydrating, toCanvas, fromCanvas, loadCanvasList, loadCanvass, openCanvas, scheduleSave,
+  hydrating, toCanvas, fromCanvas, syncCanvasSummary, loadCanvass, openCanvas, scheduleSave,
   flushPendingSave, saveCanvas, stopPendingSave, duplicateCanvas, deleteCanvas, createCanvas,
   renameCanvas, exportCanvas, importCanvasFile,
 } = useCanvasDocument({
@@ -140,7 +140,7 @@ const {
   error,
   runToken,
   toCanvas: (canvas) => toCanvas(canvas),
-  loadCanvasList: () => loadCanvasList(),
+  syncCanvasSummary: (canvas) => syncCanvasSummary(canvas),
   flushPendingSave: () => flushPendingSave(),
 })
 

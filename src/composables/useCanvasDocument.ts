@@ -52,6 +52,18 @@ export function useCanvasDocument({
     canvases.value = await request('/api/canvases')
   }
 
+  // The switcher only shows each canvas's name, node count and revision, so a
+  // canvas we just fetched can refresh its own row. Saving or an Agent turn
+  // cannot change any other row, and re-fetching the whole list would.
+  function syncCanvasSummary(canvas) {
+    const summary = { ...canvas, nodeCount: canvas.nodes.length, edgeCount: canvas.edges.length }
+    delete summary.nodes
+    delete summary.edges
+    const index = canvases.value.findIndex((item) => item.id === canvas.id)
+    if (index < 0) canvases.value = [...canvases.value, summary]
+    else canvases.value = canvases.value.map((item, at) => (at === index ? summary : item))
+  }
+
   async function loadCanvass(preferredId?: string) {
     await loadCanvasList()
     const id = preferredId || activeCanvas.value?.id || canvases.value[0]?.id
@@ -113,7 +125,7 @@ export function useCanvasDocument({
           body: JSON.stringify(savingCanvas),
         })
         if (activeCanvas.value?.id === savedCanvas.id) activeCanvas.value = savedCanvas
-        await loadCanvasList()
+        syncCanvasSummary(savedCanvas)
         nextCanvas = pendingSaveSnapshot
       }
     })()
@@ -229,7 +241,7 @@ export function useCanvasDocument({
     hydrating,
     toCanvas,
     fromCanvas,
-    loadCanvasList,
+    syncCanvasSummary,
     loadCanvass,
     openCanvas,
     scheduleSave,

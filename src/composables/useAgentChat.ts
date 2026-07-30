@@ -8,7 +8,7 @@ import { Attachment } from '../editor/attachment'
 
 // The copilot side of the app: the tiptap composer, the SSE agent stream, and the
 // in-flight turns (including user-selection follow-ups) attached to a canvas.
-export function useAgentChat({ activeCanvas, conversation, busy, error, runToken, toCanvas, loadCanvasList, flushPendingSave }) {
+export function useAgentChat({ activeCanvas, conversation, busy, error, runToken, toCanvas, syncCanvasSummary, flushPendingSave }) {
   const composerVersion = ref(0)
   const selectedOptions = ref({})
   const continuingTurnId = ref(null)
@@ -93,7 +93,7 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
     activeCanvas.value = document.canvas
     conversation.value = { ...nextConversation, messages: [...nextConversation.messages, ...pendingMessages] }
     await toCanvas(document.canvas)
-    await loadCanvasList()
+    syncCanvasSummary(document.canvas)
     await nextTick()
   }
 
