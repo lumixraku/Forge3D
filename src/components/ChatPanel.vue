@@ -68,7 +68,7 @@ function addFiles(event) {
     <form class="composer" @submit.prevent="emit('send')">
       <EditorContent :editor="editor" />
       <input ref="fileInput" class="file-input" type="file" multiple @change="addFiles" />
-      <div class="composer-actions"><button class="composer-attach-button" type="button" title="Attach files" @click="fileInput.click()">Attach</button><span>⌘ ENTER TO SEND</span><button :disabled="busy || !composerHasContent">Send ↗</button></div>
+      <div class="composer-actions"><button class="composer-attach-button" type="button" title="Attach files" @click="fileInput.click()">Attach</button><span>ENTER TO SEND · SHIFT+ENTER FOR NEWLINE</span><button :disabled="busy || !composerHasContent">Send ↗</button></div>
     </form>
   </section>
 </template>

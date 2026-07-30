@@ -24,8 +24,9 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
         class: 'composer-editor',
         'aria-label': 'Describe a 3D canvas or ask for a change',
       },
+      // Enter sends; Shift+Enter is the way to get a newline.
       handleKeyDown(_view, event) {
-        if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return false
+        if (event.key !== 'Enter' || event.shiftKey) return false
         event.preventDefault()
         sendMessage()
         return true
@@ -45,6 +46,8 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
     return (composer.value?.getJSON().content || []).map((block) => (block.content || []).map((node) => {
       if (node.type === 'text') return node.text
       if (node.type === 'attachment') return `[Attachment: ${node.attrs.name}]`
+      // Shift+Enter inserts a hardBreak; keep it, or the two lines run together.
+      if (node.type === 'hardBreak') return '\n'
       return ''
     }).join('')).join('\n').trim()
   }
