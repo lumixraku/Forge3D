@@ -1,11 +1,10 @@
-import { createFragment, fragmentSummary } from './server/fragments.js'
 import { createMockRun, downstreamWorkflow, executeMockRun } from './server/mock-runs.js'
 import { latestNodeRuns } from './server/node-state.js'
 import { createInitialConversation, createWorkflow } from './server/workflows.js'
 import { runDeepSeekAgent } from './server/deepseek.js'
 import { runAgentViaService } from './server/agent-client.js'
 
-const collections = ['workflows', 'conversations', 'runs', 'fragments', 'tasks']
+const collections = ['workflows', 'conversations', 'runs', 'tasks']
 const terminalStatuses = new Set(['succeeded', 'failed'])
 
 function id() {
@@ -201,24 +200,6 @@ async function route(request, env, ctx) {
     state.conversations.push({ id: `conv-${id()}`, workflowId: workflow.id, createdAt: now, updatedAt: now, messages: [{ id: `msg-${id()}`, role: 'assistant', content: 'This workflow was duplicated and can now evolve independently.', createdAt: now }] })
     await writeCollections(env, state, ['workflows', 'conversations'])
     return response(workflow, 201)
-  }
-  if (request.method === 'GET' && parts[1] === 'fragments' && parts.length === 2) return response(state.fragments.map(fragmentSummary))
-  if (request.method === 'GET' && parts[1] === 'fragments' && parts.length === 3) {
-    const fragment = state.fragments.find((item) => item.id === parts[2] || item.shareId === parts[2])
-    return fragment ? response(fragment) : response({ error: 'Fragment not found' }, 404)
-  }
-  if (request.method === 'POST' && parts[1] === 'fragments' && parts.length === 2) {
-    const fragment = createFragment(await parseJson(request))
-    state.fragments.push(fragment)
-    await writeCollections(env, state, ['fragments'])
-    return response(fragment, 201)
-  }
-  if (request.method === 'DELETE' && parts[1] === 'fragments' && parts.length === 3) {
-    const index = state.fragments.findIndex((item) => item.id === parts[2])
-    if (index < 0) return response({ error: 'Fragment not found' }, 404)
-    state.fragments.splice(index, 1)
-    await writeCollections(env, state, ['fragments'])
-    return response(null, 204)
   }
   if (request.method === 'GET' && parts[1] === 'tasks' && parts.length === 3) {
     const task = taskById(state, parts[2])

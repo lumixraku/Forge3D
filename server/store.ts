@@ -7,7 +7,7 @@ const root = path.dirname(fileURLToPath(import.meta.url))
 const dataDirectory = path.join(root, 'data')
 const seedDirectory = path.join(root, 'seed')
 const workflowDirectory = path.join(dataDirectory, 'workflows')
-const collections = ['workflows', 'conversations', 'runs', 'fragments', 'tasks']
+const collections = ['workflows', 'conversations', 'runs', 'tasks']
 const retiredNodeTypes = new Set(['save-asset'])
 
 export function migrateWorkflow(workflow, now = () => new Date().toISOString()) {

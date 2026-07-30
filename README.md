@@ -1023,46 +1023,14 @@ Start payload:
 
 If `/api/chat` omits `workflowId`, the server creates an empty `New workflow`. A missing API key returns `503`; no mock chat reply is generated.
 
-### Workflow Fragments
-
-Fragments are reusable selections exported from the canvas.
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/fragments` | List fragment summaries. |
-| `POST` | `/api/fragments` | Validate and create a fragment. |
-| `GET` | `/api/fragments/:idOrShareId` | Retrieve by internal ID or share ID. |
-| `DELETE` | `/api/fragments/:id` | Delete by internal ID. |
-
-Fragment shape:
-
-```json
-{
-  "schemaVersion": "1.0",
-  "kind": "workflow-fragment",
-  "name": "Model finishing",
-  "description": "Reusable finishing stages",
-  "source": { "workflowId": "wf-example", "revision": 3 },
-  "nodes": [],
-  "edges": [],
-  "interface": {
-    "inputs": [{ "nodeId": "retopology", "port": "input" }],
-    "outputs": [{ "nodeId": "texture", "port": "output" }]
-  }
-}
-```
-
-The server generates `frag-*` ID, a 16-character share ID, and timestamps. Nodes must be non-empty and unique; edges and interface endpoints must remain inside the fragment.
-
 ## Persistence
 
-The application persists five collections:
+The application persists four collections:
 
 ```text
 workflows
 conversations
 runs
-fragments
 tasks
 ```
 
@@ -1074,7 +1042,6 @@ The Node server stores runtime state in `server/data/`:
 server/data/workflows/<workflow-id>.json
 server/data/conversations.json
 server/data/runs.json
-server/data/fragments.json
 server/data/tasks.json
 ```
 
@@ -1186,7 +1153,7 @@ pnpm typecheck
 pnpm build
 ```
 
-Tests use Node's built-in test runner with `tsx`. They cover workflow validation, migration, planner tools, DeepSeek tool dispatch, fragments, mock runs, node run recovery, node connections, layout, and run summaries without requiring a real DeepSeek key.
+Tests use Node's built-in test runner with `tsx`. They cover workflow validation, migration, planner tools, DeepSeek tool dispatch, mock runs, node run recovery, node connections, layout, and run summaries without requiring a real DeepSeek key.
 
 There are currently no browser E2E tests, Vue component mounting tests, Worker/D1 integration tests, visual regression tests, or deployment smoke tests. TypeScript checking includes `worker.ts` and `server/**/*.ts`; it does not fully type-check Vue SFCs, `src/**/*.js`, or `agent-service/**/*.ts`.
 
@@ -1294,7 +1261,6 @@ The model default is currently not unified across `.env.example`, the direct Age
 ├── server/
 │   ├── agent-client.ts              # NDJSON Agent Service client
 │   ├── deepseek.ts                  # Direct DeepSeek tool-call loop
-│   ├── fragments.ts                 # Fragment validation and creation
 │   ├── ids.ts                       # ID helpers
 │   ├── index.ts                     # Local HTTP API, SSE, queues, task lifecycle
 │   ├── mock-runs.ts                 # Topological simulated execution
