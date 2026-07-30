@@ -1,11 +1,11 @@
 [
   {
     "id": "conv-stylized-character",
-    "workflowId": "wf-stylized-character",
+    "canvasId": "canvas-stylized-character",
     "createdAt": "2026-07-14T08:00:00.000Z",
     "updatedAt": "2026-07-14T08:00:00.000Z",
     "messages": [
-      { "id": "msg-welcome", "role": "assistant", "content": "Describe the 3D asset pipeline you want to build. I can create and revise the workflow on the canvas.", "createdAt": "2026-07-14T08:00:00.000Z" }
+      { "id": "msg-welcome", "role": "assistant", "content": "Describe the 3D asset pipeline you want to build. I can create and revise the canvas on the canvas.", "createdAt": "2026-07-14T08:00:00.000Z" }
     ]
   }
 ]

@@ -1,26 +1,26 @@
 import { nodeSize } from './frame-geometry'
 
-// A fragment is a self-contained, position-normalized slice of a workflow: the
+// A fragment is a self-contained, position-normalized slice of a canvas: the
 // selected nodes, the edges between them, and the ports that crossed the cut.
-export function buildFragment(workflow, selectedIds: Set<string>, name = 'Untitled block') {
-  const fragmentNodes = workflow.nodes.filter((node) => selectedIds.has(node.id))
+export function buildFragment(canvas, selectedIds: Set<string>, name = 'Untitled block') {
+  const fragmentNodes = canvas.nodes.filter((node) => selectedIds.has(node.id))
   if (!fragmentNodes.length) return null
   const minX = Math.min(...fragmentNodes.map((node) => node.ui.position.x))
   const minY = Math.min(...fragmentNodes.map((node) => node.ui.position.y))
-  const internalEdges = workflow.edges.filter((edge) => selectedIds.has(edge.source.nodeId) && selectedIds.has(edge.target.nodeId))
-  const inputs = workflow.edges
+  const internalEdges = canvas.edges.filter((edge) => selectedIds.has(edge.source.nodeId) && selectedIds.has(edge.target.nodeId))
+  const inputs = canvas.edges
     .filter((edge) => !selectedIds.has(edge.source.nodeId) && selectedIds.has(edge.target.nodeId))
     .map((edge) => ({ nodeId: edge.target.nodeId, port: edge.target.port }))
-  const outputs = workflow.edges
+  const outputs = canvas.edges
     .filter((edge) => selectedIds.has(edge.source.nodeId) && !selectedIds.has(edge.target.nodeId))
     .map((edge) => ({ nodeId: edge.source.nodeId, port: edge.source.port }))
 
   return {
     schemaVersion: '1.0',
-    kind: 'workflow-fragment',
+    kind: 'canvas-fragment',
     name,
-    description: `${fragmentNodes.length}-step reusable block from ${workflow.name}`,
-    source: { workflowId: workflow.id, workflowRevision: workflow.revision },
+    description: `${fragmentNodes.length}-step reusable block from ${canvas.name}`,
+    source: { canvasId: canvas.id, canvasRevision: canvas.revision },
     nodes: fragmentNodes.map((node) => ({ ...node, ui: { position: { x: node.ui.position.x - minX, y: node.ui.position.y - minY } } })),
     edges: internalEdges,
     interface: { inputs, outputs },
@@ -56,9 +56,9 @@ export function remapFragment(fragment, { offset, translateRoots = false, suffix
   return { nodes, edges }
 }
 
-export function validateImportedWorkflow(input) {
+export function validateImportedCanvas(input) {
   if (!Array.isArray(input.nodes) || !Array.isArray(input.edges || [])) {
-    throw new Error('Workflow JSON must include nodes and edges arrays')
+    throw new Error('Canvas JSON must include nodes and edges arrays')
   }
   if (input.nodes.some((node) => (
     typeof node?.id !== 'string'
@@ -80,7 +80,7 @@ export function validateImportedWorkflow(input) {
   }
 }
 
-// Drop an imported workflow to the right of everything already on the canvas.
+// Drop an imported canvas to the right of everything already on the canvas.
 export function importPlacementOffset(canvasNodes, importedNodes) {
   const currentRoots = canvasNodes.filter((node) => !node.parentNode)
   const currentRight = currentRoots.length

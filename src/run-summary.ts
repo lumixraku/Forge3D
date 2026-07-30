@@ -5,7 +5,7 @@ interface SummaryNode {
   data: { label: string }
 }
 
-interface WorkflowRun {
+interface CanvasRun {
   id: string
   status: string
   nodeRuns: NodeRunMap
@@ -15,7 +15,7 @@ export function formatDuration(durationMs: number) {
   return durationMs >= 1000 ? `${(durationMs / 1000).toFixed(2)} s` : `${durationMs} ms`
 }
 
-export function summarizeRun(run: WorkflowRun | null, nodes: SummaryNode[]) {
+export function summarizeRun(run: CanvasRun | null, nodes: SummaryNode[]) {
   if (!run) return null
   const nodeRuns = run.nodeRuns || {}
   const steps = nodes

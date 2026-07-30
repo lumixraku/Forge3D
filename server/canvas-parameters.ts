@@ -1,4 +1,4 @@
-import { applyNodeParameter, nodeSchema, parameterRange, workflowNodeSchema } from '../src/workflow-schema.js'
+import { applyNodeParameter, nodeSchema, parameterRange, canvasNodeSchema } from '../src/canvas-schema.js'
 
 function parameterKind(parameter) {
   if (parameter.control === 'toggle') return 'boolean'
@@ -7,7 +7,7 @@ function parameterKind(parameter) {
   return 'enum'
 }
 
-export const workflowParameters = Object.fromEntries(workflowNodeSchema
+export const canvasParameters = Object.fromEntries(canvasNodeSchema
   .filter((node) => node.parameters.length)
   .map((node) => [node.type, {
     label: node.label,
@@ -32,9 +32,9 @@ function fieldJsonSchema(field) {
   return { type: 'number', minimum: field.min, maximum: field.max, multipleOf: field.step }
 }
 
-export function workflowParameterJsonSchema() {
+export function canvasParameterJsonSchema() {
   const fields = new Map()
-  for (const definition of Object.values(workflowParameters)) {
+  for (const definition of Object.values(canvasParameters)) {
     for (const [name, field] of Object.entries(definition.fields)) {
       const existing = fields.get(name)
       if (!existing) {
@@ -59,17 +59,17 @@ function fieldDescription(field) {
   return `${field.label} (${field.min.toLocaleString()}-${field.max.toLocaleString()})`
 }
 
-export function describeWorkflowParameters(workflow, requestedType) {
-  const entries = Object.entries(workflowParameters).filter(([type]) =>
-    workflow.nodes.some((node) => node.type === type) && (!requestedType || type === requestedType),
+export function describeCanvasParameters(canvas, requestedType) {
+  const entries = Object.entries(canvasParameters).filter(([type]) =>
+    canvas.nodes.some((node) => node.type === type) && (!requestedType || type === requestedType),
   )
   return entries.map(([, definition]) =>
     `${definition.label}: ${Object.values(definition.fields).map(fieldDescription).join(', ')}`,
   ).join('\n')
 }
 
-export function updateNodeParameters(workflow, nodeId, parameters) {
-  const node = workflow.nodes.find((candidate) => candidate.id === nodeId)
+export function updateNodeParameters(canvas, nodeId, parameters) {
+  const node = canvas.nodes.find((candidate) => candidate.id === nodeId)
   if (!node) throw new Error(`Node "${nodeId}" was not found.`)
   const schema = nodeSchema(node.type)
   if (!schema?.parameters.length) throw new Error(`${node.name} has no adjustable parameters.`)

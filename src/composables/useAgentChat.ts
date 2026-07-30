@@ -7,8 +7,8 @@ import { canContinueSelection, selectedOptionIds } from '../chat-selection'
 import { Attachment } from '../editor/attachment'
 
 // The copilot side of the app: the tiptap composer, the SSE agent stream, and the
-// pending tasks (including user-selection follow-ups) attached to a workflow.
-export function useAgentChat({ activeWorkflow, conversation, busy, error, runToken, toCanvas, loadWorkflowList, flushPendingSave }) {
+// pending tasks (including user-selection follow-ups) attached to a canvas.
+export function useAgentChat({ activeCanvas, conversation, busy, error, runToken, toCanvas, loadCanvasList, flushPendingSave }) {
   const composerVersion = ref(0)
   const selectedOptions = ref({})
   const continuingTaskId = ref(null)
@@ -16,13 +16,13 @@ export function useAgentChat({ activeWorkflow, conversation, busy, error, runTok
   const composer = useEditor({
     extensions: [
       StarterKit,
-      Placeholder.configure({ placeholder: 'Describe a 3D workflow or ask for a change...' }),
+      Placeholder.configure({ placeholder: 'Describe a 3D canvas or ask for a change...' }),
       Attachment,
     ],
     editorProps: {
       attributes: {
         class: 'composer-editor',
-        'aria-label': 'Describe a 3D workflow or ask for a change',
+        'aria-label': 'Describe a 3D canvas or ask for a change',
       },
       handleKeyDown(_view, event) {
         if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return false
@@ -80,13 +80,20 @@ export function useAgentChat({ activeWorkflow, conversation, busy, error, runTok
     return response.body
   }
 
-  async function refreshWorkflow(workflowId, taskId, structureChanged) {
-    const data = await request(`/api/workflows/${workflowId}`)
+  async function loadConversation(canvasId) {
+    conversation.value = await request(`/api/canvases/${canvasId}/conversation`)
+  }
+
+  async function refreshCanvas(canvasId, taskId, structureChanged) {
+    const [document, nextConversation] = await Promise.all([
+      request(`/api/canvases/${canvasId}`),
+      request(`/api/canvases/${canvasId}/conversation`),
+    ])
     const pendingMessages = conversation.value?.messages.filter((item) => item.pending && item.taskId !== taskId) || []
-    activeWorkflow.value = data.workflow
-    conversation.value = { ...data.conversation, messages: [...data.conversation.messages, ...pendingMessages] }
-    await toCanvas(data.workflow)
-    await loadWorkflowList()
+    activeCanvas.value = document.canvas
+    conversation.value = { ...nextConversation, messages: [...nextConversation.messages, ...pendingMessages] }
+    await toCanvas(document.canvas)
+    await loadCanvasList()
     await nextTick()
   }
 
@@ -124,7 +131,7 @@ export function useAgentChat({ activeWorkflow, conversation, busy, error, runTok
         const event = JSON.parse(data)
         if (!['message', 'error'].includes(protocolType) || (protocolType === 'error') !== (event.type === 'error')) throw new Error('Invalid SSE event framing')
         const outcome = applyAgentEvent(event, pendingAssistantId)
-        if (event.type === 'workflow-updated') await refreshWorkflow(event.workflow_id, event.turn_id, event.structure_changed)
+        if (event.type === 'canvas-updated') await refreshCanvas(event.canvas_id, event.turn_id, event.structure_changed)
         completion = outcome || completion
       }
       if (done) break
@@ -135,8 +142,8 @@ export function useAgentChat({ activeWorkflow, conversation, busy, error, runTok
     }
   }
 
-  async function restoreAgentTasks(workflowId) {
-    const tasks = await request(`/api/tasks?workflowId=${encodeURIComponent(workflowId)}&status=queued,running,waiting_for_user`)
+  async function restoreAgentTasks(canvasId) {
+    const tasks = await request(`/api/tasks?canvasId=${encodeURIComponent(canvasId)}&status=queued,running,waiting_for_user`)
     for (const task of tasks) {
       const existing = conversation.value?.messages.some((item) => item.taskId === task.id)
       if (!existing) {
@@ -205,9 +212,9 @@ export function useAgentChat({ activeWorkflow, conversation, busy, error, runTok
     }
     try {
       await flushPendingSave()
-      const workflowId = activeWorkflow.value?.id
+      const canvasId = activeCanvas.value?.id
       busy.value = false
-      const stream = await submitAgentTask({ message, workflowId })
+      const stream = await submitAgentTask({ message, canvasId })
       await consumeAgentStream(stream, pendingAssistantId, runToken.value)
     } catch (caught) {
       const current = conversation.value?.messages.find((item) => item.id === pendingAssistantId)
@@ -234,6 +241,7 @@ export function useAgentChat({ activeWorkflow, conversation, busy, error, runTok
     selectedOptions,
     continuingTaskId,
     addComposerFiles,
+    loadConversation,
     restoreAgentTasks,
     toggleSelectedOption,
     continueTask,

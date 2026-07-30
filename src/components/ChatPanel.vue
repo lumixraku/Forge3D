@@ -43,12 +43,12 @@ function addFiles(event) {
 
 <template>
   <section class="chat-panel bg-bg-panel border-r border-line">
-    <header><div><span>WORKFLOW COPILOT</span><b>DeepSeek tool-calling agent</b></div><i /></header>
+    <header><div><span>CANVAS COPILOT</span><b>DeepSeek tool-calling agent</b></div><i /></header>
     <div class="message-list">
       <article v-for="message in messages" :key="message.id" class="message" :class="[message.role, { pending: message.pending }]">
         <span>{{ message.role === 'assistant' ? 'FORGE' : 'YOU' }}</span>
         <template v-if="message.role === 'assistant'">
-          <div v-if="message.pending" class="thinking-progress"><b>Thinking</b><span>{{ message.progress.at(-1)?.label || 'Preparing workflow agent' }}</span></div>
+          <div v-if="message.pending" class="thinking-progress"><b>Thinking</b><span>{{ message.progress.at(-1)?.label || 'Preparing canvas agent' }}</span></div>
           <details v-else-if="message.progress?.length" class="thought-process"><summary>Thought process <small>Tool activity</small></summary><span v-for="(event, index) in message.progress" :key="`${event.label}-${index}`">{{ event.label }}</span></details>
           <div v-if="message.content" class="message-content" v-html="renderAssistantMarkdown(message.content)" />
           <section v-if="message.request" class="user-selection">

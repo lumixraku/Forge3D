@@ -1,13 +1,13 @@
-import { workflowNodeSchema } from './workflow-schema'
-import type { NodePort, PortType, WorkflowNodeSchema } from './workflow-schema'
+import { canvasNodeSchema } from './canvas-schema'
+import type { NodePort, PortType, CanvasNodeSchema } from './canvas-schema'
 
-export { applyNodeParameter, conditionsMatch, nodeDefaults, nodeSchema, parameterRange, workflowNodeSchema, workflowNodeSchemas } from './workflow-schema'
-export type { NodeParameter, ParameterCondition, ParameterOption, ParameterRange, WorkflowNodeSchema } from './workflow-schema'
+export { applyNodeParameter, conditionsMatch, nodeDefaults, nodeSchema, parameterRange, canvasNodeSchema, canvasNodeSchemas } from './canvas-schema'
+export type { NodeParameter, ParameterCondition, ParameterOption, ParameterRange, CanvasNodeSchema } from './canvas-schema'
 
 export type { NodePort, PortType }
-export type NodeDefinition = WorkflowNodeSchema
+export type NodeDefinition = CanvasNodeSchema
 
-export const nodeCatalog: NodeDefinition[] = workflowNodeSchema
+export const nodeCatalog: NodeDefinition[] = canvasNodeSchema
 export const nodeCategories = [...new Set(nodeCatalog.map((node) => node.category))]
 
 export function nodeDefinition(type: string) {

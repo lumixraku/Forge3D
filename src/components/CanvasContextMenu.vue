@@ -12,7 +12,7 @@ defineProps<{
 const emit = defineEmits<{
   'frame-selection': []
   'dissolve-selection': []
-  'create-workflow': []
+  'create-canvas': []
   copy: []
   paste: []
   duplicate: []
@@ -28,7 +28,7 @@ const emit = defineEmits<{
       <strong>Selection</strong>
       <button type="button" :disabled="!canFrameSelection" @click="emit('frame-selection')"><span>Make as a section</span></button>
       <button type="button" :disabled="!canDissolveSelection" @click="emit('dissolve-selection')"><span>Dissolve section</span></button>
-      <button type="button" @click="emit('create-workflow')"><span>Create workflow</span></button>
+      <button type="button" @click="emit('create-canvas')"><span>Create canvas</span></button>
       <button type="button" @click="emit('copy')"><span>Copy</span></button>
       <button type="button" :disabled="!hasClipboard" @click="emit('paste')"><span>Paste</span></button>
       <button type="button" @click="emit('duplicate')"><span>Duplicate selected</span></button>

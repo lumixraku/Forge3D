@@ -1,10 +1,10 @@
 import { Agent } from '@earendil-works/pi-agent-core'
 import { Type } from '@earendil-works/pi-ai'
 import { streamSimple } from '@earendil-works/pi-ai/api/openai-completions'
-import { addWorkflowStage, buildWorkflowStructure } from '../server/planner.js'
-import { describeWorkflowParameters, updateNodeParameters } from '../server/workflow-parameters.js'
+import { addCanvasStage, buildCanvasStructure } from '../server/planner.js'
+import { describeCanvasParameters, updateNodeParameters } from '../server/canvas-parameters.js'
 import { systemPrompt } from '../server/deepseek.js'
-import { workflowNodeTypes, workflowToolDefinition } from '../server/workflow-tools.js'
+import { canvasNodeTypes, canvasToolDefinition } from '../server/canvas-tools.js'
 
 // Mirrors the contract of runDeepSeekAgent in server/deepseek.ts, but drives the
 // loop with the Pi agent framework (@earendil-works/pi-*). DeepSeek is reached
@@ -24,7 +24,7 @@ export interface UserSelectionRequest {
 }
 
 export interface AgentPlan {
-  workflow: any
+  canvas: any
   reply: string
   changedNodeIds: string[]
   structureChanged: boolean
@@ -36,25 +36,25 @@ export interface RunOptions {
   baseUrl?: string
   model?: string
   message: string
-  workflow: any
+  canvas: any
   onProgress?: (event: ProgressEvent) => void | Promise<void>
 }
 
 // Labels are prefixed with "Pi ·" so the UI's Thought process makes it obvious
 // this run went through the Pi agent framework rather than the built-in loop.
 const progressLabelByTool: Record<string, string> = {
-  get_workflow_structure: 'Pi · Inspecting workflow structure',
+  get_canvas_structure: 'Pi · Inspecting canvas structure',
   list_available_node_types: 'Pi · Listing available node types',
-  get_workflow_parameters: 'Pi · Inspecting adjustable parameters',
-  build_workflow: 'Pi · Building workflow',
+  get_canvas_parameters: 'Pi · Inspecting adjustable parameters',
+  build_canvas: 'Pi · Building canvas',
   update_node_parameters: 'Pi · Updating node parameters',
-  add_workflow_node: 'Pi · Adding workflow node',
+  add_canvas_node: 'Pi · Adding canvas node',
   request_user_select: 'Pi · Requesting your selection',
 }
 
 const result = (text: string, details?: unknown) => ({ content: [{ type: 'text', text }], details })
 const errorResult = (text: string) => ({ content: [{ type: 'text', text }], isError: true })
-const toolSchema = (name: string) => Type.Unsafe(workflowToolDefinition(name)?.parameters)
+const toolSchema = (name: string) => Type.Unsafe(canvasToolDefinition(name)?.parameters)
 
 // A run that is still alive: the caller holds the Pi Agent so it can inject
 // steering messages mid-flight, and awaits `done` for the final plan.
@@ -79,78 +79,78 @@ export function startPiAgent(opts: RunOptions): LiveRun {
   }
 
   const session: {
-    workflow: any
+    canvas: any
     changes: { nodeId: string }[]
     structureChanged: boolean
     userSelectionRequest?: UserSelectionRequest
     agent?: any
-  } = { workflow: structuredClone(opts.workflow), changes: [], structureChanged: false }
+  } = { canvas: structuredClone(opts.canvas), changes: [], structureChanged: false }
 
   const emit = (tool: string) => opts.onProgress?.({ label: progressLabelByTool[tool] || tool, status: 'running' })
-  const nodeSummary = () => session.workflow.nodes.map((node: any) => ({ id: node.id, type: node.type, name: node.name }))
+  const nodeSummary = () => session.canvas.nodes.map((node: any) => ({ id: node.id, type: node.type, name: node.name }))
 
   const tools = [
     {
-      name: 'get_workflow_structure',
-      label: 'Inspect workflow',
-      description: workflowToolDefinition('get_workflow_structure')!.description,
-      parameters: toolSchema('get_workflow_structure'),
+      name: 'get_canvas_structure',
+      label: 'Inspect canvas',
+      description: canvasToolDefinition('get_canvas_structure')!.description,
+      parameters: toolSchema('get_canvas_structure'),
       execute: async () => {
-        await emit('get_workflow_structure')
-        return result(JSON.stringify({ nodes: nodeSummary(), edges: session.workflow.edges }))
+        await emit('get_canvas_structure')
+        return result(JSON.stringify({ nodes: nodeSummary(), edges: session.canvas.edges }))
       },
     },
     {
       name: 'list_available_node_types',
       label: 'List node types',
-      description: workflowToolDefinition('list_available_node_types')!.description,
+      description: canvasToolDefinition('list_available_node_types')!.description,
       parameters: toolSchema('list_available_node_types'),
       execute: async () => {
         await emit('list_available_node_types')
-        return result(JSON.stringify({ nodeTypes: workflowNodeTypes }))
+        return result(JSON.stringify({ nodeTypes: canvasNodeTypes }))
       },
     },
     {
-      name: 'build_workflow',
-      label: 'Build workflow',
-      description: workflowToolDefinition('build_workflow')!.description,
-      parameters: toolSchema('build_workflow'),
+      name: 'build_canvas',
+      label: 'Build canvas',
+      description: canvasToolDefinition('build_canvas')!.description,
+      parameters: toolSchema('build_canvas'),
       execute: async (_id: string, params: any) => {
-        await emit('build_workflow')
-        if (!Array.isArray(params.nodeTypes) || !params.nodeTypes.length || params.nodeTypes.some((type: string) => !workflowNodeTypes.includes(type))) {
-          return errorResult('Invalid workflow structure requested.')
+        await emit('build_canvas')
+        if (!Array.isArray(params.nodeTypes) || !params.nodeTypes.length || params.nodeTypes.some((type: string) => !canvasNodeTypes.includes(type))) {
+          return errorResult('Invalid canvas structure requested.')
         }
-        const existingNodeIds = new Set(session.workflow.nodes.map((node: any) => node.id))
-        session.workflow = buildWorkflowStructure(opts.message, params.nodeTypes, session.workflow)
-        const addedNodes = session.workflow.nodes.filter((node: any) => !existingNodeIds.has(node.id))
+        const existingNodeIds = new Set(session.canvas.nodes.map((node: any) => node.id))
+        session.canvas = buildCanvasStructure(opts.message, params.nodeTypes, session.canvas)
+        const addedNodes = session.canvas.nodes.filter((node: any) => !existingNodeIds.has(node.id))
         session.structureChanged = true
         for (const node of addedNodes) session.changes.push({ nodeId: node.id })
         return result(JSON.stringify({
           frameId: addedNodes.find((node: any) => node.type === 'frame')?.id,
           nodes: addedNodes.filter((node: any) => node.type !== 'frame').map((node: any) => ({ id: node.id, type: node.type, name: node.name })),
-          edges: session.workflow.edges.filter((edge: any) => addedNodes.some((node: any) => node.id === edge.source.nodeId)).map((edge: any) => ({ source: edge.source.nodeId, target: edge.target.nodeId })),
+          edges: session.canvas.edges.filter((edge: any) => addedNodes.some((node: any) => node.id === edge.source.nodeId)).map((edge: any) => ({ source: edge.source.nodeId, target: edge.target.nodeId })),
         }))
       },
     },
     {
-      name: 'get_workflow_parameters',
+      name: 'get_canvas_parameters',
       label: 'Inspect parameters',
-      description: workflowToolDefinition('get_workflow_parameters')!.description,
-      parameters: toolSchema('get_workflow_parameters'),
+      description: canvasToolDefinition('get_canvas_parameters')!.description,
+      parameters: toolSchema('get_canvas_parameters'),
       execute: async () => {
-        await emit('get_workflow_parameters')
-        return result(JSON.stringify({ nodes: nodeSummary(), parameters: describeWorkflowParameters(session.workflow) }))
+        await emit('get_canvas_parameters')
+        return result(JSON.stringify({ nodes: nodeSummary(), parameters: describeCanvasParameters(session.canvas) }))
       },
     },
     {
       name: 'update_node_parameters',
       label: 'Update parameters',
-      description: workflowToolDefinition('update_node_parameters')!.description,
+      description: canvasToolDefinition('update_node_parameters')!.description,
       parameters: toolSchema('update_node_parameters'),
       execute: async (_id: string, params: any) => {
         await emit('update_node_parameters')
         try {
-          const applied = updateNodeParameters(session.workflow, params.nodeId, params.parameters)
+          const applied = updateNodeParameters(session.canvas, params.nodeId, params.parameters)
           session.changes.push(...applied)
           return result(JSON.stringify({ changes: applied }))
         } catch (error: any) {
@@ -159,15 +159,15 @@ export function startPiAgent(opts: RunOptions): LiveRun {
       },
     },
     {
-      name: 'add_workflow_node',
+      name: 'add_canvas_node',
       label: 'Add node',
-      description: workflowToolDefinition('add_workflow_node')!.description,
-      parameters: toolSchema('add_workflow_node'),
+      description: canvasToolDefinition('add_canvas_node')!.description,
+      parameters: toolSchema('add_canvas_node'),
       execute: async (_id: string, params: any) => {
-        await emit('add_workflow_node')
+        await emit('add_canvas_node')
         try {
-          const planned = addWorkflowStage(session.workflow, params.type, opts.message)
-          session.workflow = planned.workflow
+          const planned = addCanvasStage(session.canvas, params.type, opts.message)
+          session.canvas = planned.canvas
           session.structureChanged ||= planned.structureChanged
           for (const nodeId of planned.changedNodeIds) session.changes.push({ nodeId })
           return result(JSON.stringify({ addedNodeIds: planned.changedNodeIds }))
@@ -179,7 +179,7 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     {
       name: 'request_user_select',
       label: 'Request selection',
-      description: workflowToolDefinition('request_user_select')!.description,
+      description: canvasToolDefinition('request_user_select')!.description,
       parameters: toolSchema('request_user_select'),
       execute: async (_id: string, params: any) => {
         await emit('request_user_select')
@@ -236,13 +236,13 @@ export function startPiAgent(opts: RunOptions): LiveRun {
 
     const changedNodeIds = [...new Set(session.changes.map((change) => change.nodeId))]
     if (session.userSelectionRequest) {
-      return { workflow: session.workflow, reply, changedNodeIds, structureChanged: session.structureChanged, userSelectionRequest: session.userSelectionRequest }
+      return { canvas: session.canvas, reply, changedNodeIds, structureChanged: session.structureChanged, userSelectionRequest: session.userSelectionRequest }
     }
-    if (session.changes.length && session.workflow.revision === opts.workflow.revision) session.workflow.revision += 1
-    if (session.changes.length) session.workflow.updatedAt = new Date().toISOString()
+    if (session.changes.length && session.canvas.revision === opts.canvas.revision) session.canvas.revision += 1
+    if (session.changes.length) session.canvas.updatedAt = new Date().toISOString()
     return {
-      workflow: session.workflow,
-      reply: reply || (session.changes.length ? 'Workflow updated.' : 'No workflow changes were made. Use the workflow tools to make a change.'),
+      canvas: session.canvas,
+      reply: reply || (session.changes.length ? 'Canvas updated.' : 'No canvas changes were made. Use the canvas tools to make a change.'),
       changedNodeIds,
       structureChanged: session.structureChanged,
     }

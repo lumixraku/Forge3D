@@ -4,8 +4,8 @@ import { NodeResizeControl, type ControlPosition } from '@vue-flow/node-resizer'
 
 interface FrameData { label: string; description?: string }
 
-const props = withDefaults(defineProps<{ id: string; data: FrameData; selected?: boolean; running?: boolean; zoom?: number }>(), { selected: false, running: false, zoom: 1 })
-const emit = defineEmits<{ 'update-name': [name: string]; 'run-workflow': []; 'resize-start': []; 'resize-end': [] }>()
+const props = withDefaults(defineProps<{ id: string; data: FrameData; selected?: boolean; zoom?: number }>(), { selected: false, zoom: 1 })
+const emit = defineEmits<{ 'update-name': [name: string]; 'resize-start': []; 'resize-end': [] }>()
 const editingName = ref(false)
 const draftName = ref('')
 const nameInput = ref<HTMLInputElement | null>(null)
@@ -40,15 +40,12 @@ function cancelNameEdit() {
 </script>
 
 <template>
-  <section class="workflow-frame" :class="{ selected }">
+  <section class="canvas-frame" :class="{ selected }">
     <NodeResizeControl v-for="position in resizeCorners" :key="position" class="frame-resize-handle nodrag nopan" :node-id="id" :position="position" :min-width="260" :min-height="180" :auto-scale="false" :style="resizeHandleStyle" @resize-start="emit('resize-start')" @resize-end="emit('resize-end')" />
     <header :style="headerStyle">
       <span class="frame-icon">S</span>
       <input v-if="editingName" ref="nameInput" v-model="draftName" class="frame-name-input nodrag nopan" aria-label="Section name" @click.stop @dblclick.stop @pointerdown.stop @keydown.enter.prevent="saveName" @keydown.esc.prevent="cancelNameEdit" @blur="saveName" />
       <strong v-else title="Double-click to rename" @dblclick.stop="startNameEdit">{{ data.label }}</strong>
-      <button type="button" class="section-run-button nodrag nopan" :disabled="running" :aria-label="running ? 'Running workflow' : 'Run workflow'" :title="running ? 'Running workflow' : 'Run workflow'" @pointerdown.stop @click.stop="emit('run-workflow')">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.75v10.5L13 8z" /></svg>
-      </button>
     </header>
     <p v-if="data.description">{{ data.description }}</p>
   </section>

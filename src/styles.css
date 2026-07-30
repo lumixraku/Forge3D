@@ -231,33 +231,33 @@
 .brand-lockup strong, .brand-lockup small { display: block; }
 .brand-lockup strong { font: 600 14px var(--font-mono); letter-spacing: -.03em; }
 .brand-lockup small { margin-top: 2px; color: var(--text-muted); font-size: 11px; }
-.workflow-title { position: relative; display: flex; align-items: center; gap: 12px; min-width: 0; padding: 0 24px; }
-.workflow-title > .label-mono { flex: none; }
-.workflow-title-bar { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 12px; }
-.workflow-title-bar .workflow-title-name { flex: 0 1 auto; min-width: 0; overflow: hidden; font-size: 14px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
-.workflow-title-actions { display: flex; flex: none; align-items: center; gap: 8px; }
-.workflow-switcher-anchor { position: relative; flex: none; }
-.workflow-button-group { flex: none; display: flex; align-items: stretch; height: 34px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-input); transition: border-color .15s ease; }
-.workflow-button-group button { display: flex; align-items: center; gap: 6px; padding: 0 12px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--text-secondary); font: 500 11px var(--font-sans); cursor: pointer; transition: background .15s ease, color .15s ease; }
-.workflow-button-group button:first-child { border-left: 0; }
-.workflow-button-group button:hover { background: var(--bg-input-hover); color: var(--text-primary); }
-.workflow-button-group.open .wbg-label { background: var(--bg-input-hover); color: var(--text-primary); }
-.workflow-button-group .chevron-icon { width: 13px; height: 13px; color: var(--text-muted); transition: transform .15s ease; }
-.workflow-button-group.open .chevron-icon { transform: rotate(180deg); }
-.workflow-button-group .wbg-new { color: var(--acid); font-weight: 600; }
-.workflow-button-group .wbg-new:hover { background: color-mix(in srgb, var(--acid) 12%, transparent); color: var(--acid); }
-.workflow-button-group .wbg-new:disabled { cursor: wait; opacity: .5; }
-.workflow-switcher-panel { position: absolute; z-index: 30; top: calc(100% + 8px); left: 0; display: flex; flex-direction: column; gap: 6px; width: 300px; max-height: min(70vh, 520px); padding: 8px; overflow: hidden auto; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--bg-input); box-shadow: var(--shadow-popover); }
-.workflow-switcher-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px 2px; }
-.workflow-switcher-head span { color: var(--text-muted); font: 500 9px var(--font-mono); letter-spacing: .12em; }
-.workflow-switcher-list { display: flex; flex-direction: column; gap: 3px; overflow: auto; }
-.workflow-switcher-panel .workflow-list-item { width: 100%; margin: 0; }
-.workflow-switcher-note { margin: 2px 4px 0; color: var(--text-muted); font: 400 9px var(--font-mono); line-height: 1.5; }
-.workflow-title span, .sidebar-heading span, .chat-panel header span, .canvas-toolbar span, .canvas-caption span, .sidebar-note span { color: var(--text-muted); font: 500 9px var(--font-mono); letter-spacing: .12em; }
-.workflow-title strong { display: block; overflow: hidden; margin-top: 3px; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
-.workflow-title-name { cursor: text; }
-.workflow-title-input { display: block; box-sizing: border-box; width: 100%; margin-top: 3px; padding: 0; border: 0; background: transparent; color: var(--text-primary); font-family: inherit; font-size: 14px; font-weight: 700; line-height: 1.25rem; box-shadow: inset 0 -1px 0 var(--acid); }
-.workflow-title-input:focus { outline: none; }
+.canvas-title { position: relative; display: flex; align-items: center; gap: 12px; min-width: 0; padding: 0 24px; }
+.canvas-title > .label-mono { flex: none; }
+.canvas-title-bar { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 12px; }
+.canvas-title-bar .canvas-title-name { flex: 0 1 auto; min-width: 0; overflow: hidden; font-size: 14px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-title-actions { display: flex; flex: none; align-items: center; gap: 8px; }
+.canvas-switcher-anchor { position: relative; flex: none; }
+.canvas-button-group { flex: none; display: flex; align-items: stretch; height: 34px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-input); transition: border-color .15s ease; }
+.canvas-button-group button { display: flex; align-items: center; gap: 6px; padding: 0 12px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--text-secondary); font: 500 11px var(--font-sans); cursor: pointer; transition: background .15s ease, color .15s ease; }
+.canvas-button-group button:first-child { border-left: 0; }
+.canvas-button-group button:hover { background: var(--bg-input-hover); color: var(--text-primary); }
+.canvas-button-group.open .wbg-label { background: var(--bg-input-hover); color: var(--text-primary); }
+.canvas-button-group .chevron-icon { width: 13px; height: 13px; color: var(--text-muted); transition: transform .15s ease; }
+.canvas-button-group.open .chevron-icon { transform: rotate(180deg); }
+.canvas-button-group .wbg-new { color: var(--acid); font-weight: 600; }
+.canvas-button-group .wbg-new:hover { background: color-mix(in srgb, var(--acid) 12%, transparent); color: var(--acid); }
+.canvas-button-group .wbg-new:disabled { cursor: wait; opacity: .5; }
+.canvas-switcher-panel { position: absolute; z-index: 30; top: calc(100% + 8px); left: 0; display: flex; flex-direction: column; gap: 6px; width: 300px; max-height: min(70vh, 520px); padding: 8px; overflow: hidden auto; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--bg-input); box-shadow: var(--shadow-popover); }
+.canvas-switcher-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px 2px; }
+.canvas-switcher-head span { color: var(--text-muted); font: 500 9px var(--font-mono); letter-spacing: .12em; }
+.canvas-switcher-list { display: flex; flex-direction: column; gap: 3px; overflow: auto; }
+.canvas-switcher-panel .canvas-list-item { width: 100%; margin: 0; }
+.canvas-switcher-note { margin: 2px 4px 0; color: var(--text-muted); font: 400 9px var(--font-mono); line-height: 1.5; }
+.canvas-title span, .sidebar-heading span, .chat-panel header span, .canvas-toolbar span, .canvas-caption span, .sidebar-note span { color: var(--text-muted); font: 500 9px var(--font-mono); letter-spacing: .12em; }
+.canvas-title strong { display: block; overflow: hidden; margin-top: 3px; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-title-name { cursor: text; }
+.canvas-title-input { display: block; box-sizing: border-box; width: 100%; margin-top: 3px; padding: 0; border: 0; background: transparent; color: var(--text-primary); font-family: inherit; font-size: 14px; font-weight: 700; line-height: 1.25rem; box-shadow: inset 0 -1px 0 var(--acid); }
+.canvas-title-input:focus { outline: none; }
 .topbar-actions { grid-column: 3; display: flex; align-items: center; gap: 8px; padding-right: 16px; }
 .save-state { width: 15ch; overflow: hidden; color: var(--text-muted); font: 500 9px/1 var(--font-mono); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-switcher { display: flex; height: 36px; gap: 2px; padding: 3px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-input); transition: background .2s ease, border-color .2s ease; }
@@ -286,23 +286,23 @@
 .sidebar-add-button:hover { border-color: var(--acid); background: color-mix(in srgb, var(--acid) 10%, transparent); }
 .sidebar-add-button:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--acid) 50%, transparent); }
 .sidebar-add-button:disabled { cursor: wait; opacity: .5; }
-.workflow-actions { margin: 0 8px 10px; }
+.canvas-actions { margin: 0 8px 10px; }
 .wbg-import { height: 34px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-input); color: var(--text-secondary); font: 500 10px var(--font-mono); cursor: pointer; transition: border-color .15s ease, background .15s ease, color .15s ease; }
 .wbg-import:hover:not(:disabled), .wbg-import.dragging { border-color: var(--acid); background: color-mix(in srgb, var(--acid) 8%, var(--bg-input)); color: var(--acid); }
 .wbg-import:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--acid) 50%, transparent); }
 .wbg-import:disabled { cursor: wait; opacity: .5; }
 .block-library-description { margin: -2px 18px 12px; color: var(--text-muted); font-size: 11px; line-height: 1.5; }
-.workflow-list-item { display: block; width: calc(100% - 16px); margin: 4px 8px; padding: 12px; border: 1px solid transparent; border-radius: 9px; background: transparent; text-align: left; cursor: pointer; transition: background .15s ease, border-color .15s ease; }
-.workflow-list-item:hover { background: var(--bg-input); border-color: var(--line); }
-.workflow-list-item.active { border-color: var(--line-strong); background: var(--bg-input-hover); }
-.workflow-list-item.active::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 8px; border-radius: 50%; background: var(--acid); }
-.workflow-list-item span { font-size: 12px; }
-.workflow-list-item small { display: block; margin-top: 5px; color: var(--text-muted); font: 400 9px var(--font-mono); }
-.workflow-menu { position: fixed; z-index: 40; display: grid; width: 164px; gap: 3px; padding: 5px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-input); box-shadow: var(--shadow-popover); }
-.workflow-menu button { min-height: 34px; padding: 7px 9px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-primary); font: 500 10px var(--font-sans); text-align: left; cursor: pointer; transition: border-color .15s ease, background .15s ease; }
-.workflow-menu button:hover { border-color: var(--line-strong); background: var(--bg-input-hover); }
-.workflow-menu button.danger { color: var(--status-failed); }
-.workflow-menu button.danger:hover { background: color-mix(in srgb, var(--status-failed) 10%, transparent); }
+.canvas-list-item { display: block; width: calc(100% - 16px); margin: 4px 8px; padding: 12px; border: 1px solid transparent; border-radius: 9px; background: transparent; text-align: left; cursor: pointer; transition: background .15s ease, border-color .15s ease; }
+.canvas-list-item:hover { background: var(--bg-input); border-color: var(--line); }
+.canvas-list-item.active { border-color: var(--line-strong); background: var(--bg-input-hover); }
+.canvas-list-item.active::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 8px; border-radius: 50%; background: var(--acid); }
+.canvas-list-item span { font-size: 12px; }
+.canvas-list-item small { display: block; margin-top: 5px; color: var(--text-muted); font: 400 9px var(--font-mono); }
+.canvas-menu { position: fixed; z-index: 40; display: grid; width: 164px; gap: 3px; padding: 5px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-input); box-shadow: var(--shadow-popover); }
+.canvas-menu button { min-height: 34px; padding: 7px 9px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-primary); font: 500 10px var(--font-sans); text-align: left; cursor: pointer; transition: border-color .15s ease, background .15s ease; }
+.canvas-menu button:hover { border-color: var(--line-strong); background: var(--bg-input-hover); }
+.canvas-menu button.danger { color: var(--status-failed); }
+.canvas-menu button.danger:hover { background: color-mix(in srgb, var(--status-failed) 10%, transparent); }
 .fragment-list-item { margin: 4px 8px; padding: 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg-card); transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
 .fragment-list-item:hover { border-color: var(--line-strong); box-shadow: var(--shadow-md); transform: translateY(-1px); }
 .fragment-list-item > button { width: 100%; padding: 0; border: 0; background: transparent; text-align: left; }
@@ -376,7 +376,7 @@
 .composer:focus-within { border-color: color-mix(in srgb, var(--acid) 50%, var(--line-strong)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--acid) 12%, transparent); }
 .composer-editor { display: block; min-height: 52px; width: 100%; outline: 0; color: var(--text-primary); font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; caret-color: var(--text-primary); cursor: text; }
 .composer-editor p { margin: 0; }
-.composer-editor p.is-editor-empty:first-child::before { float: left; height: 0; color: var(--text-muted); content: 'Describe a 3D workflow or ask for a change…'; pointer-events: none; }
+.composer-editor p.is-editor-empty:first-child::before { float: left; height: 0; color: var(--text-muted); content: 'Describe a 3D canvas or ask for a change…'; pointer-events: none; }
 .composer-actions { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; margin-top: 8px; }
 .composer-actions > span { color: var(--text-muted); font: 500 8px var(--font-mono); }
 .composer button { padding: 7px 10px; border: 0; border-radius: 7px; background: var(--acid); color: var(--text-inverse); font: 600 9px var(--font-mono); transition: filter .15s ease, box-shadow .15s ease; }
@@ -402,8 +402,6 @@
 .canvas-toolbar .canvas-mode-switch button.active, .canvas-toolbar .canvas-mode-switch button.active:hover, .canvas-toolbar .canvas-view-switch button.active, .canvas-toolbar .canvas-view-switch button.active:hover { background: color-mix(in srgb, var(--acid) 12%, var(--bg-input)); color: var(--acid); }
 .canvas-toolbar .canvas-mode-switch svg, .canvas-toolbar .canvas-view-switch svg { width: 12px; height: 12px; fill: currentColor; }
 .canvas-toolbar .canvas-mode-switch span, .canvas-toolbar .canvas-view-switch span { color: inherit; font: 600 9px var(--font-mono); letter-spacing: .04em; text-transform: uppercase; }
-.canvas-toolbar .run-button { border-color: var(--acid); background: var(--acid); color: var(--text-inverse); }
-.canvas-toolbar .run-button:hover { filter: brightness(1.08); box-shadow: 0 0 0 3px color-mix(in srgb, var(--acid) 18%, transparent); }
 .canvas-toolbar .canvas-view-switch { display: none; }
 
 .workspace-view-switch { display: flex; height: 30px; padding: 0; border: 1px solid var(--line-subtle); border-radius: 6px; background: var(--bg-input); overflow: hidden; }
@@ -454,53 +452,52 @@
 .asset-card-meta { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 2px; }
 .asset-card-meta strong { overflow: hidden; color: var(--text-primary); font: 500 11px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
 .asset-card-badge { flex: 0 0 auto; padding: 2px 6px; border-radius: 5px; background: var(--bg-input-hover); color: var(--text-muted); font: 600 8px var(--font-mono); letter-spacing: .06em; }
+.asset-card-run { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; padding: 0 2px; color: var(--text-muted); font: 500 9px var(--font-mono); }
+.asset-card-run span { color: var(--text-secondary); letter-spacing: .06em; text-transform: uppercase; }
+.asset-card-run time { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .asset-card-open { position: absolute; top: 14px; right: 14px; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 7px; background: color-mix(in srgb, var(--bg-card) 82%, transparent); color: var(--text-secondary); font-size: 13px; line-height: 1; opacity: 0; backdrop-filter: blur(4px); transition: opacity .15s ease, background .15s ease, color .15s ease; }
 .asset-card:hover .asset-card-open { opacity: 1; }
 .asset-card-open:hover { background: var(--acid); color: var(--text-inverse); }
-.workflow-frame { position: relative; width: 100%; height: 100%; min-width: 100%; min-height: 100%; padding: 17px 20px; border: 1px solid color-mix(in srgb, var(--acid) 44%, transparent); border-radius: 15px; background: color-mix(in srgb, var(--acid) 4.5%, transparent); transition: border-color .15s ease, box-shadow .15s ease; }
+.canvas-frame { position: relative; width: 100%; height: 100%; min-width: 100%; min-height: 100%; padding: 17px 20px; border: 1px solid color-mix(in srgb, var(--acid) 44%, transparent); border-radius: 15px; background: color-mix(in srgb, var(--acid) 4.5%, transparent); transition: border-color .15s ease, box-shadow .15s ease; }
 /* The frame node is configured with pointer-events:none (see its node object in
    App.vue) so its body doesn't steal clicks from the edges/child nodes beneath
    it. Only the header re-enables pointer events, acting as the drag/select handle. */
-.workflow-frame header { pointer-events: auto; cursor: pointer; }
-.workflow-frame.selected { border-color: var(--acid); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acid) 25%, transparent); }
+.canvas-frame header { pointer-events: auto; cursor: pointer; }
+.canvas-frame.selected { border-color: var(--acid); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acid) 25%, transparent); }
 .frame-resize-handle.vue-flow__resize-control { z-index: 8; width: 28px; height: 28px; border: 0; background: transparent; pointer-events: auto; }
 .frame-resize-handle.vue-flow__resize-control::after { position: absolute; inset: 7px; border: 2px solid var(--bg-input); border-radius: 50%; background: var(--acid); box-shadow: 0 0 0 1px color-mix(in srgb, var(--acid) 65%, transparent); content: ''; opacity: 0; transition: opacity .12s ease; }
 .frame-resize-handle.vue-flow__resize-control:hover::after, .frame-resize-handle.vue-flow__resize-control:active::after { opacity: 1; }
-.workflow-frame header { position: absolute; bottom: 100%; left: 0; display: inline-flex; width: max-content; max-width: 100%; height: 34px; align-items: center; gap: 10px; padding: 5px 8px; border: 1px solid color-mix(in srgb, var(--acid) 48%, var(--line-strong)); border-radius: 8px; background: color-mix(in srgb, var(--acid) 16%, var(--bg-input)); box-shadow: var(--shadow-sm); transform-origin: bottom left; }
-.workflow-frame header .frame-icon { display: grid; flex: 0 0 auto; width: 20px; height: 20px; place-items: center; border: 1px solid color-mix(in srgb, var(--acid) 65%, var(--line-strong)); border-radius: 5px; background: color-mix(in srgb, var(--acid) 10%, var(--bg-input)); color: var(--acid); font: 600 9px var(--font-mono); }
-.workflow-frame header strong, .frame-name-input { height: 16px; color: var(--text-primary); font-size: 13px; font-weight: 600; line-height: 16px; }
-.workflow-frame header strong { min-width: 0; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-frame header { position: absolute; bottom: 100%; left: 0; display: inline-flex; width: max-content; max-width: 100%; height: 34px; align-items: center; gap: 10px; padding: 5px 8px; border: 1px solid color-mix(in srgb, var(--acid) 48%, var(--line-strong)); border-radius: 8px; background: color-mix(in srgb, var(--acid) 16%, var(--bg-input)); box-shadow: var(--shadow-sm); transform-origin: bottom left; }
+.canvas-frame header .frame-icon { display: grid; flex: 0 0 auto; width: 20px; height: 20px; place-items: center; border: 1px solid color-mix(in srgb, var(--acid) 65%, var(--line-strong)); border-radius: 5px; background: color-mix(in srgb, var(--acid) 10%, var(--bg-input)); color: var(--acid); font: 600 9px var(--font-mono); }
+.canvas-frame header strong, .frame-name-input { height: 16px; color: var(--text-primary); font-size: 13px; font-weight: 600; line-height: 16px; }
+.canvas-frame header strong { min-width: 0; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .frame-name-input, .node-name-input { min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; caret-color: var(--acid); }
 .frame-name-input { width: min(260px, calc(100% - 58px)); }
-.section-run-button { display: grid; flex: 0 0 auto; place-items: center; width: 24px; height: 24px; padding: 0; border: 1px solid var(--acid); border-radius: 6px; background: var(--acid); color: var(--text-inverse); cursor: pointer; transition: filter .15s ease, box-shadow .15s ease; }
-.section-run-button svg { width: 13px; height: 13px; fill: currentColor; }
-.section-run-button:hover:not(:disabled) { filter: brightness(1.08); box-shadow: 0 0 0 3px color-mix(in srgb, var(--acid) 18%, transparent); }
-.section-run-button:disabled { cursor: wait; opacity: .55; }
-.workflow-frame p { margin: 5px 0 0 55px; color: var(--text-muted); font-size: 10px; }
+.canvas-frame p { margin: 5px 0 0 55px; color: var(--text-muted); font-size: 10px; }
 .vue-flow__node-frame { z-index: 0 !important; }
-.vue-flow__node-workflow { z-index: 1 !important; }
-.workflow-node { position: relative; width: 260px; padding: 13px 14px 11px; border: 1px solid var(--node-accent); border-radius: 10px; background: color-mix(in srgb, var(--bg-input) 97%, transparent); box-shadow: var(--shadow-lg); transition: border-color .15s ease, box-shadow .15s ease; }
-.workflow-node:hover { border-color: color-mix(in srgb, var(--node-accent) 72%, var(--line-strong)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--node-accent) 28%, transparent), var(--shadow-lg); }
-.workflow-node.selected { box-shadow: inset 0 0 0 1px var(--node-accent), var(--shadow-lg); }
-.vue-flow__node-workflow:focus, .vue-flow__node-workflow:focus-visible { outline: none; }
+.vue-flow__node-canvas { z-index: 1 !important; }
+.canvas-node { position: relative; width: 260px; padding: 13px 14px 11px; border: 1px solid var(--node-accent); border-radius: 10px; background: color-mix(in srgb, var(--bg-input) 97%, transparent); box-shadow: var(--shadow-lg); transition: border-color .15s ease, box-shadow .15s ease; }
+.canvas-node:hover { border-color: color-mix(in srgb, var(--node-accent) 72%, var(--line-strong)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--node-accent) 28%, transparent), var(--shadow-lg); }
+.canvas-node.selected { box-shadow: inset 0 0 0 1px var(--node-accent), var(--shadow-lg); }
+.vue-flow__node-canvas:focus, .vue-flow__node-canvas:focus-visible { outline: none; }
 .tone-cyan { --node-accent: #68d9d0; }.tone-violet { --node-accent: #a78bfa; }.tone-amber { --node-accent: #f0ba62; }.tone-green { --node-accent: #82d68c; }.tone-rose { --node-accent: #ef8290; }
-.workflow-node footer { display: flex; align-items: center; justify-content: space-between; }
+.canvas-node footer { display: flex; align-items: center; justify-content: space-between; }
 .node-status { flex: 0 0 auto; width: 8px; height: 8px; border: 1px solid color-mix(in srgb, var(--text-muted) 72%, transparent); border-radius: 50%; background: var(--text-muted); box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-muted) 12%, transparent); }
 .node-status.queued, .node-status.running { border-color: var(--status-running); background: var(--status-running); box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-running) 16%, transparent); }
 .node-status.succeeded { border-color: var(--acid); background: var(--acid); box-shadow: 0 0 0 3px color-mix(in srgb, var(--acid) 16%, transparent); }
 .node-status.failed { border-color: var(--status-failed); background: var(--status-failed); box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-failed) 16%, transparent); }
 .node-status.waiting_review { border-color: #a78bfa; background: #a78bfa; box-shadow: 0 0 0 3px color-mix(in srgb, #a78bfa 16%, transparent); }
-.workflow-node.is-running { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--node-accent) 45%, transparent), var(--shadow-lg); }
-.workflow-node.is-failed { border-color: var(--status-failed); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-failed) 30%, transparent), var(--shadow-lg), 0 0 22px color-mix(in srgb, var(--status-failed) 14%, transparent); }
-.workflow-node.is-failed::after { position: absolute; z-index: 3; top: -7px; right: -7px; display: grid; width: 18px; height: 18px; place-items: center; border: 2px solid var(--bg-primary); border-radius: 50%; background: var(--status-failed); color: var(--bg-primary); content: '!'; font: 700 11px/1 var(--font-mono); }
+.canvas-node.is-running { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--node-accent) 45%, transparent), var(--shadow-lg); }
+.canvas-node.is-failed { border-color: var(--status-failed); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-failed) 30%, transparent), var(--shadow-lg), 0 0 22px color-mix(in srgb, var(--status-failed) 14%, transparent); }
+.canvas-node.is-failed::after { position: absolute; z-index: 3; top: -7px; right: -7px; display: grid; width: 18px; height: 18px; place-items: center; border: 2px solid var(--bg-primary); border-radius: 50%; background: var(--status-failed); color: var(--bg-primary); content: '!'; font: 700 11px/1 var(--font-mono); }
 .node-external-title { position: absolute; z-index: 7; bottom: calc(100% + 7px); left: 0; display: inline-flex; width: max-content; max-width: 100%; height: 34px; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid color-mix(in srgb, var(--node-accent) 48%, var(--line-strong)); border-radius: 8px; background: color-mix(in srgb, var(--node-accent) 16%, var(--bg-input)); box-shadow: var(--shadow-sm); }
 .node-external-title h3, .node-external-title .node-name-input { min-width: 0; max-width: 210px; }
 .node-external-title h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .node-icon { display: grid; flex: 0 0 auto; width: 20px; height: 20px; place-items: center; border: 1px solid color-mix(in srgb, var(--node-accent) 65%, var(--line-strong)); border-radius: 5px; background: color-mix(in srgb, var(--node-accent) 10%, var(--bg-input)); color: var(--node-accent); font: 600 9px var(--font-mono); transition: box-shadow .15s ease, transform .15s ease; }
-.workflow-node:hover .node-icon { box-shadow: 0 0 0 3px color-mix(in srgb, var(--node-accent) 12%, transparent); transform: scale(1.04); }
-.workflow-node h3, .node-name-input { display: block; width: 100%; height: 16px; margin: 0 0 2px; color: inherit; font-size: 13px; font-weight: 600; line-height: 16px; }
+.canvas-node:hover .node-icon { box-shadow: 0 0 0 3px color-mix(in srgb, var(--node-accent) 12%, transparent); transform: scale(1.04); }
+.canvas-node h3, .node-name-input { display: block; width: 100%; height: 16px; margin: 0 0 2px; color: inherit; font-size: 13px; font-weight: 600; line-height: 16px; }
 .node-detail { margin-bottom: 12px !important; }
-.workflow-node p { margin: 0; color: var(--text-muted); font-size: 9px; }
+.canvas-node p { margin: 0; color: var(--text-muted); font-size: 9px; }
 .node-output { position: relative; display: block; width: 100%; height: 146px; margin: 0 0 11px; padding: 0; overflow: hidden; border: 1px solid var(--line-subtle); border-radius: 8px; background: radial-gradient(circle at 50% 45%, #30352f, #111412 72%); color: inherit; text-align: initial; transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
 .node-output:is(button):hover { border-color: var(--node-accent); transform: translateY(-1px); }
 .node-output:is(button):focus-visible { outline: 2px solid var(--node-accent); outline-offset: 2px; }
@@ -605,37 +602,37 @@
 .run-log-step { display: grid; grid-template-columns: 7px minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: 2px 8px; min-width: 0; padding: 10px 12px; background: var(--bg-input); transition: background .15s ease; }.run-log-step > i { grid-row: 1 / 3; align-self: center; width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); transition: background .15s ease, box-shadow .15s ease; }.run-log-step > div { min-width: 0; }.run-log-step strong, .run-log-step small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.run-log-step strong { color: var(--text-secondary); font-size: 9px; }.run-log-step small { margin-top: 3px; color: var(--text-muted); font: 400 7px var(--font-mono); }.run-log-step > span { color: var(--text-muted); font: 500 7px var(--font-mono); text-transform: uppercase; }.run-log-step > b { grid-column: 3; color: var(--text-secondary); font: 400 8px var(--font-mono); text-align: right; }.run-log-step.succeeded > i { background: var(--acid); }.run-log-step.running > i { background: var(--status-running); }.run-log-step.failed > i { background: var(--status-failed); }.run-log-step.failed > span, .run-log-step.failed > b { color: var(--status-failed); }
 .run-status { display: flex; align-items: center; gap: 9px; height: 100%; white-space: nowrap; }.run-status > span { display: flex; align-items: center; gap: 7px; height: 100%; color: var(--text-muted); line-height: 1; text-transform: uppercase; }.run-status button { display: flex; align-items: center; gap: 5px; height: 19px; padding: 0 7px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--bg-input); color: var(--acid); font: 600 7px/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; transition: border-color .15s ease, background .15s ease; }.run-status button:hover { border-color: var(--line-strong); background: var(--bg-input-hover); }.run-status button b { font-size: 9px; font-weight: 500; }
 @media (max-width: 900px) { .run-log-steps { display: block; }.run-log-step { border-bottom: 1px solid var(--line); }.run-log-panel > header b { display: none; } }
-.workflow-node footer { gap: 8px; padding-top: 9px; border-top: 1px solid var(--line-subtle); color: var(--text-muted); font: 400 8px var(--font-mono); }
-.workflow-node footer span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-node footer { gap: 8px; padding-top: 9px; border-top: 1px solid var(--line-subtle); color: var(--text-muted); font: 400 8px var(--font-mono); }
+.canvas-node footer span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .node-pulse { width: 5px; height: 5px; border-radius: 50%; background: var(--node-accent); }
-.workflow-node.is-running .node-pulse { animation: node-pulse 1s ease-in-out infinite; }
+.canvas-node.is-running .node-pulse { animation: node-pulse 1s ease-in-out infinite; }
 @keyframes node-pulse { 50% { opacity: .25; transform: scale(.7); } }
-@media (prefers-reduced-motion: reduce) { .node-run-state.running .node-run-indicator, .workflow-node.is-running .node-pulse { animation: none; } }
-.vue-flow__handle.workflow-handle { z-index: 6; width: 36px; height: 36px; border: 0; background: transparent; }
+@media (prefers-reduced-motion: reduce) { .node-run-state.running .node-run-indicator, .canvas-node.is-running .node-pulse { animation: none; } }
+.vue-flow__handle.canvas-handle { z-index: 6; width: 36px; height: 36px; border: 0; background: transparent; }
 /* Vue Flow adds a `vue-flow__handle-<id>` class per handle, so ports named left/right
    collide with its own position classes. Pin the side by our own input/output class. */
-.vue-flow__handle.workflow-handle.input-handle { left: 0; right: auto; transform: translateY(-50%); }
-.vue-flow__handle.workflow-handle.output-handle { left: auto; right: 0; transform: translateY(-50%); }
+.vue-flow__handle.canvas-handle.input-handle { left: 0; right: auto; transform: translateY(-50%); }
+.vue-flow__handle.canvas-handle.output-handle { left: auto; right: 0; transform: translateY(-50%); }
 /* Vue Flow anchors an edge to a handle's OUTER edge (left for inputs, right for
    outputs), not the box centre — so place the ball on that edge and let the 36px
    hit area extend inward. This makes edges meet the ball centre with no gap. */
-.vue-flow__handle.workflow-handle::after { position: absolute; top: 50%; width: 20px; height: 20px; border: 3px solid #111313; border-radius: 50%; background: var(--node-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--node-accent) 22%, transparent); content: ''; transition: box-shadow .12s ease; }
-.vue-flow__handle.workflow-handle.input-handle::after { left: 0; transform: translate(-50%, -50%); }
-.vue-flow__handle.workflow-handle.output-handle::after { right: 0; transform: translate(50%, -50%); }
-.vue-flow__handle.workflow-handle:hover::after { box-shadow: 0 0 0 5px color-mix(in srgb, var(--node-accent) 28%, transparent); }
+.vue-flow__handle.canvas-handle::after { position: absolute; top: 50%; width: 20px; height: 20px; border: 3px solid #111313; border-radius: 50%; background: var(--node-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--node-accent) 22%, transparent); content: ''; transition: box-shadow .12s ease; }
+.vue-flow__handle.canvas-handle.input-handle::after { left: 0; transform: translate(-50%, -50%); }
+.vue-flow__handle.canvas-handle.output-handle::after { right: 0; transform: translate(50%, -50%); }
+.vue-flow__handle.canvas-handle:hover::after { box-shadow: 0 0 0 5px color-mix(in srgb, var(--node-accent) 28%, transparent); }
 /* Port labels sit inside the card next to their handle. Ports-heavy nodes widen
    and inset their media (width:auto so the margin actually narrows it, not just
    shifts a 100%-wide box) to give the labels a gutter instead of overprinting. */
 .port-label { position: absolute; z-index: 5; padding: 2px 5px; border-radius: 4px; background: color-mix(in srgb, var(--bg-input) 92%, transparent); color: var(--muted); font-size: 10px; font-weight: 700; line-height: 1; white-space: nowrap; pointer-events: none; text-transform: uppercase; transform: translateY(-50%); }
 .input-port-label { left: 14px; }
 .output-port-label { right: 14px; }
-.workflow-node.dense-ports { width: 300px; }
-.workflow-node.dense-ports .node-output, .workflow-node.dense-ports .node-run-state { width: auto; margin-inline: 44px; }
-.workflow-node.dense-ports .input-port-label { left: 8px; }
-.workflow-node.dense-ports .output-port-label { right: 8px; }
+.canvas-node.dense-ports { width: 300px; }
+.canvas-node.dense-ports .node-output, .canvas-node.dense-ports .node-run-state { width: auto; margin-inline: 44px; }
+.canvas-node.dense-ports .input-port-label { left: 8px; }
+.canvas-node.dense-ports .output-port-label { right: 8px; }
 .node-next-control { position: absolute; z-index: 4; top: 50%; right: -43px; width: 30px; height: 30px; transform: translateY(-50%); }
 .node-next-button { display: grid; width: 30px; height: 30px; padding: 0; place-items: center; border: 2px solid #111313; border-radius: 50%; background: var(--node-accent); color: #111313; font: 600 21px/1 var(--font-mono); opacity: 0; box-shadow: 0 0 0 3px color-mix(in srgb, var(--node-accent) 18%, transparent); transform: scale(.72); transition: opacity .14s ease, transform .14s ease, box-shadow .14s ease; }
-.workflow-node:hover .node-next-button, .node-next-control:hover .node-next-button, .node-next-control.open .node-next-button { opacity: 1; transform: scale(1); }
+.canvas-node:hover .node-next-button, .node-next-control:hover .node-next-button, .node-next-control.open .node-next-button { opacity: 1; transform: scale(1); }
 .node-next-button:hover { filter: brightness(1.1); box-shadow: 0 0 0 5px color-mix(in srgb, var(--node-accent) 25%, transparent); }
 .node-next-menu { position: absolute; z-index: 10; top: 38px; left: -3px; display: grid; width: 220px; max-height: 300px; gap: 3px; overflow-y: auto; padding: 5px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-input); box-shadow: var(--shadow-popover); animation: popover-in .12s ease-out; }
 .node-next-menu button { display: grid; min-height: 39px; padding: 6px 8px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--text-primary); text-align: left; transition: border-color .15s ease, background .15s ease; }
@@ -673,9 +670,9 @@
 .model-stage { display: grid; grid-template-rows: 61px minmax(0, 1fr) 54px; min-width: 0; min-height: 0; }
 .model-stage-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--bg-tertiary); transition: background .2s ease, border-color .2s ease; }
 .model-stage-header > div:first-child { display: grid; grid-template-columns: auto auto; align-items: center; gap: 3px 12px; }
-.back-to-workflow { grid-row: 1 / 3; min-height: 32px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg-input); color: var(--text-secondary); font: 500 9px var(--font-mono); transition: border-color .15s ease, background .15s ease, color .15s ease; }
-.back-to-workflow:hover { border-color: var(--line-strong); background: var(--bg-input-hover); color: var(--acid); }
-.back-to-workflow:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--acid) 50%, transparent); }
+.back-to-canvas { grid-row: 1 / 3; min-height: 32px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg-input); color: var(--text-secondary); font: 500 9px var(--font-mono); transition: border-color .15s ease, background .15s ease, color .15s ease; }
+.back-to-canvas:hover { border-color: var(--line-strong); background: var(--bg-input-hover); color: var(--acid); }
+.back-to-canvas:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--acid) 50%, transparent); }
 .model-stage-header span, .model-inspector header span, .section-heading span, .model-timeline span, .inspector-note span { color: var(--text-muted); font: 500 8px var(--font-mono); letter-spacing: .12em; }
 .model-stage-header strong { font-size: 12px; font-weight: 500; }
 .stage-actions { display: flex; gap: 6px; }
@@ -727,7 +724,7 @@
 .inspector-note span { color: var(--acid); }.inspector-note p { margin: 6px 0 0; color: var(--text-muted); font-size: 9px; line-height: 1.45; }
 
 :root[data-theme='light'] .node-output { border-color: #dce1dd; background: radial-gradient(circle at 50% 45%, #edf1ed, #dfe5e0 72%); }
-:root[data-theme='light'] .vue-flow__handle.workflow-handle::after, :root[data-theme='light'] .node-next-button { border-color: #fff; }
+:root[data-theme='light'] .vue-flow__handle.canvas-handle::after, :root[data-theme='light'] .node-next-button { border-color: #fff; }
 :root[data-theme='light'] .vue-flow__edge-path { stroke: #909993; }
 :root[data-theme='light'] .vue-flow__edge:hover .vue-flow__edge-path { stroke: color-mix(in srgb, var(--acid) 75%, #6c756f); }
 :root[data-theme='light'] .vue-flow__edge.selected .vue-flow__edge-path { stroke: var(--acid); }

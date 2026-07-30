@@ -1,60 +1,56 @@
-import { randomUUID } from './ids.js'
-
-const terminalStatuses = new Set(['succeeded', 'failed', 'waiting_review'])
-
 // The single input handle is untyped, so inbound media is read from what each
 // upstream node produces rather than from a named target port.
 const modelProducingTypes = new Set(['generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'bake', 'texture', 'rigging', 'segments', 'model-preview'])
 
-function inboundSources(node, workflow) {
-  const nodesById = new Map(workflow.nodes.map((item) => [item.id, item]))
-  return (workflow.edges || [])
+function inboundSources(node, canvas) {
+  const nodesById = new Map(canvas.nodes.map((item) => [item.id, item]))
+  return (canvas.edges || [])
     .filter((edge) => edge.target?.nodeId === node.id)
     .map((edge) => nodesById.get(edge.source?.nodeId))
     .filter(Boolean)
 }
 
-function exportTarget(node, workflow) {
-  const sources = inboundSources(node, workflow)
+function exportTarget(node, canvas) {
+  const sources = inboundSources(node, canvas)
   if (sources.some((source) => modelProducingTypes.has(source.type))) return '3D Model'
   if (sources.length) return 'Image'
   return '3D Model'
 }
 
-function sourceOutputImage(sourceNode, run) {
-  const output = run.nodeRuns[sourceNode.id]?.output
-  return output?.image || output?.preview || sourceNode.config?.selectedPreview || sourceNode.config?.preview || sourceNode.config?.previews?.[0] || null
+// Nodes are executed one request at a time, so an upstream result is read from
+// the config the canvas already saved rather than from a shared run record.
+function sourceOutputImage(sourceNode) {
+  return sourceNode.config?.selectedPreview || sourceNode.config?.preview || sourceNode.config?.previews?.[0] || null
 }
 
-function sourceOutputImages(sourceNode, run) {
-  const output = run.nodeRuns[sourceNode.id]?.output
+function sourceOutputImages(sourceNode) {
   const images = [
-    ...(Array.isArray(output?.previews) ? output.previews : []),
-    ...Object.values(output?.viewPreviews || {}),
+    ...(Array.isArray(sourceNode.config?.previews) ? sourceNode.config.previews : []),
+    ...Object.values(sourceNode.config?.viewPreviews || {}),
   ].filter(Boolean)
   if (images.length) return [...new Set(images)]
-  const image = sourceOutputImage(sourceNode, run)
+  const image = sourceOutputImage(sourceNode)
   return image ? [image] : []
 }
 
-function resolveInputImages(node, workflow, run) {
-  return [...new Set(inboundSources(node, workflow)
+function resolveInputImages(node, canvas) {
+  return [...new Set(inboundSources(node, canvas)
     .filter((source) => !modelProducingTypes.has(source.type))
-    .flatMap((source) => sourceOutputImages(source, run)))]
+    .flatMap((source) => sourceOutputImages(source)))]
 }
 
-function resolveInputImage(node, workflow, run) {
-  for (const source of inboundSources(node, workflow)) {
+function resolveInputImage(node, canvas) {
+  for (const source of inboundSources(node, canvas)) {
     if (modelProducingTypes.has(source.type)) continue
-    const image = sourceOutputImage(source, run)
+    const image = sourceOutputImage(source)
     if (image) return image
   }
   return null
 }
 
-function nodeOutput(node, workflow, run) {
+export function nodeOutput(node, canvas) {
   if (['reference-image', 'generated-image'].includes(node.type)) {
-    const image = resolveInputImage(node, workflow, run) || node.config?.preview || null
+    const image = resolveInputImage(node, canvas) || node.config?.preview || null
     return { message: `${node.name} ready`, image, preview: image }
   }
   if (node.type === 'generate-image') {
@@ -72,12 +68,12 @@ function nodeOutput(node, workflow, run) {
     return { message: 'Front, back, left, and right views generated', viewPreviews: node.config?.viewPreviews || {} }
   }
   if (node.type === 'review') {
-    const image = resolveInputImage(node, workflow, run) || node.config?.preview || null
+    const image = resolveInputImage(node, canvas) || node.config?.preview || null
     return { message: node.config?.approved ? 'Image approved' : 'Awaiting image approval', image, preview: image }
   }
   if (['generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'bake', 'texture', 'rigging', 'segments', 'model-preview'].includes(node.type)) {
     if (node.type === 'generate-model') {
-      const inputImages = resolveInputImages(node, workflow, run)
+      const inputImages = resolveInputImages(node, canvas)
       return { message: `${node.name} generated from ${inputImages.length > 1 ? `${inputImages.length} images` : inputImages.length === 1 ? '1 image' : 'text'}`, preview: node.config?.preview || null, inputMode: inputImages.length > 1 ? 'multi-image' : inputImages.length === 1 ? 'single-image' : 'text', inputImages }
     }
     return node.type === 'texture'
@@ -88,19 +84,19 @@ function nodeOutput(node, workflow, run) {
     const format = ['usdz', 'fbx', 'obj', 'stl', 'gltf', '3mf'].includes(node.config?.modelFormat) ? node.config.modelFormat : 'gltf'
     const fileName = node.config?.fileName || 'shark-gardener'
     const outputs = [{ destination: 'dcc', format, filename: `${fileName}.${format === 'gltf' ? 'glb' : format}`, downloadUrl: '/models/shark-gardener.glb', mock: format !== 'gltf' }]
-    return { message: `${node.name} ready`, target: exportTarget(node, workflow), format, outputs, preview: node.config?.preview || '/shark-model.png' }
+    return { message: `${node.name} ready`, target: exportTarget(node, canvas), format, outputs, preview: node.config?.preview || '/shark-model.png' }
   }
   return { message: `Mock ${node.type} result` }
 }
 
-export function executionNodes(workflow) {
-  const executableNodes = workflow.nodes.filter((node) => node.type !== 'frame')
+export function executionNodes(canvas) {
+  const executableNodes = canvas.nodes.filter((node) => node.type !== 'frame')
   const nodesById = new Map(executableNodes.map((node) => [node.id, node]))
   const outgoing = new Map(executableNodes.map((node) => [node.id, []]))
   const indegree = new Map(executableNodes.map((node) => [node.id, 0]))
 
   const dependencies = new Set()
-  for (const edge of workflow.edges || []) {
+  for (const edge of canvas.edges || []) {
     const sourceId = edge.source?.nodeId
     const targetId = edge.target?.nodeId
     if (!nodesById.has(sourceId) || !nodesById.has(targetId) || dependencies.has(`${sourceId}:${targetId}`)) continue
@@ -123,13 +119,13 @@ export function executionNodes(workflow) {
   return ordered.length === executableNodes.length ? ordered : executableNodes
 }
 
-export function downstreamWorkflow(workflow, startNodeId) {
-  const executableNodes = workflow.nodes.filter((node) => node.type !== 'frame')
+export function downstreamCanvas(canvas, startNodeId) {
+  const executableNodes = canvas.nodes.filter((node) => node.type !== 'frame')
   const nodeIds = new Set(executableNodes.map((node) => node.id))
   if (!nodeIds.has(startNodeId)) return null
 
   const outgoing = new Map(executableNodes.map((node) => [node.id, []]))
-  for (const edge of workflow.edges || []) {
+  for (const edge of canvas.edges || []) {
     const sourceId = edge.source?.nodeId
     const targetId = edge.target?.nodeId
     if (outgoing.has(sourceId) && nodeIds.has(targetId)) outgoing.get(sourceId).push(targetId)
@@ -147,81 +143,36 @@ export function downstreamWorkflow(workflow, startNodeId) {
   }
 
   return {
-    ...structuredClone(workflow),
+    ...structuredClone(canvas),
     nodes: executableNodes.filter((node) => includedNodeIds.has(node.id)).map((node) => structuredClone(node)),
-    edges: (workflow.edges || []).filter((edge) => (
+    edges: (canvas.edges || []).filter((edge) => (
       includedNodeIds.has(edge.source?.nodeId) && includedNodeIds.has(edge.target?.nodeId)
     )).map((edge) => structuredClone(edge)),
   }
 }
 
-export function createMockRun(workflow, { id = `run-${randomUUID()}`, now = () => new Date().toISOString() } = {}) {
-  const createdAt = now()
-  const nodes = executionNodes(workflow)
-  const nodeRuns = Object.fromEntries(nodes.map((node, index) => [node.id, {
-    status: index === 0 ? 'running' : 'queued',
-    durationMs: null,
-    output: null,
-    error: null,
-  }]))
-  const empty = nodes.length === 0
+// Executes one node and returns its result. Failing nodes surface as a thrown
+// error so the caller can stop the sequence and report which node broke.
+export async function executeNode(node, canvas, {
+  wait = (duration) => new Promise((resolve) => setTimeout(resolve, duration)),
+} = {}) {
+  const startedAt = Date.now()
+  await wait(600)
+
+  if (node.config?.mockFailure) {
+    const error = new Error(`Mock ${node.type} execution failed`)
+    error.statusCode = 422
+    throw error
+  }
+
+  // An unapproved check node is not a failure: it holds the sequence until the
+  // user approves, so the caller stops without marking anything red.
+  const status = node.type === 'review' && !node.config?.approved ? 'waiting_review' : 'succeeded'
 
   return {
-    id,
-    workflowId: workflow.id,
-    workflowRevision: workflow.revision,
-    status: empty ? 'succeeded' : 'running',
-    createdAt,
-    completedAt: empty ? createdAt : null,
-    nodeRuns,
+    nodeId: node.id,
+    status,
+    durationMs: Math.max(1, Date.now() - startedAt),
+    output: nodeOutput(node, canvas),
   }
-}
-
-export async function executeMockRun(run, workflow, {
-  wait = (duration) => new Promise((resolve) => setTimeout(resolve, duration)),
-  persist = async () => {},
-  now = () => new Date().toISOString(),
-} = {}) {
-  const nodes = executionNodes(workflow)
-  for (const [index, node] of nodes.entries()) {
-    const nodeRun = run.nodeRuns[node.id]
-    nodeRun.status = 'running'
-    await persist()
-    const durationMs = 650
-    await wait(600)
-
-    if (node.type === 'review' && !node.config?.approved) {
-      nodeRun.status = 'waiting_review'
-      nodeRun.durationMs = durationMs
-      nodeRun.output = nodeOutput(node, workflow, run)
-      run.status = 'waiting_review'
-      await persist()
-      return run
-    }
-
-    if (node.config?.mockFailure) {
-      nodeRun.status = 'failed'
-      nodeRun.durationMs = durationMs
-      nodeRun.error = `Mock ${node.type} execution failed`
-      run.status = 'failed'
-      run.completedAt = now()
-      await persist()
-      return run
-    }
-
-    nodeRun.status = 'succeeded'
-    nodeRun.durationMs = durationMs
-    nodeRun.output = nodeOutput(node, workflow, run)
-    if (nodes[index + 1]) run.nodeRuns[nodes[index + 1].id].status = 'running'
-    await persist()
-  }
-
-  run.status = 'succeeded'
-  run.completedAt = now()
-  await persist()
-  return run
-}
-
-export function isRunTerminal(run) {
-  return terminalStatuses.has(run.status)
 }

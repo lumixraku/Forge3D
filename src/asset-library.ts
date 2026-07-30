@@ -1,31 +1,22 @@
-// Aggregate every produced asset from a workflow's nodes into the three library
-// buckets (reference / 2D / 3D). Purely derived — the canvas data is untouched.
-const MODEL_ASSET_TYPES = new Set(['generate-model', 'text-to-3d', 'multiview-to-3d', 'smart-mesh', 'texture', 'retopology', 'bake', 'rigging', 'segments', 'model-preview', 'export-model'])
-
-interface AssetNode {
+// Group the execution-history assets returned by `GET /api/canvases/:id/assets` into
+// the three library rails. The server already ordered them newest run first.
+export interface RunAsset {
   id: string
-  type?: string
-  data?: { label?: string; workflowType?: string; config?: Record<string, any> }
+  runId: string
+  executionId: string
+  nodeId: string
+  nodeType: string
+  label: string
+  kind: 'reference' | 'image' | 'model'
+  src: string
+  downloads?: { downloadUrl?: string; filename?: string; format?: string }[]
+  createdAt: string
 }
 
-export function buildAssetLibrary(nodes: AssetNode[]) {
-  const reference = [], images = [], models = []
-  for (const node of nodes) {
-    if (node.type !== 'workflow') continue
-    const type = node.data?.workflowType
-    const config = node.data?.config || {}
-    const label = node.data?.label || type
-    if (type === 'reference-image') {
-      const src = config.selectedPreview || config.preview
-      if (src) reference.push({ id: node.id, src, label, nodeId: node.id })
-    } else if (type === 'generate-image' || type === 'generated-image') {
-      const previews = Array.isArray(config.previews) && config.previews.length ? config.previews : [config.selectedPreview || config.preview].filter(Boolean)
-      previews.forEach((src, i) => src && images.push({ id: `${node.id}-${i}`, src, label, nodeId: node.id }))
-    } else if (MODEL_ASSET_TYPES.has(type)) {
-      const src = config.selectedPreview || config.preview
-      if (src) models.push({ id: node.id, src, label, nodeId: node.id })
-    }
-  }
+export function buildAssetLibrary(assets: RunAsset[]) {
+  const reference = assets.filter((asset) => asset.kind === 'reference')
+  const images = assets.filter((asset) => asset.kind === 'image')
+  const models = assets.filter((asset) => asset.kind === 'model')
   return { reference, images, models, total: reference.length + images.length + models.length }
 }
 
@@ -35,4 +26,15 @@ export function buildAssetRails(library: ReturnType<typeof buildAssetLibrary>) {
     { key: 'images', title: '2D Assets', badge: '2D', items: library.images },
     { key: 'models', title: '3D Assets', badge: '3D', items: library.models },
   ]
+}
+
+// Runs are labelled by recency so repeated runs of one canvas stay tellable
+// apart on the cards: the newest is "Latest", then "Run -1", "Run -2"...
+export function buildRunLabels(assets: RunAsset[]) {
+  const labels = new Map<string, string>()
+  for (const asset of assets) {
+    if (labels.has(asset.runId)) continue
+    labels.set(asset.runId, labels.size === 0 ? 'Latest' : `Run -${labels.size}`)
+  }
+  return labels
 }

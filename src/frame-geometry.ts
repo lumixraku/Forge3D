@@ -192,7 +192,7 @@ export function buildSelectionFrame(nodes: GeometryNode[], selected: GeometryNod
     height,
     selected: true,
     style: { pointerEvents: 'none' },
-    data: { label: 'Workflow section', description: '' },
+    data: { label: 'Canvas section', description: '' },
   }
   const children = nodes.map((node) => selectedIds.has(node.id)
     ? {

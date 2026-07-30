@@ -49,7 +49,7 @@ export function frameComponentGap(zoom = 1, spacing = 32) {
   return insets.bottom + insets.top + FRAME_TITLE_SCREEN_HEIGHT / Math.max(Number(zoom) || 1, 0.01) + spacing
 }
 
-export async function layoutWorkflow(nodes: LayoutNode[], edges: LayoutEdge[], { originX = 0, originY = 120, columnGap = 100, rowGap = 80, componentGap = rowGap * 1.5 }: LayoutOptions = {}) {
+export async function layoutCanvas(nodes: LayoutNode[], edges: LayoutEdge[], { originX = 0, originY = 120, columnGap = 100, rowGap = 80, componentGap = rowGap * 1.5 }: LayoutOptions = {}) {
   if (!nodes.length) return new Map()
 
   const nodeIds = new Set(nodes.map((node) => node.id))
@@ -81,7 +81,7 @@ export async function layoutWorkflow(nodes: LayoutNode[], edges: LayoutEdge[], {
     return child
   })
   const graph = {
-    id: 'workflow',
+    id: 'canvas',
     layoutOptions: {
       'elk.algorithm': 'layered',
       'elk.direction': 'RIGHT',

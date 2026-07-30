@@ -1,29 +1,29 @@
-# Forge3D Workflow Studio
+# Forge3D Canvas Studio
 
 [Live Demo](https://forge3d.lumixraku.org/)
 
-Forge3D is a local-first, conversational workflow studio for designing reusable 3D production pipelines. A DeepSeek-powered Agent translates natural-language requests into a versioned JSON directed acyclic graph (DAG), while Vue Flow renders that domain model as an editable infinite canvas.
+Forge3D is a local-first, conversational canvas studio for designing reusable 3D production pipelines. A DeepSeek-powered Agent translates natural-language requests into a versioned JSON directed acyclic graph (DAG), while Vue Flow renders that domain model as an editable infinite canvas.
 
 The repository is both a working demo and a reference implementation. This README describes the product, interaction model, data contracts, rendering rules, Agent protocol, persistence, local runtime, Cloudflare deployment, and known limitations in enough detail for another engineer or AI coding agent to reproduce the project.
 
-Chat requires a DeepSeek API key. Workflow execution is intentionally simulated: no external image-generation, mesh-generation, retopology, rigging, texture, or export service is called.
+Chat requires a DeepSeek API key. Canvas execution is intentionally simulated: no external image-generation, mesh-generation, retopology, rigging, texture, or export service is called.
 
-![Forge3D Workflow Studio](assets/forge3d-workflow-studio.png)
+![Forge3D Canvas Studio](assets/forge3d-canvas-studio.png)
 
 ## Product Goals
 
-Forge3D combines two editing modes over the same authoritative workflow document:
+Forge3D combines two editing modes over the same authoritative canvas document:
 
-1. **Conversational editing**: the Workflow Copilot inspects, builds, and updates the graph through validated tools.
+1. **Conversational editing**: the Canvas Copilot inspects, builds, and updates the graph through validated tools.
 2. **Direct manipulation**: the user adds, connects, moves, groups, configures, copies, runs, imports, and exports nodes on the canvas.
 
-The important architectural boundary is that Vue Flow is a renderer and interaction surface, not the persisted data model. The server owns a framework-neutral workflow JSON document containing domain nodes, semantic edges, viewport state, revision metadata, conversation history, Agent tasks, and mock execution runs.
+The important architectural boundary is that Vue Flow is a renderer and interaction surface, not the persisted data model. The server owns a framework-neutral canvas JSON document containing domain nodes, semantic edges, viewport state, revision metadata, conversation history, Agent tasks, and mock execution runs.
 
 ## Current Product Surface
 
 The page has two mutually exclusive workspace modes:
 
-- **Workflow workspace**: top bar, Workflow Copilot on the left, and an infinite node canvas on the right.
+- **Canvas workspace**: top bar, Canvas Copilot on the left, and an infinite node canvas on the right.
 - **Model Editor workspace**: a focused 3D result viewer opened from successful model-producing nodes.
 
 ### Top Bar
@@ -31,15 +31,15 @@ The page has two mutually exclusive workspace modes:
 The top bar contains:
 
 - Forge3D brand and product subtitle.
-- Current workflow name and zero-padded revision.
-- Workflow switcher.
-- New workflow action.
+- Current canvas name and zero-padded revision.
+- Canvas switcher.
+- New canvas action.
 - Save state: `Unsaved changes`, `Saving…`, `Saved`, or `Save failed`.
 - Light/dark theme switcher.
 
-Double-click the current workflow name to rename it. `Enter` saves, `Escape` cancels, and blur commits a non-empty changed value.
+Double-click the current canvas name to rename it. `Enter` saves, `Escape` cancels, and blur commits a non-empty changed value.
 
-### Workflow Copilot
+### Canvas Copilot
 
 The left panel is a Tiptap-powered chat composer and conversation history:
 
@@ -103,34 +103,34 @@ The toolbar provides:
 - `Gen HD Model`: create a `generate-model` node immediately.
 - `Fit`: fit all nodes with `0.18` padding and a 400 ms transition.
 - `Auto layout`: run ELK layout and persist the result.
-- `Run workflow` / `Run again`: start simulated execution.
+- `Run canvas` / `Run again`: start simulated execution.
 
-Auto layout is disabled while the Agent or save operation is busy and when the graph is empty. Workflow execution is disabled while another run or blocking operation is active.
+Auto layout is disabled while the Agent or save operation is busy and when the graph is empty. Canvas execution is disabled while another run or blocking operation is active.
 
-## Workflow Management
+## Canvas Management
 
-The workflow switcher shows each workflow name, node count, and revision. It supports:
+The canvas switcher shows each canvas name, node count, and revision. It supports:
 
-- Open workflow.
-- Create workflow.
+- Open canvas.
+- Create canvas.
 - Import JSON by picker or drag-and-drop.
 - Export JSON.
 - Duplicate.
 - Delete with confirmation.
 
-Creating a workflow asks for a name with `window.prompt` and defaults to:
+Creating a canvas asks for a name with `window.prompt` and defaults to:
 
 ```json
 {
-  "name": "New 3D workflow",
-  "description": "A new 3D production workflow ready to customize.",
+  "name": "New 3D canvas",
+  "description": "A new 3D production canvas ready to customize.",
   "nodes": [],
   "edges": [],
   "viewport": { "x": 80, "y": 160, "zoom": 0.72 }
 }
 ```
 
-Import removes external `id`, `revision`, `createdAt`, and `updatedAt` fields, then creates a new workflow rather than overwriting the current one. Export downloads pretty-printed JSON as `<workflow-name>.workflow.json`.
+Import removes external `id`, `revision`, `createdAt`, and `updatedAt` fields, then creates a new canvas rather than overwriting the current one. Export downloads pretty-printed JSON as `<canvas-name>.canvas.json`.
 
 Duplication deep-copies nodes, edges, and viewport, resets the revision to 1, names the copy `<original> Copy`, and creates a separate conversation.
 
@@ -143,7 +143,7 @@ Canvas edits are debounced for 700 ms. Saves are serialized:
 3. If edits occur during the request, the newest pending snapshot is saved afterward.
 4. Older network responses cannot overwrite newer local state.
 
-Pending saves are flushed before switching workflows, sending Agent messages, deleting the active workflow, or starting a run.
+Pending saves are flushed before switching canvases, sending Agent messages, deleting the active canvas, or starting a run.
 
 ## Node Catalog
 
@@ -155,7 +155,7 @@ Annotate → Input → 2D → 3D → Output → Video
 
 Empty categories are not rendered. `Video` is reserved and currently has no nodes.
 
-Hidden nodes remain valid definitions so older persisted workflows can still load, but they are excluded from both the full Add node menu and connection-derived compatible-node menus.
+Hidden nodes remain valid definitions so older persisted canvases can still load, but they are excluded from both the full Add node menu and connection-derived compatible-node menus.
 
 | Category | Type | Label | Inputs | Output | Menu |
 | --- | --- | --- | --- | --- | --- |
@@ -431,14 +431,14 @@ New toolbar frames default to:
 
 ```json
 {
-  "name": "New workflow frame",
+  "name": "New canvas frame",
   "width": 900,
   "height": 600,
   "description": ""
 }
 ```
 
-Frames created around a selection use `Workflow frame` as the default name.
+Frames created around a selection use `Canvas frame` as the default name.
 
 ## Frame Semantics
 
@@ -453,7 +453,7 @@ Frames are Vue Flow parent nodes and visual containers, not DAG stages:
 - Frames can contain nested frames.
 - `Make as a frame` wraps selected top-level nodes while preserving absolute positions.
 - `Dissolve frame` reparents children to the dissolved frame's parent or canvas while preserving absolute positions.
-- `Create workflow` exports selected content as a reusable fragment, normalizing positions relative to the selection bounds.
+- `Create canvas` exports selected content as a reusable fragment, normalizing positions relative to the selection bounds.
 
 When grouping, the frame bounds are derived from selected nodes plus visual padding. When ungrouping, descendants are processed carefully so nested coordinate systems are preserved.
 
@@ -468,7 +468,7 @@ The app-level clipboard stores a normalized snapshot of selected nodes and inter
 - Selects the pasted nodes.
 - Persists the result.
 
-Copy/paste works between workflows during the same browser session.
+Copy/paste works between canvases during the same browser session.
 
 Supported shortcuts include:
 
@@ -486,7 +486,7 @@ Shortcuts are ignored while typing into inputs, textareas, selects, buttons, or 
 
 ## Automatic Layout
 
-`src/workflow-layout.js` uses ELK's layered algorithm.
+`src/canvas-layout.js` uses ELK's layered algorithm.
 
 The layout preserves frame hierarchy by building a compound graph:
 
@@ -497,21 +497,21 @@ The layout preserves frame hierarchy by building a compound graph:
 - Frame dimensions are updated from the ELK result.
 - Layout changes are persisted.
 
-When an Agent emits `workflow-updated` with `structure_changed: true`, the frontend refreshes the authoritative workflow, automatically lays it out, and saves the resulting positions.
+When an Agent emits `canvas-updated` with `structure_changed: true`, the frontend refreshes the authoritative canvas, automatically lays it out, and saves the resulting positions.
 
-## Mock Workflow Execution
+## Mock Canvas Execution
 
-Agent tools modify the workflow definition; execution is a separate simulated system.
+Agent tools modify the canvas definition; execution is a separate simulated system.
 
 The UI can run:
 
 - A single node: `scope: "node"` with `targetNodeId`.
 - A target node and every reachable downstream node: `scope: "downstream"`.
-- The whole workflow: `scope: "node"` without a target, despite the historical scope name.
+- The whole canvas: `scope: "node"` without a target, despite the historical scope name.
 
 The server:
 
-1. Creates a run tied to the current workflow revision.
+1. Creates a run tied to the current canvas revision.
 2. Selects the requested subgraph.
 3. Traverses it topologically.
 4. Marks nodes queued/running/succeeded/failed.
@@ -521,24 +521,24 @@ The server:
 
 Set `node.config.mockFailure` to exercise failure UI. Failed nodes stop downstream progress. The frontend polls the run endpoint until a terminal state and merges per-node status into the canvas.
 
-The latest persisted run state is restored when a workflow opens, but only when the run revision matches the current workflow revision and the referenced node still exists.
+The latest persisted run state is restored when a canvas opens, but only when the run revision matches the current canvas revision and the referenced node still exists.
 
 ## Model Editor
 
 Successful model-producing nodes expose `Open in Model Editor`. The editor is a separate workspace with:
 
-- Return-to-workflow navigation.
+- Return-to-canvas navigation.
 - Scene controls and model display.
 - Standard model mode.
 - Rigging overlay mode for rigging results.
 - Exploded segmented-model mode for split results.
 - Sample GLB assets from `public/models/`.
 
-The current editor is a visualization demo, not a persistent mesh-editing backend. Returning to the workflow triggers a canvas fit.
+The current editor is a visualization demo, not a persistent mesh-editing backend. Returning to the canvas triggers a canvas fit.
 
 ## Domain Data Model
 
-### Workflow
+### Canvas
 
 ```json
 {
@@ -595,14 +595,14 @@ The persisted edge shape remains semantic and does not persist Vue Flow's comple
 ```json
 {
   "id": "conv-example",
-  "workflowId": "wf-example",
+  "canvasId": "wf-example",
   "createdAt": "2026-07-27T10:00:00.000Z",
   "updatedAt": "2026-07-27T10:05:00.000Z",
   "messages": [
     {
       "id": "msg-example",
       "role": "assistant",
-      "content": "Describe the workflow you want to build.",
+      "content": "Describe the canvas you want to build.",
       "createdAt": "2026-07-27T10:00:00.000Z"
     }
   ]
@@ -617,7 +617,7 @@ Tasks persist queued, active, waiting, successful, and failed Agent turns. Impor
 {
   "id": "task-example",
   "threadId": "conv-example",
-  "workflowId": "wf-example",
+  "canvasId": "wf-example",
   "message": "Add retopology and export",
   "status": "waiting_for_user",
   "progress": [],
@@ -642,8 +642,8 @@ Tasks persist queued, active, waiting, successful, and failed Agent turns. Impor
 ```json
 {
   "id": "run-example",
-  "workflowId": "wf-example",
-  "workflowRevision": 3,
+  "canvasId": "wf-example",
+  "canvasRevision": 3,
   "status": "running",
   "createdAt": "2026-07-27T10:00:00.000Z",
   "completedAt": null,
@@ -691,24 +691,24 @@ The Node API then runs the custom DeepSeek tool-call loop in-process. Cloudflare
 The two paths are intentionally similar but not identical:
 
 - Direct DeepSeek uses up to the latest 20 conversation messages.
-- The current Pi Agent Service request does not forward conversation history; it receives the current request and workflow.
+- The current Pi Agent Service request does not forward conversation history; it receives the current request and canvas.
 - Direct mode defaults to `deepseek-v4-flash` when no model is supplied by its caller.
 - Agent Service mode defaults to `deepseek-chat`.
 - Pi progress labels are prefixed with `Pi ·`.
-- Local Pi runs support in-memory steering by workflow.
+- Local Pi runs support in-memory steering by canvas.
 
 ## Agent Tools
 
-The Agent has seven validated tools. Tool calls are server-side only; the browser receives safe progress summaries and an authoritative workflow invalidation event.
+The Agent has seven validated tools. Tool calls are server-side only; the browser receives safe progress summaries and an authoritative canvas invalidation event.
 
 | Tool | Purpose |
 | --- | --- |
-| `get_workflow_structure` | Inspect every node and edge on the current canvas. |
+| `get_canvas_structure` | Inspect every node and edge on the current canvas. |
 | `list_available_node_types` | List node types that can be created. |
-| `build_workflow` | Append a workflow section from an ordered node type list, with a generated frame, placement, and compatible edges. |
-| `get_workflow_parameters` | Inspect adjustable parameters for nodes currently in the workflow. |
+| `build_canvas` | Append a canvas section from an ordered node type list, with a generated frame, placement, and compatible edges. |
+| `get_canvas_parameters` | Inspect adjustable parameters for nodes currently in the canvas. |
 | `update_node_parameters` | Validate and update canonical parameters on one exact node ID. |
-| `add_workflow_node` | Add one supported node or a separate frame. |
+| `add_canvas_node` | Add one supported node or a separate frame. |
 | `request_user_select` | Pause the turn and request a finite user choice. |
 
 ### Available Agent Node Types
@@ -732,9 +732,9 @@ model-preview
 export-model
 ```
 
-`frame` can be added separately but is not supplied as a `build_workflow` node type. Duplicate node types in a build request are de-duplicated.
+`frame` can be added separately but is not supplied as a `build_canvas` node type. Duplicate node types in a build request are de-duplicated.
 
-### `get_workflow_structure`
+### `get_canvas_structure`
 
 Input:
 
@@ -742,7 +742,7 @@ Input:
 {}
 ```
 
-Returns every `{ id, type, name }` node and edge on the current canvas, across all workflow sections. Extra properties are rejected.
+Returns every `{ id, type, name }` node and edge on the current canvas, across all canvas sections. Extra properties are rejected.
 
 ### `list_available_node_types`
 
@@ -754,7 +754,7 @@ Input:
 
 Returns all node types that can be created.
 
-### `build_workflow`
+### `build_canvas`
 
 Input:
 
@@ -769,9 +769,9 @@ Input:
 }
 ```
 
-The list must be non-empty and contain supported non-frame node types. The planner creates a frame, creates default-configured nodes, places them, connects adjacent compatible nodes, increments the workflow revision, and returns the new frame ID, node summaries, and edges.
+The list must be non-empty and contain supported non-frame node types. The planner creates a frame, creates default-configured nodes, places them, connects adjacent compatible nodes, increments the canvas revision, and returns the new frame ID, node summaries, and edges.
 
-### `get_workflow_parameters`
+### `get_canvas_parameters`
 
 Input:
 
@@ -806,7 +806,7 @@ Rules:
 - Unchanged values do not create change records.
 - Group changes for one node into one call; use separate calls for different nodes.
 
-### `add_workflow_node`
+### `add_canvas_node`
 
 Input:
 
@@ -846,7 +846,7 @@ Accept: text/event-stream
 Content-Type: application/json
 
 {
-  "workflowId": "wf-example",
+  "canvasId": "wf-example",
   "message": "Add retopology and export"
 }
 ```
@@ -863,7 +863,7 @@ Every SSE frame has a transport event name, a JSON business payload, and a trans
 
 ```text
 event: message
-data: {"type":"progress","thread_id":"conv-example","turn_id":"task-example","step_id":"progress-1","label":"Building workflow","status":"running"}
+data: {"type":"progress","thread_id":"conv-example","turn_id":"task-example","step_id":"progress-1","label":"Building canvas","status":"running"}
 id: 2-0
 
 ```
@@ -880,11 +880,11 @@ id: 2-0
 
 | `data.type` | Important fields | Frontend behavior |
 | --- | --- | --- |
-| `task-start` | `workflow_id` | Bind the server task ID to the optimistic assistant message. |
+| `task-start` | `canvas_id` | Bind the server task ID to the optimistic assistant message. |
 | `progress` | `step_id`, `label`, `status` | Append safe visible Agent activity. |
 | `request_user_select` | `request` | Stop pending state and render a choice card. |
 | `text` | `step_id`, `id`, `text` | Replace pending text with the complete assistant reply. |
-| `workflow-updated` | `workflow_id`, `changed_node_ids`, `structure_changed` | Fetch authoritative workflow state; auto-layout if structure changed. |
+| `canvas-updated` | `canvas_id`, `changed_node_ids`, `structure_changed` | Fetch authoritative canvas state; auto-layout if structure changed. |
 | `finish` | `finish_reason: "stop"` | End pending state. |
 | `error` | `error` | Mark the turn failed and show the message. |
 
@@ -894,7 +894,7 @@ Successful sequence:
 task-start
 progress × N
 text
-workflow-updated
+canvas-updated
 finish
 ```
 
@@ -915,7 +915,7 @@ progress × N
 error
 ```
 
-The workflow itself is never embedded in `workflow-updated`. The event is an invalidation signal; the frontend calls `GET /api/workflows/:id` and replaces local state with the persisted document.
+The canvas itself is never embedded in `canvas-updated`. The event is an invalidation signal; the frontend calls `GET /api/canvases/:id` and replaces local state with the persisted document.
 
 ### Continuing A Selection
 
@@ -948,8 +948,8 @@ Content-Type: application/json
   "apiKey": "...",
   "baseUrl": "https://api.deepseek.com",
   "model": "deepseek-chat",
-  "message": "Build a 3D workflow",
-  "workflow": {}
+  "message": "Build a 3D canvas",
+  "canvas": {}
 }
 ```
 
@@ -957,7 +957,7 @@ The response is newline-delimited JSON with content type `application/x-ndjson`:
 
 ```json
 {"type":"progress","event":{"label":"Pi · Reviewing your request","status":"running"}}
-{"type":"result","plan":{"workflow":{},"reply":"Workflow updated.","changedNodeIds":[],"structureChanged":false}}
+{"type":"result","plan":{"canvas":{},"reply":"Canvas updated.","changedNodeIds":[],"structureChanged":false}}
 ```
 
 Message types are:
@@ -981,34 +981,81 @@ The `/agent` endpoint currently has no authentication and receives the DeepSeek 
 
 ## HTTP API
 
-### Workflows
+### Canvass
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/workflows` | List summaries with `nodeCount` and `edgeCount`. |
-| `POST` | `/api/workflows` | Validate and create a workflow and initial conversation. |
-| `GET` | `/api/workflows/:id` | Return workflow, conversation, and latest compatible node-run state. |
-| `PUT` | `/api/workflows/:id` | Replace the persisted workflow and update `updatedAt`. |
-| `DELETE` | `/api/workflows/:id` | Delete workflow and associated state. |
-| `POST` | `/api/workflows/:id/duplicate` | Deep-copy a workflow into revision 1. |
+| `GET` | `/api/canvases` | List summaries with `nodeCount` and `edgeCount`. |
+| `POST` | `/api/canvases` | Validate and create a canvas and initial conversation. |
+| `GET` | `/api/canvases/:id` | Return the canvas and its latest compatible node-run state. |
+| `PUT` | `/api/canvases/:id` | Replace the persisted canvas and update `updatedAt`. |
+| `DELETE` | `/api/canvases/:id` | Delete canvas and associated state. |
+| `POST` | `/api/canvases/:id/duplicate` | Deep-copy a canvas into revision 1. |
 
-Creation requires a non-empty name, unique node IDs, finite node positions, valid edge objects, and edges whose endpoint nodes exist inside the workflow. The server creates `schemaVersion`, ID, timestamps, revision, and a default viewport if absent.
+Creation requires a non-empty name, unique node IDs, finite node positions, valid edge objects, and edges whose endpoint nodes exist inside the canvas. The server creates `schemaVersion`, ID, timestamps, revision, and a default viewport if absent.
 
-`PUT` is a whole-document replacement rather than a validated PATCH. The path ID and `updatedAt` are forced by the server, but most other fields are trusted. Clients should send the complete valid workflow document.
+`PUT` is a whole-document replacement rather than a validated PATCH. The path ID and `updatedAt` are forced by the server, but most other fields are trusted. Clients should send the complete valid canvas document.
 
-### Runs
+### Executions
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/api/workflows/:id/runs` | Start a whole, node, or downstream mock run. |
-| `GET` | `/api/workflows/:id/runs/:runId` | Poll run and per-node status. |
+| `POST` | `/api/nodes/:nodeId/executions` | Create an execution from a globally unique entry node. |
+| `GET` | `/api/executions/:executionId` | Return one execution with its per-node status and output. |
 
-Start payload:
+The server derives and executes either the entry node alone or its reachable
+downstream graph. Node IDs must be globally unique; an ambiguous ID returns `409`.
+
+Request:
+
+```json
+{ "mode": "downstream" }
+```
+
+Response:
 
 ```json
 {
-  "targetNodeId": "retopology",
-  "scope": "downstream"
+  "id": "run-a0cd442c-695c-47ba-a249-c275438338bb",
+  "entryNodeId": "retopology",
+  "canvasId": "wf-1",
+  "mode": "downstream",
+  "status": "queued",
+  "nodeExecutions": {}
+}
+```
+
+Creation returns `202`; poll the execution resource while its status is `queued`
+or `running`. A failed node remains in the structured history. An unapproved
+review node returns `waiting_review`, which holds the rest of the execution.
+
+### Assets
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/canvases/:canvasId/assets` | Every historical asset produced on a canvas. |
+
+Assets are derived from the run history, not from the canvas, so running one
+canvas n times yields n sets of assets and they outlive the nodes that made
+them. Filter with `?kind=reference|image|model`, `?producerNodeId=`,
+`?entryNodeId=`, and `?executionId=`.
+
+```json
+{
+  "assets": [{
+    "id": "run-a0cd442c:texture:0",
+    "runId": "run-a0cd442c-695c-47ba-a249-c275438338bb",
+    "nodeId": "texture",
+    "nodeType": "texture",
+    "label": "Texture",
+    "kind": "model",
+    "src": "/shark-model.png",
+    "downloads": [],
+    "status": "succeeded",
+    "createdAt": "2026-07-30T02:55:35.778Z"
+  }],
+  "total": 1,
+  "runs": [{ "id": "run-a0cd442c-695c-47ba-a249-c275438338bb", "status": "succeeded", "nodeCount": 5, "durationMs": 3005 }]
 }
 ```
 
@@ -1017,18 +1064,24 @@ Start payload:
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `POST` | `/api/chat` | Create an Agent task; returns SSE when requested or `202` JSON otherwise. |
-| `GET` | `/api/tasks/:id` | Retrieve one task. |
-| `GET` | `/api/tasks` | Filter tasks by `workflowId` and comma-separated `status`. |
+| `GET` | `/api/canvases/:canvasId/conversation` | Return the canvas conversation and its full message history. |
+| `GET` | `/api/tasks` | Filter tasks by `canvasId` and comma-separated `status`. |
 | `POST` | `/api/tasks/:id/continue` | Validate a selection and resume a waiting task. |
 
-If `/api/chat` omits `workflowId`, the server creates an empty `New workflow`. A missing API key returns `503`; no mock chat reply is generated.
+If `/api/chat` omits `canvasId`, the server creates an empty `New canvas`. A missing API key returns `503`; no mock chat reply is generated.
+
+The conversation is its own resource rather than a field on the canvas document,
+so the canvas and its history are fetched independently. Opening a canvas issues
+both requests; only the conversation request is repeated when the Agent appends
+messages. An unknown canvas returns `404`; a canvas whose conversation row is
+missing returns an empty conversation so the canvas still opens.
 
 ## Persistence
 
 The application persists four collections:
 
 ```text
-workflows
+canvases
 conversations
 runs
 tasks
@@ -1039,17 +1092,17 @@ tasks
 The Node server stores runtime state in `server/data/`:
 
 ```text
-server/data/workflows/<workflow-id>.json
+server/data/canvases/<canvas-id>.json
 server/data/conversations.json
 server/data/runs.json
 server/data/tasks.json
 ```
 
-Missing files are initialized from committed `server/seed/` examples. Workflow files are split by ID, while the remaining collections use array files.
+Missing files are initialized from committed `server/seed/` examples. Canvas files are split by ID, while the remaining collections use array files.
 
 Writes use a temporary file followed by rename and are serialized per collection, reducing partial writes and concurrent overwrite races. Runtime data is ignored by Git.
 
-On load, old workflows are migrated:
+On load, old canvases are migrated:
 
 - Retired `save-asset` nodes are removed.
 - Legacy `model-preview` terminal behavior is migrated to `export-model` where applicable.
@@ -1072,7 +1125,7 @@ CREATE TABLE app_state (
 
 Each collection is serialized as JSON in one row. Worker requests load and parse the collections and batch-upsert changed state.
 
-D1 migration initializes all collections to empty arrays. It does not import local `server/seed/` data, so a new Cloudflare deployment starts empty while a new local server starts with the sample workflow.
+D1 migration initializes all collections to empty arrays. It does not import local `server/seed/` data, so a new Cloudflare deployment starts empty while a new local server starts with the sample canvas.
 
 ## Local Development
 
@@ -1153,7 +1206,7 @@ pnpm typecheck
 pnpm build
 ```
 
-Tests use Node's built-in test runner with `tsx`. They cover workflow validation, migration, planner tools, DeepSeek tool dispatch, mock runs, node run recovery, node connections, layout, and run summaries without requiring a real DeepSeek key.
+Tests use Node's built-in test runner with `tsx`. They cover canvas validation, migration, planner tools, DeepSeek tool dispatch, mock runs, node run recovery, node connections, layout, and run summaries without requiring a real DeepSeek key.
 
 There are currently no browser E2E tests, Vue component mounting tests, Worker/D1 integration tests, visual regression tests, or deployment smoke tests. TypeScript checking includes `worker.ts` and `server/**/*.ts`; it does not fully type-check Vue SFCs, `src/**/*.js`, or `agent-service/**/*.ts`.
 
@@ -1223,7 +1276,7 @@ This runs tests, applies the remote D1 migration, and deploys. It does not run `
 
 Without `AGENT_SERVICE_URL`, the Worker executes the direct DeepSeek tool loop. An external Pi Agent Service can be configured with `AGENT_SERVICE_URL`, but it must be reachable from Cloudflare and secured before public exposure.
 
-The Worker uses `ctx.waitUntil()` for non-streaming background Agent tasks. Its concurrency and steering behavior is not fully equivalent to the local Node server's in-memory workflow queues.
+The Worker uses `ctx.waitUntil()` for non-streaming background Agent tasks. Its concurrency and steering behavior is not fully equivalent to the local Node server's in-memory canvas queues.
 
 ## Environment And Bindings
 
@@ -1265,10 +1318,10 @@ The model default is currently not unified across `.env.example`, the direct Age
 │   ├── index.ts                     # Local HTTP API, SSE, queues, task lifecycle
 │   ├── mock-runs.ts                 # Topological simulated execution
 │   ├── node-state.ts                # Latest per-node run recovery
-│   ├── planner.ts                   # Workflow construction and stage insertion
+│   ├── planner.ts                   # Canvas construction and stage insertion
 │   ├── store.ts                     # Atomic local JSON persistence and migration
-│   ├── workflow-parameters.ts       # Canonical Agent parameter catalog
-│   ├── workflows.ts                 # Workflow validation, creation, duplication
+│   ├── canvas-parameters.ts       # Canonical Agent parameter catalog
+│   ├── canvases.ts                 # Canvas validation, creation, duplication
 │   ├── seed/                        # Committed local initial state
 │   └── data/                        # Ignored runtime state
 ├── src/
@@ -1279,15 +1332,15 @@ The model default is currently not unified across `.env.example`, the direct Age
 │   │   ├── ModelEditor.vue          # Dedicated model workspace
 │   │   ├── NodeSelect.vue           # Reka-based node select
 │   │   ├── NodeSlider.vue           # Reka-based node slider
-│   │   └── WorkflowNode.vue         # All ordinary node card variants
+│   │   └── CanvasNode.vue         # All ordinary node card variants
 │   ├── editor/attachment.js         # Tiptap attachment extension
 │   ├── App.vue                      # Product shell, canvas, chat, persistence orchestration
 │   ├── main.js                      # Vue bootstrap and Vue Flow styles
 │   ├── node-runs.js                 # Node run state merge helpers
 │   ├── run-summary.js               # Footer run status summaries
 │   ├── styles.css                   # Full application visual system and responsive CSS
-│   ├── workflow-layout.js           # Compound ELK layout
-│   └── workflow-nodes.js            # Catalog, defaults, ports, compatibility
+│   ├── canvas-layout.js           # Compound ELK layout
+│   └── canvas-nodes.js            # Catalog, defaults, ports, compatibility
 ├── worker.ts                        # Cloudflare API, D1 persistence, Assets fallback
 ├── index.html
 ├── package.json
@@ -1305,7 +1358,7 @@ The interface uses a custom, compact production-tool visual language rather than
 - DM Sans for UI text.
 - IBM Plex Mono for metadata and technical labels.
 - CSS custom properties for light/dark colors.
-- Green workflow accent and node-specific status/accent colors.
+- Green canvas accent and node-specific status/accent colors.
 - Tailwind v4 loaded through `@tailwindcss/vite` and CSS-first directives in `src/styles.css`.
 - No separate Tailwind or PostCSS config file.
 - `<model-viewer>` is configured as a Vue custom element in Vite.
@@ -1338,7 +1391,7 @@ These are absolute root paths. The current Vite config assumes deployment at the
 
 An independent implementation should preserve these invariants:
 
-1. Keep workflow JSON independent from Vue Flow internals.
+1. Keep canvas JSON independent from Vue Flow internals.
 2. Convert domain nodes/edges to canvas objects on load and back on save.
 3. Persist positions, frame relationships, dimensions, viewport, and revision.
 4. Serialize autosaves so stale requests cannot overwrite recent edits.
@@ -1347,28 +1400,28 @@ An independent implementation should preserve these invariants:
 7. Send full final assistant messages, not token deltas.
 8. Keep raw Agent tool calls private; expose only safe progress labels.
 9. Pause finite decisions as persisted `waiting_for_user` tasks.
-10. Restore queued, running, and waiting tasks when reopening a workflow.
+10. Restore queued, running, and waiting tasks when reopening a canvas.
 11. Keep frames out of DAG edges while preserving compound canvas layout.
-12. Preserve hidden compatibility node definitions for old workflows.
+12. Preserve hidden compatibility node definitions for old canvases.
 13. Separate conceptual typed ports from the current universal rendered handles.
-14. Run simulated nodes topologically and tie run results to workflow revisions.
-15. Use the same core workflow/planner modules from Node, Worker, and Agent paths.
+14. Run simulated nodes topologically and tie run results to canvas revisions.
+15. Use the same core canvas/planner modules from Node, Worker, and Agent paths.
 16. Initialize local state from seeds but remote D1 state from empty collections.
 17. Serve API and SPA routes from one Worker in production, falling back to Assets for non-API requests.
 18. Validate Agent parameter updates against one canonical catalog.
 
 ## Known Limitations
 
-- Workflow execution is mocked; generated images and models are committed demo assets.
+- Canvas execution is mocked; generated images and models are committed demo assets.
 - Composer attachments are not uploaded as binary content.
 - The rendered port model does not enforce image/text/model compatibility.
 - Conceptual multi-input and multi-output nodes render universal handles.
-- `PUT /api/workflows/:id` trusts most of the submitted document and should be treated as full replacement.
+- `PUT /api/canvases/:id` trusts most of the submitted document and should be treated as full replacement.
 - Pi Agent Service currently does not receive persisted conversation history.
 - Agent Service has no authentication and transports the API key in its private request body.
 - Worker concurrency and steering are not fully equivalent to the local Node API.
 - D1 stores each collection as one JSON value; it is simple but not suitable for large-scale concurrent workloads.
-- Remote migration does not seed the sample workflow.
+- Remote migration does not seed the sample canvas.
 - Fragment validation failures currently may surface as `500` rather than `400`.
 - SSE event IDs are persisted but replay and `Last-Event-ID` recovery are not implemented.
 - Local queues and active Pi runs are in memory and do not survive a Node process restart.
@@ -1382,10 +1435,10 @@ An independent implementation should preserve these invariants:
 
 When documentation and implementation diverge, use these files in this order:
 
-1. `src/workflow-nodes.js` for visible node catalog, defaults, handles, and connection behavior.
+1. `src/canvas-nodes.js` for visible node catalog, defaults, handles, and connection behavior.
 2. `src/App.vue` for product interaction and frontend API behavior.
-3. `src/components/WorkflowNode.vue` and `FrameNode.vue` for node UI.
-4. `server/workflow-parameters.ts` for Agent-editable parameter validation.
+3. `src/components/CanvasNode.vue` and `FrameNode.vue` for node UI.
+4. `server/canvas-parameters.ts` for Agent-editable parameter validation.
 5. `server/planner.ts` and `server/deepseek.ts` for Agent graph mutation semantics.
 6. `server/index.ts` for local HTTP/SSE/task lifecycle.
 7. `worker.ts` for production API and D1 behavior.

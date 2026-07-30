@@ -5,16 +5,16 @@ import { onMounted, onUnmounted } from 'vue'
 export function useKeyboardShortcuts({
   imagePreview,
   workspaceMode,
-  workflowSwitcherOpen,
+  canvasSwitcherOpen,
   nodeMenuOpen,
-  workflowMenu,
+  canvasMenu,
   hasSelection,
   clipboardFragment,
   closeImagePreview,
   closeModelEditor,
-  closeWorkflowSwitcher,
+  closeCanvasSwitcher,
   closeContextMenu,
-  closeWorkflowMenu,
+  closeCanvasMenu,
   openNodeMenuAt,
   undo,
   redo,
@@ -37,15 +37,15 @@ export function useKeyboardShortcuts({
       closeModelEditor()
       return
     }
-    if (event.key === 'Escape' && workflowSwitcherOpen.value) {
+    if (event.key === 'Escape' && canvasSwitcherOpen.value) {
       event.preventDefault()
-      closeWorkflowSwitcher()
+      closeCanvasSwitcher()
       return
     }
     const modifier = event.metaKey || event.ctrlKey
-    if (event.key === 'Escape' && (nodeMenuOpen.value || workflowMenu.value)) {
+    if (event.key === 'Escape' && (nodeMenuOpen.value || canvasMenu.value)) {
       closeContextMenu()
-      closeWorkflowMenu()
+      closeCanvasMenu()
       return
     }
     if (modifier && event.code === 'KeyD') {

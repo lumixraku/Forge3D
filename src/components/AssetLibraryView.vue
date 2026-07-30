@@ -1,18 +1,26 @@
 <script setup lang="ts">
-defineProps<{ rails: any[]; total: number }>()
+const props = defineProps<{ rails: any[]; total: number; loading?: boolean; canvasNodeIds?: string[] }>()
 const emit = defineEmits<{ preview: [preview: { src: string; alt: string }]; 'open-model-editor': [nodeId: string] }>()
 
 function scrollRail(event: MouseEvent, direction: number) {
   const track = (event.currentTarget as HTMLElement).closest('.asset-rail')?.querySelector('.asset-rail-track')
   track?.scrollBy({ left: direction * Math.min(track.clientWidth * 0.85, 520), behavior: 'smooth' })
 }
+
+function onCanvas(nodeId: string) {
+  return !props.canvasNodeIds || props.canvasNodeIds.includes(nodeId)
+}
 </script>
 
 <template>
   <div class="asset-library">
-    <div v-if="!total" class="asset-empty">
+    <div v-if="loading && !total" class="asset-empty">
+      <strong>Loading assets…</strong>
+      <span>Reading this canvas's run history.</span>
+    </div>
+    <div v-else-if="!total" class="asset-empty">
       <strong>No assets yet</strong>
-      <span>References, generated 2D images and 3D models from this workflow collect here.</span>
+      <span>References, generated 2D images and 3D models from every run of this canvas collect here.</span>
     </div>
     <template v-else>
       <section v-for="rail in rails" :key="rail.key" class="asset-rail">
@@ -27,7 +35,8 @@ function scrollRail(event: MouseEvent, direction: number) {
           <article v-for="item in rail.items" :key="item.id" class="asset-card">
             <button type="button" class="asset-card-thumb" @click="emit('preview', { src: item.src, alt: item.label })"><img :src="item.src" :alt="item.label" loading="lazy" /></button>
             <div class="asset-card-meta"><strong :title="item.label">{{ item.label }}</strong><span class="asset-card-badge">{{ rail.badge }}</span></div>
-            <button v-if="rail.key === 'models'" type="button" class="asset-card-open" title="Open in Model Editor" @click="emit('open-model-editor', item.nodeId)">↗</button>
+            <div class="asset-card-run"><span :title="item.runId">{{ item.runLabel }}</span><time :datetime="item.createdAt">{{ new Date(item.createdAt).toLocaleString() }}</time></div>
+            <button v-if="rail.key === 'models' && onCanvas(item.nodeId)" type="button" class="asset-card-open" title="Open in Model Editor" @click="emit('open-model-editor', item.nodeId)">↗</button>
           </article>
         </div>
         <p v-else class="asset-rail-empty">No {{ rail.title.toLowerCase() }} yet</p>

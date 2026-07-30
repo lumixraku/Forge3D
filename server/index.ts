@@ -2,17 +2,18 @@ import { createServer } from 'node:http'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { createStore } from './store.js'
-import { createMockRun, downstreamWorkflow, executeMockRun } from './mock-runs.js'
 import { latestNodeRuns } from './node-state.js'
-import { createInitialConversation, createWorkflow } from './workflows.js'
+import { executionAssets } from './run-assets.js'
+import { createExecution, executeExecution, executionById, executionDto, findNode, paginateAssets } from './executions.js'
+import { createInitialConversation, createCanvas, emptyConversation } from './canvases.js'
 import { runDeepSeekAgent } from './deepseek.js'
 import { runAgentViaService } from './agent-client.js'
 
 const port = Number(process.env.PORT || 8787)
 const { state, persist } = await createStore()
-const workflowTaskQueues = new Map()
-// How many agent runs are currently streaming per workflow. A new chat message
-// for a workflow with an active run is dispatched immediately (bypassing the
+const canvasTaskQueues = new Map()
+// How many agent runs are currently streaming per canvas. A new chat message
+// for a canvas with an active run is dispatched immediately (bypassing the
 // serial queue) so the agent service can steer it into the running run.
 const activeRuns = new Map()
 
@@ -51,16 +52,12 @@ function route(request) {
   return new URL(request.url, `http://${request.headers.host}`).pathname.split('/').filter(Boolean)
 }
 
-function workflowById(id) {
-  return state.workflows.find((workflow) => workflow.id === id)
+function canvasById(id) {
+  return state.canvases.find((canvas) => canvas.id === id)
 }
 
-function runById(workflowId, runId) {
-  return state.runs.find((run) => run.id === runId && run.workflowId === workflowId)
-}
-
-function conversationFor(workflowId) {
-  return state.conversations.find((conversation) => conversation.workflowId === workflowId)
+function conversationFor(canvasId) {
+  return state.conversations.find((conversation) => conversation.canvasId === canvasId)
 }
 
 function taskById(id) {
@@ -72,15 +69,15 @@ async function executeAgentTask(task, emit = async () => {}) {
     task.status = 'running'
     task.startedAt = new Date().toISOString()
     await persist('tasks')
-    await emit(taskEvent(task, 'task-start', { workflow_id: task.workflowId }))
-    const workflow = workflowById(task.workflowId)
-    if (!workflow) throw new Error('Workflow not found')
-    const conversation = conversationFor(task.workflowId)
+    await emit(taskEvent(task, 'task-start', { canvas_id: task.canvasId }))
+    const canvas = canvasById(task.canvasId)
+    if (!canvas) throw new Error('Canvas not found')
+    const conversation = conversationFor(task.canvasId)
     // Local dev defaults to the Pi agent service. Set AGENT_SERVICE_URL=direct
     // to use the built-in DeepSeek loop instead.
     const serviceUrl = process.env.AGENT_SERVICE_URL === 'direct' ? '' : (process.env.AGENT_SERVICE_URL || 'http://127.0.0.1:8788/agent')
     const runAgent = serviceUrl ? runAgentViaService : runDeepSeekAgent
-    activeRuns.set(task.workflowId, (activeRuns.get(task.workflowId) || 0) + 1)
+    activeRuns.set(task.canvasId, (activeRuns.get(task.canvasId) || 0) + 1)
     let plan
     try {
       plan = await runAgent({
@@ -89,7 +86,7 @@ async function executeAgentTask(task, emit = async () => {}) {
         baseUrl: process.env.DEEPSEEK_BASE_URL,
         model: process.env.DEEPSEEK_MODEL,
         message: task.selection ? `${task.message}\n\nThe user selected: ${task.selection.selected_option_ids.map((optionId) => task.request.options.find((option) => option.id === optionId)?.label || optionId).join(', ')}. Continue the task using this selection.` : task.message,
-        workflow,
+        canvas,
         history: conversation?.messages || [],
         onProgress: async (event) => {
           task.progress.push(event)
@@ -99,16 +96,16 @@ async function executeAgentTask(task, emit = async () => {}) {
         },
       })
     } finally {
-      const remaining = (activeRuns.get(task.workflowId) || 1) - 1
-      if (remaining > 0) activeRuns.set(task.workflowId, remaining)
-      else activeRuns.delete(task.workflowId)
+      const remaining = (activeRuns.get(task.canvasId) || 1) - 1
+      if (remaining > 0) activeRuns.set(task.canvasId, remaining)
+      else activeRuns.delete(task.canvasId)
     }
     // The message was steered into a still-running run; it produces no diff of
     // its own. Acknowledge it in the conversation and finish.
     if (plan.steered) {
-      let steerConversation = conversationFor(task.workflowId)
+      let steerConversation = conversationFor(task.canvasId)
       if (!steerConversation) {
-        steerConversation = { id: task.threadId, workflowId: task.workflowId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), messages: [] }
+        steerConversation = { id: task.threadId, canvasId: task.canvasId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), messages: [] }
         state.conversations.push(steerConversation)
       }
       const steerNow = new Date().toISOString()
@@ -130,9 +127,9 @@ async function executeAgentTask(task, emit = async () => {}) {
       delete task.selection
       task.request = { request_id: `request-${randomUUID()}`, ...plan.userSelectionRequest }
       const now = new Date().toISOString()
-      const conversationIndex = state.conversations.findIndex((item) => item.workflowId === task.workflowId)
+      const conversationIndex = state.conversations.findIndex((item) => item.canvasId === task.canvasId)
       const nextConversation = conversationIndex < 0
-        ? { id: task.threadId, workflowId: task.workflowId, messages: [], createdAt: now }
+        ? { id: task.threadId, canvasId: task.canvasId, messages: [], createdAt: now }
         : structuredClone(state.conversations[conversationIndex])
       if (!nextConversation.messages.some((message) => message.taskId === task.id && message.role === 'user')) {
         nextConversation.messages.push({ id: `msg-${randomUUID()}`, role: 'user', content: task.message, taskId: task.id, createdAt: now })
@@ -148,13 +145,13 @@ async function executeAgentTask(task, emit = async () => {}) {
       await emit(taskEvent(task, 'request_user_select', { request: task.request }))
       return
     }
-    const workflowIndex = state.workflows.findIndex((item) => item.id === plan.workflow.id)
-    if (workflowIndex < 0) state.workflows.push(plan.workflow)
-    else state.workflows[workflowIndex] = plan.workflow
+    const canvasIndex = state.canvases.findIndex((item) => item.id === plan.canvas.id)
+    if (canvasIndex < 0) state.canvases.push(plan.canvas)
+    else state.canvases[canvasIndex] = plan.canvas
 
-    let nextConversation = conversationFor(plan.workflow.id)
+    let nextConversation = conversationFor(plan.canvas.id)
     if (!nextConversation) {
-      nextConversation = { id: `conv-${randomUUID()}`, workflowId: plan.workflow.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), messages: [] }
+      nextConversation = { id: `conv-${randomUUID()}`, canvasId: plan.canvas.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), messages: [] }
       state.conversations.push(nextConversation)
     }
     const now = new Date().toISOString()
@@ -166,9 +163,9 @@ async function executeAgentTask(task, emit = async () => {}) {
     task.result = structuredClone({ ...plan, conversation: nextConversation })
     task.completedAt = new Date().toISOString()
     task.updatedAt = task.completedAt
-    await Promise.all([persist('workflows'), persist('conversations'), persist('tasks')])
+    await Promise.all([persist('canvases'), persist('conversations'), persist('tasks')])
     await emit(taskEvent(task, 'text', { step_id: 'final-response', id: assistantMessageId, text: plan.reply }))
-    await emit(taskEvent(task, 'workflow-updated', { workflow_id: task.workflowId, changed_node_ids: plan.changedNodeIds, structure_changed: plan.structureChanged }))
+    await emit(taskEvent(task, 'canvas-updated', { canvas_id: task.canvasId, changed_node_ids: plan.changedNodeIds, structure_changed: plan.structureChanged }))
     await emit(taskEvent(task, 'finish', { finish_reason: 'stop' }))
   } catch (error) {
     task.status = 'failed'
@@ -185,14 +182,14 @@ async function executeAgentTask(task, emit = async () => {}) {
 }
 
 function enqueueAgentTask(task, emit) {
-  const previous = workflowTaskQueues.get(task.workflowId) || Promise.resolve()
+  const previous = canvasTaskQueues.get(task.canvasId) || Promise.resolve()
   const current = previous
     .catch(() => {})
     .then(() => executeAgentTask(task, emit))
     .finally(() => {
-      if (workflowTaskQueues.get(task.workflowId) === current) workflowTaskQueues.delete(task.workflowId)
+      if (canvasTaskQueues.get(task.canvasId) === current) canvasTaskQueues.delete(task.canvasId)
     })
-  workflowTaskQueues.set(task.workflowId, current)
+  canvasTaskQueues.set(task.canvasId, current)
   return current
 }
 
@@ -201,55 +198,58 @@ const server = createServer(async (request, response) => {
     const parts = route(request)
     if (parts[0] !== 'api') return json(response, 404, { error: 'Not found' })
 
-    if (request.method === 'GET' && parts[1] === 'workflows' && parts.length === 2) {
-      return json(response, 200, state.workflows.map(({ nodes, edges, ...workflow }) => ({ ...workflow, nodeCount: nodes.length, edgeCount: edges.length })))
+    if (request.method === 'GET' && parts[1] === 'canvases' && parts.length === 2) {
+      return json(response, 200, state.canvases.map(({ nodes, edges, ...canvas }) => ({ ...canvas, nodeCount: nodes.length, edgeCount: edges.length })))
     }
 
-    if (request.method === 'POST' && parts[1] === 'workflows' && parts.length === 2) {
-      const workflow = createWorkflow(await body(request))
-      const conversation = createInitialConversation(workflow)
-      state.workflows.push(workflow)
+    if (request.method === 'POST' && parts[1] === 'canvases' && parts.length === 2) {
+      const canvas = createCanvas(await body(request))
+      const conversation = createInitialConversation(canvas)
+      state.canvases.push(canvas)
       state.conversations.push(conversation)
-      await Promise.all([persist('workflows'), persist('conversations')])
-      return json(response, 201, workflow)
+      await Promise.all([persist('canvases'), persist('conversations')])
+      return json(response, 201, canvas)
     }
 
-    if (request.method === 'GET' && parts[1] === 'workflows' && parts.length === 3) {
-      const workflow = workflowById(parts[2])
-      if (!workflow) return json(response, 404, { error: 'Workflow not found' })
-      return json(response, 200, { workflow, conversation: conversationFor(workflow.id), nodeRuns: latestNodeRuns(workflow, state.runs) })
+    if (request.method === 'GET' && parts[1] === 'canvases' && parts.length === 3) {
+      const canvas = canvasById(parts[2])
+      if (!canvas) return json(response, 404, { error: 'Canvas not found' })
+      return json(response, 200, { canvas, nodeRuns: latestNodeRuns(canvas, state.runs) })
     }
 
-    if (request.method === 'PUT' && parts[1] === 'workflows' && parts.length === 3) {
-      const index = state.workflows.findIndex((workflow) => workflow.id === parts[2])
-      if (index < 0) return json(response, 404, { error: 'Workflow not found' })
+    // The Agent conversation is its own resource; it is not part of the canvas document.
+    if (request.method === 'GET' && parts[1] === 'canvases' && parts[2] && parts[3] === 'conversation' && parts.length === 4) {
+      const canvas = canvasById(parts[2])
+      if (!canvas) return json(response, 404, { error: 'Canvas not found' })
+      // Every canvas is created with a conversation; an empty one keeps a canvas
+      // whose row is missing loadable instead of failing the whole canvas open.
+      return json(response, 200, conversationFor(canvas.id) || emptyConversation(canvas))
+    }
+
+    if (request.method === 'PUT' && parts[1] === 'canvases' && parts.length === 3) {
+      const index = state.canvases.findIndex((canvas) => canvas.id === parts[2])
+      if (index < 0) return json(response, 404, { error: 'Canvas not found' })
       const input = await body(request)
-      state.workflows[index] = { ...input, id: parts[2], updatedAt: new Date().toISOString() }
-      await persist('workflows')
-      return json(response, 200, state.workflows[index])
+      state.canvases[index] = { ...input, id: parts[2], updatedAt: new Date().toISOString() }
+      await persist('canvases')
+      return json(response, 200, state.canvases[index])
     }
 
-    if (request.method === 'DELETE' && parts[1] === 'workflows' && parts.length === 3) {
-      const index = state.workflows.findIndex((workflow) => workflow.id === parts[2])
-      if (index < 0) return json(response, 404, { error: 'Workflow not found' })
-      state.workflows.splice(index, 1)
-      state.conversations = state.conversations.filter((conversation) => conversation.workflowId !== parts[2])
-      state.runs = state.runs.filter((run) => run.workflowId !== parts[2])
-      await Promise.all([persist('workflows'), persist('conversations'), persist('runs')])
+    if (request.method === 'DELETE' && parts[1] === 'canvases' && parts.length === 3) {
+      const index = state.canvases.findIndex((canvas) => canvas.id === parts[2])
+      if (index < 0) return json(response, 404, { error: 'Canvas not found' })
+      state.canvases.splice(index, 1)
+      state.conversations = state.conversations.filter((conversation) => conversation.canvasId !== parts[2])
+      state.runs = state.runs.filter((run) => run.canvasId !== parts[2])
+      await Promise.all([persist('canvases'), persist('conversations'), persist('runs')])
       return json(response, 204, null)
-    }
-
-    if (request.method === 'GET' && parts[1] === 'tasks' && parts.length === 3) {
-      const task = taskById(parts[2])
-      if (!task) return json(response, 404, { error: 'Task not found' })
-      return json(response, 200, task)
     }
 
     if (request.method === 'GET' && parts[1] === 'tasks' && parts.length === 2) {
       const url = new URL(request.url, `http://${request.headers.host}`)
-      const workflowId = url.searchParams.get('workflowId')
+      const canvasId = url.searchParams.get('canvasId')
       const statuses = new Set((url.searchParams.get('status') || '').split(',').filter(Boolean))
-      const tasks = state.tasks.filter((task) => (!workflowId || task.workflowId === workflowId) && (!statuses.size || statuses.has(task.status)))
+      const tasks = state.tasks.filter((task) => (!canvasId || task.canvasId === canvasId) && (!statuses.size || statuses.has(task.status)))
       return json(response, 200, tasks)
     }
 
@@ -270,7 +270,7 @@ const server = createServer(async (request, response) => {
         return json(response, 400, { error: 'Selected options are invalid' })
       }
       task.selection = { request_id: task.request.request_id, selected_option_ids: selectedOptionIds }
-      const conversation = state.conversations.find((item) => item.workflowId === task.workflowId)
+      const conversation = state.conversations.find((item) => item.canvasId === task.canvasId)
       const requestMessage = conversation?.messages.find((message) => message.id === task.requestMessageId)
       const selectedLabels = selectedOptionIds.map((optionId) => task.request.options.find((option) => option.id === optionId).label)
       if (conversation && requestMessage) {
@@ -295,20 +295,20 @@ const server = createServer(async (request, response) => {
     if (request.method === 'POST' && parts[1] === 'chat') {
       const input = await body(request)
       if (typeof input.message !== 'string' || !input.message.trim()) return json(response, 400, { error: 'message is required' })
-      if (input.workflowId !== undefined && typeof input.workflowId !== 'string') return json(response, 400, { error: 'workflowId is invalid' })
+      if (input.canvasId !== undefined && typeof input.canvasId !== 'string') return json(response, 400, { error: 'canvasId is invalid' })
       if (!process.env.DEEPSEEK_API_KEY) {
         const error = new Error('DeepSeek is not configured. Set DEEPSEEK_API_KEY and restart the API server.')
         error.statusCode = 503
         throw error
       }
-      const existing = input.workflowId ? workflowById(input.workflowId) : createWorkflow({ name: 'New workflow', nodes: [], edges: [] })
-      if (input.workflowId && !existing) {
-        const error = new Error('Workflow not found')
+      const existing = input.canvasId ? canvasById(input.canvasId) : createCanvas({ name: 'New canvas', nodes: [], edges: [] })
+      if (input.canvasId && !existing) {
+        const error = new Error('Canvas not found')
         error.statusCode = 404
         throw error
       }
-      if (!input.workflowId) {
-        state.workflows.push(existing)
+      if (!input.canvasId) {
+        state.canvases.push(existing)
         state.conversations.push(createInitialConversation(existing))
       }
       const now = new Date().toISOString()
@@ -316,7 +316,7 @@ const server = createServer(async (request, response) => {
       const task = {
         id: `task-${randomUUID()}`,
         threadId: conversation?.id || `conv-${randomUUID()}`,
-        workflowId: existing.id,
+        canvasId: existing.id,
         message: input.message || '',
         status: 'queued',
         progress: [],
@@ -325,10 +325,10 @@ const server = createServer(async (request, response) => {
         updatedAt: now,
       }
       state.tasks.push(task)
-      await Promise.all([persist('workflows'), persist('conversations'), persist('tasks')])
-      // A run for this workflow is already streaming -> dispatch now (bypassing
+      await Promise.all([persist('canvases'), persist('conversations'), persist('tasks')])
+      // A run for this canvas is already streaming -> dispatch now (bypassing
       // the serial queue) so the agent service steers this message into it.
-      // Otherwise queue it as the workflow's next run.
+      // Otherwise queue it as the canvas's next run.
       const dispatch = (activeRuns.get(existing.id) || 0) > 0 ? executeAgentTask : enqueueAgentTask
       if (request.headers.accept?.includes('text/event-stream')) {
         openSse(response)
@@ -341,54 +341,43 @@ const server = createServer(async (request, response) => {
       return json(response, 202, task)
     }
 
-    if (request.method === 'POST' && parts[1] === 'workflows' && parts[3] === 'duplicate') {
-      const source = workflowById(parts[2])
-      if (!source) return json(response, 404, { error: 'Workflow not found' })
+    if (request.method === 'POST' && parts[1] === 'canvases' && parts[3] === 'duplicate') {
+      const source = canvasById(parts[2])
+      if (!source) return json(response, 404, { error: 'Canvas not found' })
       const now = new Date().toISOString()
-      const workflow = { ...structuredClone(source), id: `wf-${randomUUID()}`, name: `${source.name} Copy`, revision: 1, createdAt: now, updatedAt: now }
-      state.workflows.push(workflow)
-      state.conversations.push({ id: `conv-${randomUUID()}`, workflowId: workflow.id, createdAt: now, updatedAt: now, messages: [{ id: `msg-${randomUUID()}`, role: 'assistant', content: 'This workflow was duplicated and can now evolve independently.', createdAt: now }] })
-      await Promise.all([persist('workflows'), persist('conversations')])
-      return json(response, 201, workflow)
+      const canvas = { ...structuredClone(source), id: `canvas-${randomUUID()}`, name: `${source.name} Copy`, revision: 1, createdAt: now, updatedAt: now }
+      state.canvases.push(canvas)
+      state.conversations.push({ id: `conv-${randomUUID()}`, canvasId: canvas.id, createdAt: now, updatedAt: now, messages: [{ id: `msg-${randomUUID()}`, role: 'assistant', content: 'This canvas was duplicated and can now evolve independently.', createdAt: now }] })
+      await Promise.all([persist('canvases'), persist('conversations')])
+      return json(response, 201, canvas)
     }
 
-    if (request.method === 'GET' && parts[1] === 'workflows' && parts[3] === 'runs' && parts.length === 5) {
-      const workflow = workflowById(parts[2])
-      if (!workflow) return json(response, 404, { error: 'Workflow not found' })
-      const run = runById(workflow.id, parts[4])
-      if (!run) return json(response, 404, { error: 'Run not found' })
-      return json(response, 200, run)
+    if (request.method === 'GET' && parts[1] === 'canvases' && parts[2] && parts[3] === 'assets' && parts.length === 4) {
+      const canvas = canvasById(parts[2])
+      if (!canvas) return json(response, 404, { error: 'Canvas not found' })
+      const url = new URL(request.url, `http://${request.headers.host}`)
+      const assets = executionAssets(state.runs, {
+        canvasId: canvas.id,
+        executionId: url.searchParams.get('executionId'),
+        nodeId: url.searchParams.get('producerNodeId'),
+        kind: url.searchParams.get('kind'),
+      }).filter((asset) => !url.searchParams.get('entryNodeId') || asset.entryNodeId === url.searchParams.get('entryNodeId'))
+      return json(response, 200, paginateAssets(assets, url))
     }
 
-    if (request.method === 'POST' && parts[1] === 'workflows' && parts[3] === 'runs' && parts.length === 4) {
-      const workflow = workflowById(parts[2])
-      if (!workflow) return json(response, 404, { error: 'Workflow not found' })
-      const { targetNodeId, scope = 'node' } = await body(request)
-      const targetNode = targetNodeId ? workflow.nodes.find((node) => node.id === targetNodeId) : null
-      if (targetNodeId && !targetNode) return json(response, 400, { error: 'Target node not found' })
-      if (!['node', 'downstream'].includes(scope)) return json(response, 400, { error: 'Invalid run scope' })
-      if (scope === 'downstream' && !targetNode) return json(response, 400, { error: 'A target node is required for downstream runs' })
+    if (request.method === 'GET' && parts[1] === 'executions' && parts.length === 3) {
+      const execution = executionById(state.runs, parts[2])
+      return execution ? json(response, 200, executionDto(execution)) : json(response, 404, { error: 'Execution not found' })
+    }
 
-      let executionWorkflow = structuredClone(workflow)
-      if (scope === 'downstream') executionWorkflow = downstreamWorkflow(workflow, targetNodeId)
-      else if (targetNode) {
-        executionWorkflow.nodes = [structuredClone(targetNode)]
-        executionWorkflow.edges = []
-      }
-      const run = createMockRun(executionWorkflow)
-      state.runs.push(run)
+    if (request.method === 'POST' && parts[1] === 'nodes' && parts[2] && parts[3] === 'executions' && parts.length === 4) {
+      const match = findNode(state.canvases, parts[2])
+      if (!match) return json(response, 404, { error: 'Node not found' })
+      const { mode = 'downstream' } = await body(request)
+      const pending = createExecution(state.runs, match.canvas, match.node, mode)
       await persist('runs')
-      void executeMockRun(run, executionWorkflow, { persist: () => persist('runs') }).catch(async (error) => {
-        run.status = 'failed'
-        run.completedAt = new Date().toISOString()
-        run.error = error.message
-        try {
-          await persist('runs')
-        } catch (persistError) {
-          console.error(persistError)
-        }
-      })
-      return json(response, 201, run)
+      void executeExecution(state.runs, pending.run, match.canvas, pending.executionCanvas, pending.nodes, match.node, () => persist('runs')).catch(console.error)
+      return json(response, 202, executionDto(pending.run))
     }
 
     return json(response, 404, { error: 'Not found' })

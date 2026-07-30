@@ -1,17 +1,17 @@
 import { access, mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { normalizeNodeConfig } from '../src/workflow-schema.js'
+import { normalizeNodeConfig } from '../src/canvas-schema.js'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
 const dataDirectory = path.join(root, 'data')
 const seedDirectory = path.join(root, 'seed')
-const workflowDirectory = path.join(dataDirectory, 'workflows')
-const collections = ['workflows', 'conversations', 'runs', 'tasks']
+const canvasDirectory = path.join(dataDirectory, 'canvases')
+const collections = ['canvases', 'conversations', 'runs', 'tasks']
 const retiredNodeTypes = new Set(['save-asset'])
 
-export function migrateWorkflow(workflow, now = () => new Date().toISOString()) {
-  const migrated = structuredClone(workflow)
+export function migrateCanvas(canvas, now = () => new Date().toISOString()) {
+  const migrated = structuredClone(canvas)
   const retainedNodes = migrated.nodes.filter((node) => !retiredNodeTypes.has(node.type))
   const retainedNodeIds = new Set(retainedNodes.map((node) => node.id))
   let changed = retainedNodes.length !== migrated.nodes.length
@@ -37,7 +37,7 @@ export function migrateWorkflow(workflow, now = () => new Date().toISOString()) 
     migrated.description = description
     changed = true
   }
-  if (!changed) return workflow
+  if (!changed) return canvas
   migrated.revision = (migrated.revision || 0) + 1
   migrated.updatedAt = now()
   return migrated
@@ -46,7 +46,7 @@ export function migrateWorkflow(workflow, now = () => new Date().toISOString()) 
 export async function createStore() {
   await mkdir(dataDirectory, { recursive: true })
 
-  for (const collection of collections.filter((name) => name !== 'workflows')) {
+  for (const collection of collections.filter((name) => name !== 'canvases')) {
     const destination = path.join(dataDirectory, `${collection}.json`)
     try {
       await access(destination)
@@ -56,9 +56,9 @@ export async function createStore() {
     }
   }
 
-  await migrateWorkflowFiles()
+  await migrateCanvasFiles()
   const state = Object.fromEntries(await Promise.all(collections.map(async (collection) => {
-    if (collection === 'workflows') return [collection, await readWorkflowFiles()]
+    if (collection === 'canvases') return [collection, await readCanvasFiles()]
     const contents = await readFile(path.join(dataDirectory, `${collection}.json`), 'utf8')
     return [collection, JSON.parse(contents)]
   })))
@@ -66,8 +66,8 @@ export async function createStore() {
 
   async function persist(collection) {
     const queued = (persistQueues.get(collection) || Promise.resolve()).catch(() => {}).then(async () => {
-      if (collection === 'workflows') {
-        await persistWorkflowFiles(state.workflows)
+      if (collection === 'canvases') {
+        await persistCanvasFiles(state.canvases)
         return
       }
       const destination = path.join(dataDirectory, `${collection}.json`)
@@ -79,54 +79,54 @@ export async function createStore() {
     return queued
   }
 
-  const workflows = state.workflows.map((workflow) => migrateWorkflow(workflow))
-  if (workflows.some((workflow, index) => workflow !== state.workflows[index])) {
-    state.workflows = workflows
-    await persist('workflows')
+  const canvases = state.canvases.map((canvas) => migrateCanvas(canvas))
+  if (canvases.some((canvas, index) => canvas !== state.canvases[index])) {
+    state.canvases = canvases
+    await persist('canvases')
   }
 
   return { state, persist }
 
-  async function migrateWorkflowFiles() {
+  async function migrateCanvasFiles() {
     let files
     try {
-      files = (await readdir(workflowDirectory)).filter((file) => file.endsWith('.json'))
+      files = (await readdir(canvasDirectory)).filter((file) => file.endsWith('.json'))
     } catch {
-      await mkdir(workflowDirectory, { recursive: true })
+      await mkdir(canvasDirectory, { recursive: true })
       files = []
     }
     if (files.length > 0) return
 
-    const legacy = path.join(dataDirectory, 'workflows.json')
-    let workflows
+    const legacy = path.join(dataDirectory, 'canvases.json')
+    let canvases
     try {
-      workflows = JSON.parse(await readFile(legacy, 'utf8'))
+      canvases = JSON.parse(await readFile(legacy, 'utf8'))
     } catch {
-      workflows = JSON.parse(await readFile(path.join(seedDirectory, 'workflows.json'), 'utf8'))
+      canvases = JSON.parse(await readFile(path.join(seedDirectory, 'canvases.json'), 'utf8'))
     }
 
-    await persistWorkflowFiles(workflows)
+    await persistCanvasFiles(canvases)
   }
 
-  async function readWorkflowFiles() {
-    const files = (await readdir(workflowDirectory)).filter((file) => file.endsWith('.json'))
-    return Promise.all(files.map(async (file) => JSON.parse(await readFile(path.join(workflowDirectory, file), 'utf8'))))
+  async function readCanvasFiles() {
+    const files = (await readdir(canvasDirectory)).filter((file) => file.endsWith('.json'))
+    return Promise.all(files.map(async (file) => JSON.parse(await readFile(path.join(canvasDirectory, file), 'utf8'))))
   }
 
-  async function persistWorkflowFiles(workflows) {
-    await mkdir(workflowDirectory, { recursive: true })
+  async function persistCanvasFiles(canvases) {
+    await mkdir(canvasDirectory, { recursive: true })
     const currentFiles = new Set()
 
-    await Promise.all(workflows.map(async (workflow) => {
-      const file = `${workflow.id}.json`
+    await Promise.all(canvases.map(async (canvas) => {
+      const file = `${canvas.id}.json`
       currentFiles.add(file)
-      const destination = path.join(workflowDirectory, file)
+      const destination = path.join(canvasDirectory, file)
       const temporary = `${destination}.tmp`
-      await writeFile(temporary, `${JSON.stringify(workflow, null, 2)}\n`)
+      await writeFile(temporary, `${JSON.stringify(canvas, null, 2)}\n`)
       await rename(temporary, destination)
     }))
 
-    const files = (await readdir(workflowDirectory)).filter((file) => file.endsWith('.json'))
-    await Promise.all(files.filter((file) => !currentFiles.has(file)).map((file) => unlink(path.join(workflowDirectory, file))))
+    const files = (await readdir(canvasDirectory)).filter((file) => file.endsWith('.json'))
+    await Promise.all(files.filter((file) => !currentFiles.has(file)).map((file) => unlink(path.join(canvasDirectory, file))))
   }
 }

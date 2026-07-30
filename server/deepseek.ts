@@ -1,6 +1,6 @@
-import { describeWorkflowParameters, updateNodeParameters } from './workflow-parameters.js'
-import { addWorkflowStage, buildWorkflowStructure, planWorkflow } from './planner.js'
-import { workflowNodeTypes, workflowToolDefinitions } from './workflow-tools.js'
+import { describeCanvasParameters, updateNodeParameters } from './canvas-parameters.js'
+import { addCanvasStage, buildCanvasStructure, planCanvas } from './planner.js'
+import { canvasNodeTypes, canvasToolDefinitions } from './canvas-tools.js'
 
 // Every selectable node type, with what it does and the media it consumes/produces.
 // This is what lets the model match each node to the media it consumes.
@@ -23,29 +23,29 @@ const nodeCatalogRows = [
 ]
 const nodeCatalogText = nodeCatalogRows.map(([type, summary, input, output]) => `- ${type}: ${summary} Input: ${input}. Output: ${output}.`).join('\n')
 
-export const systemPrompt = `You are the builder agent for a 3D production workflow canvas. You can build workflow structures and adjust node parameters. Use tools for every workflow change; never claim a change unless a tool succeeded.
+export const systemPrompt = `You are the builder agent for a 3D production canvas canvas. You can build canvas structures and adjust node parameters. Use tools for every canvas change; never claim a change unless a tool succeeded.
 
 Node catalog (each node type, what it does, and the media it takes/produces). A node can only receive what a previous node produces:
 ${nodeCatalogText}
 
 Choose node types by matching outputs to inputs. Key rule: generate-model is the unified 3D generation node. It accepts text, a single image, or multiple images and automatically selects single-image or multi-image reconstruction from the upstream output. Any "one image → multiple views → 3D" request must use generate-multiview-images followed by generate-model.
 
-When the user asks to create, build, or design a workflow, call build_workflow with the complete ordered nodeTypes list. The server appends one new frame without replacing existing canvas content, places all new nodes inside it, connects compatible ports, and lays out the new section. Common shapes: text-to-image-to-3D = reference-image, prompt, generate-image, generate-model, export-model; direct text-to-3D = prompt, text-to-3d, export-model; single image to multi-view to 3D = reference-image, generate-multiview-images, generate-model, export-model. Add retopology, texture, rigging, and segments before export-model when requested.
+When the user asks to create, build, or design a canvas, call build_canvas with the complete ordered nodeTypes list. The server appends one new frame without replacing existing canvas content, places all new nodes inside it, connects compatible ports, and lays out the new section. Common shapes: text-to-image-to-3D = reference-image, prompt, generate-image, generate-model, export-model; direct text-to-3D = prompt, text-to-3d, export-model; single image to multi-view to 3D = reference-image, generate-multiview-images, generate-model, export-model. Add retopology, texture, rigging, and segments before export-model when requested.
 
-Use get_workflow_structure when the current nodes or connections are unclear. Use list_available_node_types when the creatable node types are unclear. Use add_workflow_node to add any supported node type, including frame, when it is not already present; use build_workflow to append a complete workflow section. Use get_workflow_parameters when parameter names, node IDs, ranges, or options are unclear. Apply every parameter explicitly requested by the user. Group all requested changes for the same node into one update_node_parameters call, use separate calls for different nodes, and verify every requested change appears in successful tool results before replying. When you need the user to choose from a finite set of valid alternatives before continuing, you MUST call request_user_select. Never ask that question, list the options, or tell the user to choose in normal assistant text. For an empty workflow, if the user has not stated how to create the model, call request_user_select with the available workflow approaches. Do not ask for free-form text with this tool. Reply concisely in the user's language and summarize the nodes and connections actually created or changed.`
+Use get_canvas_structure when the current nodes or connections are unclear. Use list_available_node_types when the creatable node types are unclear. Use add_canvas_node to add any supported node type, including frame, when it is not already present; use build_canvas to append a complete canvas section. Use get_canvas_parameters when parameter names, node IDs, ranges, or options are unclear. Apply every parameter explicitly requested by the user. Group all requested changes for the same node into one update_node_parameters call, use separate calls for different nodes, and verify every requested change appears in successful tool results before replying. When you need the user to choose from a finite set of valid alternatives before continuing, you MUST call request_user_select. Never ask that question, list the options, or tell the user to choose in normal assistant text. For an empty canvas, if the user has not stated how to create the model, call request_user_select with the available canvas approaches. Do not ask for free-form text with this tool. Reply concisely in the user's language and summarize the nodes and connections actually created or changed.`
 
-export { workflowNodeTypes } from './workflow-tools.js'
+export { canvasNodeTypes } from './canvas-tools.js'
 const progressLabelByTool = {
-  get_workflow_structure: 'Inspecting workflow structure',
+  get_canvas_structure: 'Inspecting canvas structure',
   list_available_node_types: 'Listing available node types',
-  get_workflow_parameters: 'Inspecting adjustable parameters',
-  build_workflow: 'Building workflow',
+  get_canvas_parameters: 'Inspecting adjustable parameters',
+  build_canvas: 'Building canvas',
   update_node_parameters: 'Updating node parameters',
-  add_workflow_node: 'Adding workflow node',
+  add_canvas_node: 'Adding canvas node',
   request_user_select: 'Waiting for your selection',
 }
 
-const tools = workflowToolDefinitions.map((definition) => ({ type: 'function', function: definition }))
+const tools = canvasToolDefinitions.map((definition) => ({ type: 'function', function: definition }))
 
 export class DeepSeekError extends Error {
   constructor(message, status = 502) {
@@ -62,11 +62,11 @@ function parseArguments(call) {
   }
 }
 
-export async function runDeepSeekAgent({ apiKey, message, workflow, history = [], fetchImpl = fetch, baseUrl = 'https://api.deepseek.com', model = 'deepseek-v4-flash', maxRounds = 5, onProgress = () => {} }) {
+export async function runDeepSeekAgent({ apiKey, message, canvas, history = [], fetchImpl = fetch, baseUrl = 'https://api.deepseek.com', model = 'deepseek-v4-flash', maxRounds = 5, onProgress = () => {} }) {
   if (!apiKey) throw new DeepSeekError('DeepSeek is not configured.', 503)
   baseUrl ||= 'https://api.deepseek.com'
   model ||= 'deepseek-v4-flash'
-  let nextWorkflow = structuredClone(workflow)
+  let nextCanvas = structuredClone(canvas)
   let structureChanged = false
   const changes = []
   const messages = [
@@ -76,7 +76,7 @@ export async function runDeepSeekAgent({ apiKey, message, workflow, history = []
   ]
 
   for (let round = 0; round < maxRounds; round += 1) {
-    await onProgress({ label: round ? 'Reviewing workflow changes' : 'Reviewing your request', status: 'running' })
+    await onProgress({ label: round ? 'Reviewing canvas changes' : 'Reviewing your request', status: 'running' })
     let response
     try {
       response = await fetchImpl(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
@@ -94,11 +94,11 @@ export async function runDeepSeekAgent({ apiKey, message, workflow, history = []
     if (!assistant) throw new DeepSeekError('DeepSeek returned an invalid response.')
     if (!assistant.tool_calls?.length) {
       await onProgress({ label: 'Preparing final response', status: 'complete' })
-      if (changes.length && nextWorkflow.revision === workflow.revision) nextWorkflow.revision += 1
-      if (changes.length) nextWorkflow.updatedAt = new Date().toISOString()
+      if (changes.length && nextCanvas.revision === canvas.revision) nextCanvas.revision += 1
+      if (changes.length) nextCanvas.updatedAt = new Date().toISOString()
       return {
-        workflow: nextWorkflow,
-        reply: assistant.content || (changes.length ? 'Workflow updated.' : 'No workflow changes were made. Use the workflow tools to make a change.'),
+        canvas: nextCanvas,
+        reply: assistant.content || (changes.length ? 'Canvas updated.' : 'No canvas changes were made. Use the canvas tools to make a change.'),
         changedNodeIds: [...new Set(changes.map((change) => change.nodeId))],
         structureChanged,
       }
@@ -111,44 +111,44 @@ export async function runDeepSeekAgent({ apiKey, message, workflow, history = []
       if (!label) throw new DeepSeekError(`DeepSeek requested unsupported tool "${call.function.name}".`)
       await onProgress({ label, status: 'running' })
       let result
-      if (call.function.name === 'get_workflow_structure') {
+      if (call.function.name === 'get_canvas_structure') {
         result = {
-          nodes: nextWorkflow.nodes.map(({ id, type, name }) => ({ id, type, name })),
-          edges: nextWorkflow.edges,
+          nodes: nextCanvas.nodes.map(({ id, type, name }) => ({ id, type, name })),
+          edges: nextCanvas.edges,
         }
       } else if (call.function.name === 'list_available_node_types') {
-        result = { nodeTypes: workflowNodeTypes }
-      } else if (call.function.name === 'build_workflow') {
-        if (!Array.isArray(args.nodeTypes) || !args.nodeTypes.length || args.nodeTypes.some((type) => !workflowNodeTypes.includes(type))) {
-          throw new DeepSeekError('DeepSeek requested an invalid workflow structure.')
+        result = { nodeTypes: canvasNodeTypes }
+      } else if (call.function.name === 'build_canvas') {
+        if (!Array.isArray(args.nodeTypes) || !args.nodeTypes.length || args.nodeTypes.some((type) => !canvasNodeTypes.includes(type))) {
+          throw new DeepSeekError('DeepSeek requested an invalid canvas structure.')
         }
-        const existingNodeIds = new Set(nextWorkflow.nodes.map((node) => node.id))
-        nextWorkflow = buildWorkflowStructure(message, args.nodeTypes, nextWorkflow)
-        const addedNodes = nextWorkflow.nodes.filter((node) => !existingNodeIds.has(node.id))
+        const existingNodeIds = new Set(nextCanvas.nodes.map((node) => node.id))
+        nextCanvas = buildCanvasStructure(message, args.nodeTypes, nextCanvas)
+        const addedNodes = nextCanvas.nodes.filter((node) => !existingNodeIds.has(node.id))
         structureChanged = true
         for (const node of addedNodes) changes.push({ nodeId: node.id, added: true })
         result = {
           frameId: addedNodes.find((node) => node.type === 'frame')?.id,
           nodes: addedNodes.filter((node) => node.type !== 'frame').map(({ id, type, name }) => ({ id, type, name })),
-          edges: nextWorkflow.edges.filter((edge) => addedNodes.some((node) => node.id === edge.source.nodeId)).map((edge) => ({ source: edge.source.nodeId, target: edge.target.nodeId })),
+          edges: nextCanvas.edges.filter((edge) => addedNodes.some((node) => node.id === edge.source.nodeId)).map((edge) => ({ source: edge.source.nodeId, target: edge.target.nodeId })),
         }
-      } else if (call.function.name === 'get_workflow_parameters') {
+      } else if (call.function.name === 'get_canvas_parameters') {
         result = {
-          nodes: nextWorkflow.nodes.map(({ id, type, name }) => ({ id, type, name })),
-          parameters: describeWorkflowParameters(nextWorkflow),
+          nodes: nextCanvas.nodes.map(({ id, type, name }) => ({ id, type, name })),
+          parameters: describeCanvasParameters(nextCanvas),
         }
       } else if (call.function.name === 'update_node_parameters') {
-        const applied = updateNodeParameters(nextWorkflow, args.nodeId, args.parameters)
+        const applied = updateNodeParameters(nextCanvas, args.nodeId, args.parameters)
         changes.push(...applied)
         result = { changes: applied }
-      } else if (call.function.name === 'add_workflow_node') {
+      } else if (call.function.name === 'add_canvas_node') {
         let planned
         try {
-          planned = addWorkflowStage(nextWorkflow, args.type, message)
+          planned = addCanvasStage(nextCanvas, args.type, message)
         } catch (error) {
           throw new DeepSeekError(error.message)
         }
-        nextWorkflow = planned.workflow
+        nextCanvas = planned.canvas
         structureChanged ||= planned.structureChanged
         for (const nodeId of planned.changedNodeIds) changes.push({ nodeId, added: true })
         result = { addedNodeIds: planned.changedNodeIds }
@@ -158,7 +158,7 @@ export async function runDeepSeekAgent({ apiKey, message, workflow, history = []
           throw new DeepSeekError('DeepSeek requested an invalid user selection.')
         }
         return {
-          workflow: nextWorkflow,
+          canvas: nextCanvas,
           changedNodeIds: [...new Set(changes.map((change) => change.nodeId))],
           structureChanged,
           userSelectionRequest: { prompt: args.prompt.trim(), options: args.options, min: args.min, max: args.max },

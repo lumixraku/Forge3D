@@ -1,38 +1,38 @@
-# Workflow Agent Tool Calls
+# Canvas Agent Tool Calls
 
 ## Purpose
 
-This document describes the workflow tools available to both agent paths:
+This document describes the canvas tools available to both agent paths:
 
 - Direct DeepSeek in `server/deepseek.ts`
 - Pi agent-service in `agent-service/run.ts`
 
-Both paths consume the shared definitions in `server/workflow-tools.ts`. That file is the runtime source of truth for tool names, descriptions, JSON Schemas, required fields, enums, limits, and `additionalProperties` rules. Update the shared definitions first when the contract changes, then update this document and `server/workflow-tools.test.ts`.
+Both paths consume the shared definitions in `server/canvas-tools.ts`. That file is the runtime source of truth for tool names, descriptions, JSON Schemas, required fields, enums, limits, and `additionalProperties` rules. Update the shared definitions first when the contract changes, then update this document and `server/canvas-tools.test.ts`.
 
 ## General Rules
 
 - All seven tools receive one JSON object as their arguments.
 - Every top-level argument object is closed with `additionalProperties: false`.
-- The model must use exact node IDs returned by `get_workflow_structure` when updating an existing node.
-- `build_workflow` appends a new framed section. It does not replace existing canvas content.
-- JSON Schema validates the model-facing contract. Execution-time validation still enforces workflow-specific business rules.
+- The model must use exact node IDs returned by `get_canvas_structure` when updating an existing node.
+- `build_canvas` appends a new framed section. It does not replace existing canvas content.
+- JSON Schema validates the model-facing contract. Execution-time validation still enforces canvas-specific business rules.
 - Tool results shown below are representative examples, not a separate API contract.
 
 ## Tool Summary
 
 | Tool | Purpose | Required arguments |
 | --- | --- | --- |
-| `get_workflow_structure` | Inspect every node and edge on the current canvas. | None |
+| `get_canvas_structure` | Inspect every node and edge on the current canvas. | None |
 | `list_available_node_types` | List node types that can be created. | None |
-| `build_workflow` | Append a complete framed workflow section. | `nodeTypes` |
-| `get_workflow_parameters` | Inspect adjustable parameters and valid values. | None |
+| `build_canvas` | Append a complete framed canvas section. | `nodeTypes` |
+| `get_canvas_parameters` | Inspect adjustable parameters and valid values. | None |
 | `update_node_parameters` | Update validated parameters on one existing node. | `nodeId`, `parameters` |
-| `add_workflow_node` | Add one supported node if it is not already present. | `type` |
+| `add_canvas_node` | Add one supported node if it is not already present. | `type` |
 | `request_user_select` | Pause and ask the user to select from finite options. | `prompt`, `options`, `min`, `max` |
 
-## 1. `get_workflow_structure`
+## 1. `get_canvas_structure`
 
-Inspects the complete current canvas. The result includes every node and edge across all workflow sections, rather than one frame or one workflow chain.
+Inspects the complete current canvas. The result includes every node and edge across all canvas sections, rather than one frame or one canvas chain.
 
 ### Arguments
 
@@ -46,7 +46,7 @@ No arguments or additional properties are accepted.
 
 ```json
 {
-  "name": "get_workflow_structure",
+  "name": "get_canvas_structure",
   "arguments": {}
 }
 ```
@@ -70,7 +70,7 @@ No arguments or additional properties are accepted.
 
 ## 2. `list_available_node_types`
 
-Lists every node type the agent can create. This data is separate from the current workflow structure.
+Lists every node type the agent can create. This data is separate from the current canvas structure.
 
 ### Arguments
 
@@ -103,9 +103,9 @@ Lists every node type the agent can create. This data is separate from the curre
 }
 ```
 
-## 3. `build_workflow`
+## 3. `build_canvas`
 
-Appends a new workflow section from an ordered node type list. The server creates the frame, places the new nodes inside it, and connects compatible nodes automatically.
+Appends a new canvas section from an ordered node type list. The server creates the frame, places the new nodes inside it, and connects compatible nodes automatically.
 
 ### Arguments
 
@@ -138,7 +138,7 @@ export-model
 
 ```json
 {
-  "name": "build_workflow",
+  "name": "build_canvas",
   "arguments": {
     "nodeTypes": [
       "reference-image",
@@ -172,7 +172,7 @@ export-model
 }
 ```
 
-## 4. `get_workflow_parameters`
+## 4. `get_canvas_parameters`
 
 Lists adjustable parameters for all nodes currently present on the canvas, including valid ranges and enum options.
 
@@ -188,7 +188,7 @@ No arguments or additional properties are accepted.
 
 ```json
 {
-  "name": "get_workflow_parameters",
+  "name": "get_canvas_parameters",
   "arguments": {}
 }
 ```
@@ -207,7 +207,7 @@ No arguments or additional properties are accepted.
 
 ## 5. `update_node_parameters`
 
-Updates one existing node. `nodeId` must be the exact ID returned by `get_workflow_structure`; a display name or node type is not sufficient.
+Updates one existing node. `nodeId` must be the exact ID returned by `get_canvas_structure`; a display name or node type is not sufficient.
 
 ### Arguments
 
@@ -274,21 +274,21 @@ Not every parameter applies to every node type. Execution-time validation reject
 }
 ```
 
-## 6. `add_workflow_node`
+## 6. `add_canvas_node`
 
-Adds one supported workflow node when that node type is not already present. Unlike `build_workflow`, this tool can explicitly add a `frame`.
+Adds one supported canvas node when that node type is not already present. Unlike `build_canvas`, this tool can explicitly add a `frame`.
 
 ### Arguments
 
 | Field | Type | Constraints |
 | --- | --- | --- |
-| `type` | string | Required; `frame` or one of the supported node types listed under `build_workflow`. |
+| `type` | string | Required; `frame` or one of the supported node types listed under `build_canvas`. |
 
 ### Example Call
 
 ```json
 {
-  "name": "add_workflow_node",
+  "name": "add_canvas_node",
   "arguments": {
     "type": "texture"
   }
@@ -326,7 +326,7 @@ Each option is closed and accepts only `id` and `label`. Execution-time validati
 {
   "name": "request_user_select",
   "arguments": {
-    "prompt": "Choose a workflow approach",
+    "prompt": "Choose a canvas approach",
     "options": [
       { "id": "text-to-3d", "label": "Generate directly from text" },
       { "id": "image-to-3d", "label": "Generate from a reference image" }
@@ -347,23 +347,23 @@ Each option is closed and accepts only `id` and `label`. Execution-time validati
 
 ## Example Tool-Call Log
 
-The following illustrative log shows one agent turn that inspects the canvas, appends a workflow section, updates two nodes, and completes. It is formatted as JSON Lines so each line can be parsed independently. This is documentation only; the application does not currently persist this exact log format.
+The following illustrative log shows one agent turn that inspects the canvas, appends a canvas section, updates two nodes, and completes. It is formatted as JSON Lines so each line can be parsed independently. This is documentation only; the application does not currently persist this exact log format.
 
 ```jsonl
-{"timestamp":"2026-07-28T09:00:00.000Z","event":"user_message","turnId":"turn-42","message":"Create an image-to-3D workflow, use quad retopology at 8000 faces, and export STL."}
-{"timestamp":"2026-07-28T09:00:00.120Z","event":"tool_call","turnId":"turn-42","toolCallId":"call-1","name":"get_workflow_structure","arguments":{}}
-{"timestamp":"2026-07-28T09:00:00.121Z","event":"progress","turnId":"turn-42","toolCallId":"call-1","label":"Inspecting workflow structure","status":"running"}
-{"timestamp":"2026-07-28T09:00:00.130Z","event":"tool_result","turnId":"turn-42","toolCallId":"call-1","name":"get_workflow_structure","isError":false,"result":{"nodes":[],"edges":[]}}
-{"timestamp":"2026-07-28T09:00:00.310Z","event":"tool_call","turnId":"turn-42","toolCallId":"call-2","name":"build_workflow","arguments":{"nodeTypes":["reference-image","generate-model","retopology","export-model"]}}
-{"timestamp":"2026-07-28T09:00:00.311Z","event":"progress","turnId":"turn-42","toolCallId":"call-2","label":"Building workflow","status":"running"}
-{"timestamp":"2026-07-28T09:00:00.340Z","event":"tool_result","turnId":"turn-42","toolCallId":"call-2","name":"build_workflow","isError":false,"result":{"frameId":"frame-main","nodes":[{"id":"reference-image","type":"reference-image","name":"Image Upload"},{"id":"generate-model","type":"generate-model","name":"Gen HD Model"},{"id":"retopology","type":"retopology","name":"Retopology"},{"id":"export-model","type":"export-model","name":"Export"}],"edges":[{"source":"reference-image","target":"generate-model"},{"source":"generate-model","target":"retopology"},{"source":"retopology","target":"export-model"}]}}
+{"timestamp":"2026-07-28T09:00:00.000Z","event":"user_message","turnId":"turn-42","message":"Create an image-to-3D canvas, use quad retopology at 8000 faces, and export STL."}
+{"timestamp":"2026-07-28T09:00:00.120Z","event":"tool_call","turnId":"turn-42","toolCallId":"call-1","name":"get_canvas_structure","arguments":{}}
+{"timestamp":"2026-07-28T09:00:00.121Z","event":"progress","turnId":"turn-42","toolCallId":"call-1","label":"Inspecting canvas structure","status":"running"}
+{"timestamp":"2026-07-28T09:00:00.130Z","event":"tool_result","turnId":"turn-42","toolCallId":"call-1","name":"get_canvas_structure","isError":false,"result":{"nodes":[],"edges":[]}}
+{"timestamp":"2026-07-28T09:00:00.310Z","event":"tool_call","turnId":"turn-42","toolCallId":"call-2","name":"build_canvas","arguments":{"nodeTypes":["reference-image","generate-model","retopology","export-model"]}}
+{"timestamp":"2026-07-28T09:00:00.311Z","event":"progress","turnId":"turn-42","toolCallId":"call-2","label":"Building canvas","status":"running"}
+{"timestamp":"2026-07-28T09:00:00.340Z","event":"tool_result","turnId":"turn-42","toolCallId":"call-2","name":"build_canvas","isError":false,"result":{"frameId":"frame-main","nodes":[{"id":"reference-image","type":"reference-image","name":"Image Upload"},{"id":"generate-model","type":"generate-model","name":"Gen HD Model"},{"id":"retopology","type":"retopology","name":"Retopology"},{"id":"export-model","type":"export-model","name":"Export"}],"edges":[{"source":"reference-image","target":"generate-model"},{"source":"generate-model","target":"retopology"},{"source":"retopology","target":"export-model"}]}}
 {"timestamp":"2026-07-28T09:00:00.510Z","event":"tool_call","turnId":"turn-42","toolCallId":"call-3","name":"update_node_parameters","arguments":{"nodeId":"retopology","parameters":{"faceLimit":8000,"faceType":"Quad"}}}
 {"timestamp":"2026-07-28T09:00:00.511Z","event":"progress","turnId":"turn-42","toolCallId":"call-3","label":"Updating node parameters","status":"running"}
 {"timestamp":"2026-07-28T09:00:00.520Z","event":"tool_result","turnId":"turn-42","toolCallId":"call-3","name":"update_node_parameters","isError":false,"result":{"changes":[{"nodeId":"retopology","nodeLabel":"Retopology","fieldLabel":"target face count","previousValue":10000,"value":8000},{"nodeId":"retopology","nodeLabel":"Retopology","fieldLabel":"face type","previousValue":"Triangle","value":"Quad"}]}}
 {"timestamp":"2026-07-28T09:00:00.690Z","event":"tool_call","turnId":"turn-42","toolCallId":"call-4","name":"update_node_parameters","arguments":{"nodeId":"export-model","parameters":{"modelFormat":"STL"}}}
 {"timestamp":"2026-07-28T09:00:00.691Z","event":"progress","turnId":"turn-42","toolCallId":"call-4","label":"Updating node parameters","status":"running"}
 {"timestamp":"2026-07-28T09:00:00.700Z","event":"tool_result","turnId":"turn-42","toolCallId":"call-4","name":"update_node_parameters","isError":false,"result":{"changes":[{"nodeId":"export-model","nodeLabel":"Export","fieldLabel":"model format","previousValue":"GLB","value":"STL"}]}}
-{"timestamp":"2026-07-28T09:00:00.850Z","event":"assistant_message","turnId":"turn-42","message":"Created an image-to-3D workflow with quad retopology set to 8,000 faces and STL export."}
+{"timestamp":"2026-07-28T09:00:00.850Z","event":"assistant_message","turnId":"turn-42","message":"Created an image-to-3D canvas with quad retopology set to 8,000 faces and STL export."}
 ```
 
 An error result uses the same correlation fields and sets `isError` to `true`:

@@ -1,16 +1,16 @@
-import { nodeCatalog, nodeDefinition, nodeDisplayName, nodeInputPorts, nodeOutputPorts } from './workflow-nodes'
-import { normalizeNodeConfig } from './workflow-schema'
+import { nodeCatalog, nodeDefinition, nodeDisplayName, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
+import { normalizeNodeConfig } from './canvas-schema'
 
 export const edgeDefaults = { selectable: true }
 export const nodePresentation = Object.fromEntries(nodeCatalog.map((node) => [node.type, [node.presentation.kind, node.presentation.detail, node.presentation.tone]]))
 
-// Turn a stored workflow document into the { nodes, edges } pair Vue Flow renders.
-export function toCanvasGraph(workflow) {
-  const workflowNodes = new Map(workflow.nodes.map((node) => [node.id, node]))
+// Turn a stored canvas document into the { nodes, edges } pair Vue Flow renders.
+export function toCanvasGraph(canvas) {
+  const canvasNodes = new Map(canvas.nodes.map((node) => [node.id, node]))
   // Child positions are persisted in the parent's local coordinate space.
-  const positions = new Map(workflow.nodes.map((node) => [node.id, node.ui.position || { x: 0, y: 0 }]))
+  const positions = new Map(canvas.nodes.map((node) => [node.id, node.ui.position || { x: 0, y: 0 }]))
   // VueFlow requires a parent node to be present before its children.
-  const nodes = [...workflow.nodes].sort((left, right) => (left.type === 'frame' ? -1 : 0) - (right.type === 'frame' ? -1 : 0)).map((node) => {
+  const nodes = [...canvas.nodes].sort((left, right) => (left.type === 'frame' ? -1 : 0) - (right.type === 'frame' ? -1 : 0)).map((node) => {
     if (node.type === 'frame') {
       return {
         id: node.id,
@@ -28,7 +28,7 @@ export function toCanvasGraph(workflow) {
     const [kind, detail, tone] = nodePresentation[type] || ['STEP', type, 'cyan']
     return {
       id: node.id,
-      type: 'workflow',
+      type: 'canvas',
       position: positions.get(node.id),
       parentNode: node.ui.parentFrameId,
       // No extent/expandParent: those let Vue Flow lock children inside the frame
@@ -39,7 +39,7 @@ export function toCanvasGraph(workflow) {
         detail,
         tone,
         status: 'ready',
-        workflowType: type,
+        canvasType: type,
         config: normalizeNodeConfig(type, node.config),
         inputTypes: nodeDefinition(type)?.inputTypes || [],
         outputType: nodeDefinition(type)?.outputType || null,
@@ -54,10 +54,10 @@ export function toCanvasGraph(workflow) {
   // no longer resolve to a port, and dedupe pairs that used to target distinct
   // ports on the same node into one link.
   const seenEdges = new Set()
-  const edges = workflow.edges
+  const edges = canvas.edges
     .map((edge) => {
-      const sourceType = workflowNodes.get(edge.source.nodeId)?.type
-      const targetType = workflowNodes.get(edge.target.nodeId)?.type
+      const sourceType = canvasNodes.get(edge.source.nodeId)?.type
+      const targetType = canvasNodes.get(edge.target.nodeId)?.type
       const sourceHandle = nodeOutputPorts(sourceType)[0]?.id
       const targetHandle = nodeInputPorts(targetType)[0]?.id
       const key = `${edge.source.nodeId}->${edge.target.nodeId}`
@@ -79,16 +79,16 @@ export function toCanvasGraph(workflow) {
   return { nodes, edges }
 }
 
-// Fold the canvas back into the stored workflow document, keeping the fields the
+// Fold the canvas back into the stored canvas document, keeping the fields the
 // canvas does not own (ids, timestamps, agent metadata) from the loaded copy.
-export function toDomainWorkflow(activeWorkflow, nodes, edges) {
-  if (!activeWorkflow) return null
-  const nodeMap = new Map(activeWorkflow.nodes.map((node) => [node.id, node]))
+export function toDomainCanvas(activeCanvas, nodes, edges) {
+  if (!activeCanvas) return null
+  const nodeMap = new Map(activeCanvas.nodes.map((node) => [node.id, node]))
   return {
-    ...activeWorkflow,
+    ...activeCanvas,
     nodes: nodes.map((node) => node.type === 'frame'
       ? { ...nodeMap.get(node.id), id: node.id, type: 'frame', name: node.data.label, config: { ...nodeMap.get(node.id)?.config, description: node.data.description || '', manualSize: Boolean(node.data.manualSize) }, ui: { position: node.position, size: { width: Number(node.dimensions?.width || node.width || 900), height: Number(node.dimensions?.height || node.height || 600) } } }
-      : { ...nodeMap.get(node.id), id: node.id, name: node.data.label, type: node.data.workflowType, config: node.data.config, ui: { position: node.position, parentFrameId: node.parentNode } }),
+      : { ...nodeMap.get(node.id), id: node.id, name: node.data.label, type: node.data.canvasType, config: node.data.config, ui: { position: node.position, parentFrameId: node.parentNode } }),
     edges: edges.map((edge) => ({
       id: edge.id,
       source: { nodeId: edge.source, port: edge.sourceHandle || edge.sourcePort || 'output' },

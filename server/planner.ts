@@ -1,8 +1,8 @@
-import { describeWorkflowParameters, workflowParameters } from './workflow-parameters.js'
+import { describeCanvasParameters, canvasParameters } from './canvas-parameters.js'
 import { randomUUID } from './ids.js'
-import { applyNodeParameter, nodeDefaults as schemaDefaults, workflowNodeSchema } from '../src/workflow-schema.js'
+import { applyNodeParameter, nodeDefaults as schemaDefaults, canvasNodeSchema } from '../src/canvas-schema.js'
 
-export const nodeDefaults = Object.fromEntries(workflowNodeSchema
+export const nodeDefaults = Object.fromEntries(canvasNodeSchema
   .filter((node) => node.type !== 'frame' && node.type !== 'generated-image')
   .map((node) => [node.type, { name: node.label, config: schemaDefaults(node.type) }]))
 
@@ -116,11 +116,11 @@ export function rebuildDagEdges(nodes) {
   return edges
 }
 
-export function buildWorkflowStructure(message, types, existingWorkflow = null) {
+export function buildCanvasStructure(message, types, existingCanvas = null) {
   const normalizedTypes = [...new Set(types)].filter((type) => nodeDefaults[type])
-  if (!normalizedTypes.length) return existingWorkflow ? structuredClone(existingWorkflow) : baseWorkflow(message)
+  if (!normalizedTypes.length) return existingCanvas ? structuredClone(existingCanvas) : baseCanvas(message)
 
-  const existingNodes = existingWorkflow ? structuredClone(existingWorkflow.nodes) : []
+  const existingNodes = existingCanvas ? structuredClone(existingCanvas.nodes) : []
   const sectionNodes = [createFrame(message, existingNodes)]
   for (const type of normalizedTypes) {
     const node = createNode(type, sectionNodes)
@@ -140,26 +140,26 @@ export function buildWorkflowStructure(message, types, existingWorkflow = null) 
   }
   const nodes = [...existingNodes, ...sectionNodes]
   const edges = [
-    ...(existingWorkflow ? structuredClone(existingWorkflow.edges) : []),
+    ...(existingCanvas ? structuredClone(existingCanvas.edges) : []),
     ...rebuildDagEdges(sectionNodes),
   ]
   const now = new Date().toISOString()
-  const workflow = existingWorkflow ? structuredClone(existingWorkflow) : {
+  const canvas = existingCanvas ? structuredClone(existingCanvas) : {
     schemaVersion: '1.0',
-    id: `wf-${randomUUID()}`,
+    id: `canvas-${randomUUID()}`,
     revision: 0,
     createdAt: now,
   }
   const textTo3d = normalizedTypes.includes('text-to-3d')
   return {
-    ...workflow,
-    name: existingWorkflow?.name || (textTo3d ? 'Text to 3D Pipeline' : '3D Asset Pipeline'),
-    description: existingWorkflow?.description || 'A reusable 3D production workflow created through conversation.',
-    revision: existingWorkflow ? existingWorkflow.revision + 1 : 1,
+    ...canvas,
+    name: existingCanvas?.name || (textTo3d ? 'Text to 3D Pipeline' : '3D Asset Pipeline'),
+    description: existingCanvas?.description || 'A reusable 3D production canvas created through conversation.',
+    revision: existingCanvas ? existingCanvas.revision + 1 : 1,
     updatedAt: now,
     nodes,
     edges,
-    viewport: existingWorkflow?.viewport || { x: 80, y: 160, zoom: 0.72 },
+    viewport: existingCanvas?.viewport || { x: 80, y: 160, zoom: 0.72 },
   }
 }
 
@@ -167,12 +167,12 @@ function requestedStructure(message) {
   const lower = message.toLowerCase()
   const imageFirst = /图生|文字.*生成图片|图片.*(?:生成|转).*3d|根据图片.*3d|image.*(?:to|into).*3d|reference.*3d/i.test(message)
   const textFirst = /文生|文字.*(?:生成|转).*3d|text.*(?:to|into).*3d/i.test(message)
-  if (!/创建|新建|构建|搭建|设计|重建|build|create|construct|workflow|流程/i.test(message) || (!imageFirst && !textFirst)) return null
+  if (!/创建|新建|构建|搭建|设计|重建|build|create|construct|canvas|流程/i.test(message) || (!imageFirst && !textFirst)) return null
   if (imageFirst) return ['reference-image', 'prompt', 'generate-image', 'generate-model', 'export-model']
   return ['prompt', 'text-to-3d', 'export-model']
 }
 
-function baseWorkflow(message) {
+function baseCanvas(message) {
   const lower = message.toLowerCase()
   const name = lower.includes('prop') || message.includes('道具') ? 'Game Prop Pipeline' : '3D Asset Pipeline'
   const textTo3d = /text[ -]?to[ -]?3d|generate (?:a )?(?:3d )?model from (?:text|a prompt|a description)|文生3d|文字生成3d|文本生成3d|提示词生成3d|根据描述生成3d/i.test(message)
@@ -184,9 +184,9 @@ function baseWorkflow(message) {
   fitFrame(nodes)
   return {
     schemaVersion: '1.0',
-    id: `wf-${randomUUID()}`,
+    id: `canvas-${randomUUID()}`,
     name,
-    description: 'A reusable 3D production workflow created through conversation.',
+    description: 'A reusable 3D production canvas created through conversation.',
     revision: 1,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -196,37 +196,37 @@ function baseWorkflow(message) {
   }
 }
 
-function insertBefore(workflow, type, beforeTypes) {
-  if (workflow.nodes.some((node) => node.type === type)) return false
-  const node = createNode(type, workflow.nodes)
-  const index = workflow.nodes.findIndex((candidate) => beforeTypes.includes(candidate.type))
-  workflow.nodes.splice(index < 0 ? workflow.nodes.length : index, 0, node)
+function insertBefore(canvas, type, beforeTypes) {
+  if (canvas.nodes.some((node) => node.type === type)) return false
+  const node = createNode(type, canvas.nodes)
+  const index = canvas.nodes.findIndex((candidate) => beforeTypes.includes(candidate.type))
+  canvas.nodes.splice(index < 0 ? canvas.nodes.length : index, 0, node)
   return true
 }
 
-export function addWorkflowStage(workflow, type, message = '') {
-  const nextWorkflow = structuredClone(workflow)
+export function addCanvasStage(canvas, type, message = '') {
+  const nextCanvas = structuredClone(canvas)
   const allowedTypes = new Set(['frame', ...Object.keys(nodeDefaults)])
-  if (!allowedTypes.has(type)) throw new Error(`Unsupported workflow node type: ${type}`)
+  if (!allowedTypes.has(type)) throw new Error(`Unsupported canvas node type: ${type}`)
 
   const changedNodeIds = []
   if (type === 'frame') {
-    const frame = createFrame(message, nextWorkflow.nodes)
-    nextWorkflow.nodes.push(frame)
+    const frame = createFrame(message, nextCanvas.nodes)
+    nextCanvas.nodes.push(frame)
     changedNodeIds.push(frame.id)
-  } else if (insertBefore(nextWorkflow, type, type === 'review' ? ['generate-model', 'multiview-to-3d'] : ['export-model', 'model-preview'])) {
-    changedNodeIds.push(nextWorkflow.nodes.find((node) => node.type === type).id)
+  } else if (insertBefore(nextCanvas, type, type === 'review' ? ['generate-model', 'multiview-to-3d'] : ['export-model', 'model-preview'])) {
+    changedNodeIds.push(nextCanvas.nodes.find((node) => node.type === type).id)
   }
 
   if (!changedNodeIds.length) {
-    return { workflow: nextWorkflow, changedNodeIds, structureChanged: false }
+    return { canvas: nextCanvas, changedNodeIds, structureChanged: false }
   }
 
-  nextWorkflow.edges = rebuildDagEdges(nextWorkflow.nodes)
-  fitFrame(nextWorkflow.nodes)
-  nextWorkflow.revision += 1
-  nextWorkflow.updatedAt = new Date().toISOString()
-  return { workflow: nextWorkflow, changedNodeIds, structureChanged: true }
+  nextCanvas.edges = rebuildDagEdges(nextCanvas.nodes)
+  fitFrame(nextCanvas.nodes)
+  nextCanvas.revision += 1
+  nextCanvas.updatedAt = new Date().toISOString()
+  return { canvas: nextCanvas, changedNodeIds, structureChanged: true }
 }
 
 function parameterHelpType(message) {
@@ -247,112 +247,112 @@ function numberFrom(match) {
   return Number.isFinite(value) ? value : null
 }
 
-function setParameter(workflow, changes, type, field, value) {
-  const node = workflow.nodes.find((candidate) => candidate.type === type)
-  const definition = workflowParameters[type]?.fields[field]
+function setParameter(canvas, changes, type, field, value) {
+  const node = canvas.nodes.find((candidate) => candidate.type === type)
+  const definition = canvasParameters[type]?.fields[field]
   if (!node || !definition) return false
   if (definition.kind === 'number' && (value < definition.min || value > definition.max || value % definition.step !== 0)) return false
   if (definition.kind === 'enum' && !definition.values.includes(value)) return false
   const previousValue = node.config[field]
   if (previousValue === value) return true
   node.config = applyNodeParameter(type, node.config, field, value)
-  changes.push({ nodeId: node.id, nodeLabel: workflowParameters[type].label, fieldLabel: definition.label, previousValue, value })
+  changes.push({ nodeId: node.id, nodeLabel: canvasParameters[type].label, fieldLabel: definition.label, previousValue, value })
   return true
 }
 
-export function applyParameterChanges(message, workflow, changes) {
+export function applyParameterChanges(message, canvas, changes) {
   const lower = message.toLowerCase()
   const retopoFaces = numberFrom(lower.match(/(?:retopo(?:logy)?|拓扑|减面)[^\d]{0,30}(\d[\d,]*)\s*(?:faces?|面)?/))
     ?? numberFrom(lower.match(/(?:face limit|target faces?|目标面数)[^\d]{0,12}(\d[\d,]*)/))
-  if (retopoFaces !== null) setParameter(workflow, changes, 'retopology', 'faceLimit', retopoFaces)
+  if (retopoFaces !== null) setParameter(canvas, changes, 'retopology', 'faceLimit', retopoFaces)
 
   const retopoTopology = lower.match(/(?:retopo(?:logy)?|拓扑|减面)[^.;；。]{0,50}(triangle|quad|三角面|四边面)/)?.[1]
     ?? lower.match(/(?:topology|面类型)[^.;；。]{0,12}(triangle|quad|三角面|四边面)/)?.[1]
   if (retopoTopology) {
-    setParameter(workflow, changes, 'retopology', 'topology', /quad|四边面/.test(retopoTopology) ? 'quad' : 'triangle')
+    setParameter(canvas, changes, 'retopology', 'topology', /quad|四边面/.test(retopoTopology) ? 'quad' : 'triangle')
   }
 
   const generatedFaces = numberFrom(lower.match(/(?:text[ -]?to[ -]?3d|image[ -]?to[ -]?3d|generate(?:d)?|生成)[^\d]{0,30}(\d[\d,]*)\s*(?:faces?|面)/))
     ?? numberFrom(lower.match(/(?:face count|生成面数)[^\d]{0,12}(\d[\d,]*)/))
   if (generatedFaces !== null) {
-    const type = workflow.nodes.some((node) => node.type === 'text-to-3d') ? 'text-to-3d' : workflow.nodes.some((node) => node.type === 'multiview-to-3d') ? 'multiview-to-3d' : 'generate-model'
-    setParameter(workflow, changes, type, 'faceCount', generatedFaces)
+    const type = canvas.nodes.some((node) => node.type === 'text-to-3d') ? 'text-to-3d' : canvas.nodes.some((node) => node.type === 'multiview-to-3d') ? 'multiview-to-3d' : 'generate-model'
+    setParameter(canvas, changes, type, 'faceCount', generatedFaces)
   }
 
   const resolution = lower.match(/\b(2k|4k|8k)\b/)?.[1]
   if (resolution && /texture|uv|resolution|贴图|纹理|分辨率/i.test(message)) {
-    setParameter(workflow, changes, 'texture', 'textureQuality', { '2k': 'standard', '4k': 'detailed', '8k': 'extreme' }[resolution])
+    setParameter(canvas, changes, 'texture', 'textureQuality', { '2k': 'standard', '4k': 'detailed', '8k': 'extreme' }[resolution])
   }
 
   const version = lower.match(/\b(v(?:2\.5|3\.0|3\.1)(?:-\d{8})?)\b/)?.[1]
   if (version) {
     const canonical = { 'v2.5': 'v2.5-20250123', 'v3.0': 'v3.0-20250812', 'v3.1': 'v3.1-20260211' }[version] || version
-    const type = workflow.nodes.some((node) => node.type === 'text-to-3d') ? 'text-to-3d' : workflow.nodes.some((node) => node.type === 'multiview-to-3d') ? 'multiview-to-3d' : 'generate-model'
-    setParameter(workflow, changes, type, 'modelVersion', canonical)
+    const type = canvas.nodes.some((node) => node.type === 'text-to-3d') ? 'text-to-3d' : canvas.nodes.some((node) => node.type === 'multiview-to-3d') ? 'multiview-to-3d' : 'generate-model'
+    setParameter(canvas, changes, type, 'modelVersion', canonical)
   }
 }
 
-export function planWorkflow(message, existingWorkflow) {
+export function planCanvas(message, existingCanvas) {
   const lower = message.toLowerCase()
   const requestedTypes = requestedStructure(message)
-  if (requestedTypes && existingWorkflow) {
-    const existingNodeIds = new Set(existingWorkflow.nodes.map((node) => node.id))
-    const workflow = buildWorkflowStructure(message, requestedTypes, existingWorkflow)
+  if (requestedTypes && existingCanvas) {
+    const existingNodeIds = new Set(existingCanvas.nodes.map((node) => node.id))
+    const canvas = buildCanvasStructure(message, requestedTypes, existingCanvas)
     return {
-      workflow,
-      reply: `I built a ${requestedTypes.includes('text-to-3d') ? 'text-to-3D' : 'image-first 3D'} workflow with ${requestedTypes.length} nodes inside one frame.`,
-      changedNodeIds: workflow.nodes.filter((node) => !existingNodeIds.has(node.id)).map((node) => node.id),
+      canvas,
+      reply: `I built a ${requestedTypes.includes('text-to-3d') ? 'text-to-3D' : 'image-first 3D'} canvas with ${requestedTypes.length} nodes inside one frame.`,
+      changedNodeIds: canvas.nodes.filter((node) => !existingNodeIds.has(node.id)).map((node) => node.id),
       structureChanged: true,
     }
   }
-  const workflow = existingWorkflow ? structuredClone(existingWorkflow) : baseWorkflow(message)
+  const canvas = existingCanvas ? structuredClone(existingCanvas) : baseCanvas(message)
   const changes = []
   const structuralChanges = []
-  const helpRequest = existingWorkflow && /(?:what|which|show|list).*(?:parameters?|settings?)|(?:parameters?|settings?).*(?:available|adjust|change)|哪些?参数|参数.*(?:可以|能).*(?:调|改)|有什么.*参数/i.test(message)
+  const helpRequest = existingCanvas && /(?:what|which|show|list).*(?:parameters?|settings?)|(?:parameters?|settings?).*(?:available|adjust|change)|哪些?参数|参数.*(?:可以|能).*(?:调|改)|有什么.*参数/i.test(message)
 
   if (helpRequest) {
-    const description = describeWorkflowParameters(workflow, parameterHelpType(message))
-    return { workflow, reply: description || 'This workflow has no adjustable parameters.', changedNodeIds: [], structureChanged: false }
+    const description = describeCanvasParameters(canvas, parameterHelpType(message))
+    return { canvas, reply: description || 'This canvas has no adjustable parameters.', changedNodeIds: [], structureChanged: false }
   }
 
   if (/审核|审查|确认|review|approval|approve/i.test(message)) {
-    if (insertBefore(workflow, 'review', ['generate-model', 'multiview-to-3d'])) structuralChanges.push(workflow.nodes.find((node) => node.type === 'review').id)
+    if (insertBefore(canvas, 'review', ['generate-model', 'multiview-to-3d'])) structuralChanges.push(canvas.nodes.find((node) => node.type === 'review').id)
   }
   if (/低模|low[ -]?poly|retopo/.test(lower)) {
-    if (insertBefore(workflow, 'retopology', ['texture', 'export-model', 'model-preview'])) structuralChanges.push(workflow.nodes.find((node) => node.type === 'retopology').id)
+    if (insertBefore(canvas, 'retopology', ['texture', 'export-model', 'model-preview'])) structuralChanges.push(canvas.nodes.find((node) => node.type === 'retopology').id)
   }
   if (/贴图|texture|pbr/.test(lower)) {
-    if (insertBefore(workflow, 'texture', ['export-model', 'model-preview'])) structuralChanges.push(workflow.nodes.find((node) => node.type === 'texture').id)
+    if (insertBefore(canvas, 'texture', ['export-model', 'model-preview'])) structuralChanges.push(canvas.nodes.find((node) => node.type === 'texture').id)
   }
   if (/rigging|rig|骨骼|绑定/.test(lower)) {
-    if (insertBefore(workflow, 'rigging', ['segments', 'export-model', 'model-preview'])) structuralChanges.push(workflow.nodes.find((node) => node.type === 'rigging').id)
+    if (insertBefore(canvas, 'rigging', ['segments', 'export-model', 'model-preview'])) structuralChanges.push(canvas.nodes.find((node) => node.type === 'rigging').id)
   }
   if (/segments?|split|拆件|拆分|分件/.test(lower)) {
-    if (insertBefore(workflow, 'segments', ['export-model', 'model-preview'])) structuralChanges.push(workflow.nodes.find((node) => node.type === 'segments').id)
+    if (insertBefore(canvas, 'segments', ['export-model', 'model-preview'])) structuralChanges.push(canvas.nodes.find((node) => node.type === 'segments').id)
   }
 
-  if (existingWorkflow) applyParameterChanges(message, workflow, changes)
+  if (existingCanvas) applyParameterChanges(message, canvas, changes)
 
   if (structuralChanges.length) {
-    workflow.edges = rebuildDagEdges(workflow.nodes)
-    fitFrame(workflow.nodes)
+    canvas.edges = rebuildDagEdges(canvas.nodes)
+    fitFrame(canvas.nodes)
   }
-  const didChange = !existingWorkflow || structuralChanges.length || changes.length
-  if (existingWorkflow && didChange) workflow.revision += 1
-  if (didChange) workflow.updatedAt = new Date().toISOString()
+  const didChange = !existingCanvas || structuralChanges.length || changes.length
+  if (existingCanvas && didChange) canvas.revision += 1
+  if (didChange) canvas.updatedAt = new Date().toISOString()
 
-  const reply = existingWorkflow
+  const reply = existingCanvas
     ? changes.length
       ? changes.map((change) => `${change.nodeLabel}: ${change.fieldLabel} ${change.previousValue} → ${change.value}`).join('\n')
       : structuralChanges.length
-        ? `I added ${structuralChanges.length} requested workflow node${structuralChanges.length === 1 ? '' : 's'}.`
+        ? `I added ${structuralChanges.length} requested canvas node${structuralChanges.length === 1 ? '' : 's'}.`
         : 'I could not find a supported parameter change. Ask “What parameters can I adjust?” to see the available controls.'
-    : `I created “${workflow.name}” as a reusable workflow. You can move nodes freely, edit the structure, and continue refining it through conversation.`
+    : `I created “${canvas.name}” as a reusable canvas. You can move nodes freely, edit the structure, and continue refining it through conversation.`
 
   return {
-    workflow,
+    canvas,
     reply,
     changedNodeIds: [...new Set([...structuralChanges, ...changes.map((change) => change.nodeId)])],
-    structureChanged: !existingWorkflow || structuralChanges.length > 0,
+    structureChanged: !existingCanvas || structuralChanges.length > 0,
   }
 }

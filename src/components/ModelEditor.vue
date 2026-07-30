@@ -4,14 +4,14 @@ import NodeSelect from './NodeSelect.vue'
 import Model3D from './Model3D.vue'
 
 type ModelConfig = Record<string, unknown> & { wireframe?: boolean; autoRotate?: boolean; preview?: string; environment?: string }
-interface ModelNode { data: { label: string; workflowType: string; config: ModelConfig } }
+interface ModelNode { data: { label: string; canvasType: string; config: ModelConfig } }
 
 const props = defineProps<{ node: ModelNode }>()
 const emit = defineEmits<{ back: []; 'update-config': [config: ModelConfig] }>()
 const modelUrl = '/models/shark-gardener.glb'
 
 const editorMode = computed(() => {
-  const type = props.node.data.workflowType
+  const type = props.node.data.canvasType
   if (type === 'segments') return 'split'
   if (type === 'rigging') return 'rig'
   if (props.node.data.config.wireframe) return 'wireframe'
@@ -38,7 +38,7 @@ function update(key: string, value: unknown) {
     <section class="model-stage">
       <header class="model-stage-header">
         <div>
-          <button class="back-to-workflow" @click="emit('back')">← Workflow</button>
+          <button class="back-to-canvas" @click="emit('back')">← Canvas</button>
           <span>MODEL EDITOR</span>
           <strong>{{ node.data.label }}</strong>
         </div>
@@ -84,7 +84,7 @@ function update(key: string, value: unknown) {
         <div class="section-heading"><span>GEOMETRY</span><b>Optimized</b></div>
         <dl><div><dt>Triangles</dt><dd>38,420</dd></div><div><dt>Vertices</dt><dd>19,776</dd></div><div><dt>Materials</dt><dd>4</dd></div><div><dt>Textures</dt><dd>2K PBR</dd></div></dl>
       </section>
-      <div class="inspector-note"><span>WORKFLOW LINKED</span><p>Viewport changes save back to the selected workflow node automatically.</p></div>
+      <div class="inspector-note"><span>CANVAS LINKED</span><p>Viewport changes save back to the selected canvas node automatically.</p></div>
     </aside>
   </section>
 </template>

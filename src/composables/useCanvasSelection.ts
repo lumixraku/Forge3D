@@ -1,10 +1,10 @@
 import { computed, nextTick, ref } from 'vue'
 import { request } from '../api'
-import { buildFragment, remapFragment } from '../workflow-fragment'
+import { buildFragment, remapFragment } from '../canvas-fragment'
 
 // Everything derived from, or acting on, the current canvas selection: the
 // selection computeds, deletion, and the fragment clipboard (copy/paste/duplicate).
-export function useCanvasSelection({ nodes, edges, activeWorkflow, error, scheduleSave, fromCanvas, toCanvas, loadWorkflows }) {
+export function useCanvasSelection({ nodes, edges, activeCanvas, error, scheduleSave, fromCanvas, toCanvas, loadCanvass }) {
   const clipboardFragment = ref(null)
   const selectedNodes = computed(() => nodes.value.filter((node) => node.selected))
   const selectedEdges = computed(() => edges.value.filter((edge) => edge.selected))
@@ -94,12 +94,12 @@ export function useCanvasSelection({ nodes, edges, activeWorkflow, error, schedu
       offset: options.offset || { x: maxX + 310, y: 120 },
       translateRoots: options.translateRoots,
     })
-    activeWorkflow.value = {
+    activeCanvas.value = {
       ...fromCanvas(),
       nodes: [...fromCanvas().nodes, ...domainNodes],
       edges: [...fromCanvas().edges, ...domainEdges],
     }
-    toCanvas(activeWorkflow.value)
+    toCanvas(activeCanvas.value)
     await nextTick()
     if (options.selectInserted) {
       const insertedIds = new Set(domainNodes.map((node) => node.id))
@@ -117,25 +117,25 @@ export function useCanvasSelection({ nodes, edges, activeWorkflow, error, schedu
     await pasteFragment(fragment, { offset: { x: minX + 24, y: minY + 24 }, selectInserted: true })
   }
 
-  async function createWorkflowFromSelection() {
+  async function createCanvasFromSelection() {
     if (!selectedNodes.value.length) return
-    const name = window.prompt('Name this workflow', 'Workflow from selection')?.trim()
+    const name = window.prompt('Name this canvas', 'Canvas from selection')?.trim()
     if (!name) return
     const selection = selectedFragmentData(name)
     if (!selection) return
     const payload = {
       name,
-      description: `${selection.nodes.length} selected steps from ${activeWorkflow.value.name}`,
+      description: `${selection.nodes.length} selected steps from ${activeCanvas.value.name}`,
       nodes: selection.nodes,
       edges: selection.edges,
     }
     try {
-      const workflow = await request('/api/workflows', {
+      const canvas = await request('/api/canvases', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
       })
-      await loadWorkflows(workflow.id)
+      await loadCanvass(canvas.id)
     } catch (caught) {
       error.value = caught.message
     }
@@ -157,6 +157,6 @@ export function useCanvasSelection({ nodes, edges, activeWorkflow, error, schedu
     copySelected,
     pasteFragment,
     duplicateSelected,
-    createWorkflowFromSelection,
+    createCanvasFromSelection,
   }
 }

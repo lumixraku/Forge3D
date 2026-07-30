@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeDisplayName, nodeInputPorts, nodeOutputPorts, nodeSchema, parameterRange } from './workflow-nodes.js'
-import { normalizeNodeConfig, workflowNodeSchema } from './workflow-schema.js'
+import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeDisplayName, nodeInputPorts, nodeOutputPorts, nodeSchema, parameterRange } from './canvas-nodes.js'
+import { normalizeNodeConfig, canvasNodeSchema } from './canvas-schema.js'
 
 test('uses Lychee node names while preserving unmatched node names', () => {
   assert.equal(nodeDisplayName('reference-image', 'Reference Image'), 'Image Upload')
@@ -127,7 +127,7 @@ test('matches the Tripo Studio parameters without changing node types', () => {
 })
 
 test('gives every select a valid default and normalizes legacy values', () => {
-  for (const schema of workflowNodeSchema) {
+  for (const schema of canvasNodeSchema) {
     for (const parameter of schema.parameters.filter(({ control }) => control === 'select')) {
       assert.ok(parameter.options.some(({ value }) => value === schema.defaults[parameter.key]), `${schema.type}.${parameter.key} has a selected default`)
     }

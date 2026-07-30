@@ -9,7 +9,7 @@ function frame(id, position, width, height, data = {}) {
 }
 
 function node(id, position, size = {}, extra = {}) {
-  return { id, type: 'workflow', position, width: size.width || 260, height: size.height || 430, ...extra }
+  return { id, type: 'canvas', position, width: size.width || 260, height: size.height || 430, ...extra }
 }
 
 test('fits a frame to its children and shifts them into the insets', () => {

@@ -9,7 +9,7 @@ POST /api/chat
 Accept: text/event-stream
 Content-Type: application/json
 
-{"message":"将导出格式改为 STL","workflowId":"wf-f514f70e"}
+{"message":"将导出格式改为 STL","canvasId":"wf-f514f70e"}
 ```
 
 The response headers are:
@@ -31,9 +31,15 @@ id: 8-0
 
 `event:` classifies the SSE protocol frame, while `data.type` identifies the application business event. `id:` is the transport event ID. It is not the same as the JSON `id` used by `text-*` events to identify a chat message.
 
-## Complete Business Example: Generate Images, Then Build a Workflow
+### Canvas And Conversation Are Separate Resources
 
-This is the intended two-turn experience. Generated Artifacts are stored directly in workflow nodes. The current implementation already emits `workflow-updated` for the frontend to fetch that authoritative workflow. `request_user_select` is the only proposed event in this example; it pauses a turn when the Agent needs a user decision.
+The conversation is a subresource of the canvas, not a field on the canvas document. `GET /api/canvases/:canvasId` returns `{ canvas, nodeRuns }`; the message history comes from `GET /api/canvases/:canvasId/conversation`. The two are fetched independently and in parallel, both when a canvas is opened and when `canvas-updated` invalidates them.
+
+A canvas and its conversation are created and deleted together, so the split is about read paths rather than lifecycle. An unknown canvas returns `404`; a canvas whose conversation row is missing returns an empty conversation, so a missing row cannot stop the canvas from opening.
+
+## Complete Business Example: Generate Images, Then Build a Canvas
+
+This is the intended two-turn experience. Generated Artifacts are stored directly in canvas nodes. The current implementation already emits `canvas-updated` for the frontend to fetch that authoritative canvas. `request_user_select` is the only proposed event in this example; it pauses a turn when the Agent needs a user decision.
 
 ### Turn 1: Generate Two Images
 
@@ -46,14 +52,14 @@ POST /api/chat
 Accept: text/event-stream
 Content-Type: application/json
 
-{"message":"生成两张赛博朋克鲨鱼的概念图","workflowId":"wf-123"}
+{"message":"生成两张赛博朋克鲨鱼的概念图","canvasId":"wf-123"}
 ```
 
 The application server creates `task-images-123`, opens the SSE response, then emits:
 
 ```text
 event: message
-data: {"type":"task-start","thread_id":"conv-123","turn_id":"task-images-123","workflow_id":"wf-123"}
+data: {"type":"task-start","thread_id":"conv-123","turn_id":"task-images-123","canvas_id":"wf-123"}
 id: 1-0
 
 event: message
@@ -62,16 +68,16 @@ id: 2-0
 
 ```
 
-The image-generation service creates two Artifacts. The application server persists their metadata in a new `generate-image` node, persists the workflow, and emits `workflow-updated`. No separate Artifact SSE event or chat gallery is needed: the canvas node is the Artifact presentation.
+The image-generation service creates two Artifacts. The application server persists their metadata in a new `generate-image` node, persists the canvas, and emits `canvas-updated`. No separate Artifact SSE event or chat gallery is needed: the canvas node is the Artifact presentation.
 
 ```text
 event: message
-data: {"type":"workflow-updated","thread_id":"conv-123","turn_id":"task-images-123","workflow_id":"wf-123","changed_node_ids":["generate-image"],"structure_changed":true}
+data: {"type":"canvas-updated","thread_id":"conv-123","turn_id":"task-images-123","canvas_id":"wf-123","changed_node_ids":["generate-image"],"structure_changed":true}
 id: 3-0
 
 ```
 
-On `workflow-updated`, `consumeAgentStream()` calls `refreshWorkflow("wf-123", "task-images-123", true)`. `refreshWorkflow()` requests `GET /api/workflows/wf-123`, updates the conversation and canvas from the persisted workflow, then runs `autoLayout()` because a node was added.
+On `canvas-updated`, `consumeAgentStream()` calls `refreshCanvas("wf-123", "task-images-123", true)`. `refreshCanvas()` requests `GET /api/canvases/wf-123` and `GET /api/canvases/wf-123/conversation` in parallel, updates the canvas and the conversation from them, then runs `autoLayout()` because a node was added.
 
 The Agent then sends its text response and completes the first turn:
 
@@ -86,43 +92,43 @@ id: 7-0
 
 ```
 
-### Turn 2: Build a Workflow From the Images
+### Turn 2: Build a Canvas From the Images
 
 The user then says: `用这两张图片制作一个带拓扑和贴图的 3D 工作流`.
 
-The frontend sends another `POST /api/chat` with the same `workflowId`. The application server creates `task-workflow-123`, reads the selected image Artifacts from the persisted workflow, builds the workflow, persists it, and emits:
+The frontend sends another `POST /api/chat` with the same `canvasId`. The application server creates `task-canvas-123`, reads the selected image Artifacts from the persisted canvas, builds the canvas, persists it, and emits:
 
 ```text
 event: message
-data: {"type":"task-start","thread_id":"conv-123","turn_id":"task-workflow-123","workflow_id":"wf-123"}
+data: {"type":"task-start","thread_id":"conv-123","turn_id":"task-canvas-123","canvas_id":"wf-123"}
 id: 1-0
 
 event: message
-data: {"type":"progress","thread_id":"conv-123","turn_id":"task-workflow-123","step_id":"step-build-workflow","label":"Building 3D workflow","status":"running"}
+data: {"type":"progress","thread_id":"conv-123","turn_id":"task-canvas-123","step_id":"step-build-canvas","label":"Building 3D canvas","status":"running"}
 id: 2-0
 
 event: message
-data: {"type":"workflow-updated","thread_id":"conv-123","turn_id":"task-workflow-123","workflow_id":"wf-123","changed_node_ids":["generate-model","retopology","texture"],"structure_changed":true}
+data: {"type":"canvas-updated","thread_id":"conv-123","turn_id":"task-canvas-123","canvas_id":"wf-123","changed_node_ids":["generate-model","retopology","texture"],"structure_changed":true}
 id: 3-0
 
 ```
 
-The frontend handles this second `workflow-updated` exactly as in turn 1: `consumeAgentStream()` calls `refreshWorkflow()`, which fetches the persisted workflow and redraws the canvas. The canvas now contains the image node followed by the 3D model, retopology, and UV texture nodes.
+The frontend handles this second `canvas-updated` exactly as in turn 1: `consumeAgentStream()` calls `refreshCanvas()`, which fetches the persisted canvas and its conversation and redraws the canvas. The canvas now contains the image node followed by the 3D model, retopology, and UV texture nodes.
 
 ```text
 event: message
-data: {"type":"text","thread_id":"conv-123","turn_id":"task-workflow-123","step_id":"final-response","id":"msg-workflow-123","text":"已基于两张概念图创建 3D 工作流：图片输入 -> 生成模型 -> 拓扑优化 -> UV 贴图。"}
+data: {"type":"text","thread_id":"conv-123","turn_id":"task-canvas-123","step_id":"final-response","id":"msg-canvas-123","text":"已基于两张概念图创建 3D 工作流：图片输入 -> 生成模型 -> 拓扑优化 -> UV 贴图。"}
 id: 4-0
 
 event: message
-data: {"type":"finish","thread_id":"conv-123","turn_id":"task-workflow-123","finish_reason":"stop"}
+data: {"type":"finish","thread_id":"conv-123","turn_id":"task-canvas-123","finish_reason":"stop"}
 id: 7-0
 
 ```
 
 ### `request_user_select`: Selection Is Exceptional
 
-Generating an Artifact never waits for a selection by default. Once generation succeeds, the application server writes every generated Artifact into the relevant workflow node, persists the workflow, and emits `workflow-updated`. The canvas node is the single Artifact presentation.
+Generating an Artifact never waits for a selection by default. Once generation succeeds, the application server writes every generated Artifact into the relevant canvas node, persists the canvas, and emits `canvas-updated`. The canvas node is the single Artifact presentation.
 
 The application server emits `request_user_select` only when it cannot perform the next requested operation without a user decision. This event is generic: it can request a model, export, overwrite, parameter, or other business choice. Valid cases are limited to:
 
@@ -164,16 +170,16 @@ The application server validates and persists the answer, then resumes the Agent
 
 ### 5. Server Updates the Canvas
 
-The application server uses the selected option, updates the next workflow node, persists the workflow, and emits `workflow-updated`. The Vue frontend fetches the authoritative state and redraws the canvas.
+The application server uses the selected option, updates the next canvas node, persists the canvas, and emits `canvas-updated`. The Vue frontend fetches the authoritative state and redraws the canvas.
 
 ```text
 event: message
-data: {"type":"workflow-updated","thread_id":"conv-123","turn_id":"task-123","workflow_id":"wf-123","changed_node_ids":["generate-image"],"structure_changed":false}
+data: {"type":"canvas-updated","thread_id":"conv-123","turn_id":"task-123","canvas_id":"wf-123","changed_node_ids":["generate-image"],"structure_changed":false}
 id: 5-0
 
 ```
 
-After `workflow-updated`, `consumeAgentStream()` calls `refreshWorkflow("wf-123", "task-123", false)`. `refreshWorkflow()` requests `GET /api/workflows/wf-123` and replaces the local canvas state with the persisted authoritative workflow.
+After `canvas-updated`, `consumeAgentStream()` calls `refreshCanvas("wf-123", "task-123", false)`. `refreshCanvas()` requests `GET /api/canvases/wf-123` and `GET /api/canvases/wf-123/conversation` in parallel, then replaces the local canvas and conversation state with the persisted authoritative versions.
 
 ### 6. Agent Finishes the Turn
 
@@ -197,7 +203,7 @@ Every JSON `data.type` value belongs to this list. `Implemented` means the curre
 | `task-start` | Implemented | Starts an Agent turn. |
 | `progress` | Implemented | Reports user-visible execution progress. |
 | `text` | Implemented | Delivers a complete assistant message. |
-| `workflow-updated` | Implemented | Invalidates local workflow state after server persistence. |
+| `canvas-updated` | Implemented | Invalidates local canvas state after server persistence. |
 | `finish` | Implemented | Marks a successful Agent turn complete. |
 | `error` | Implemented | Reports a failed Agent turn. |
 | `request_user_select` | Implemented | Pauses a turn and asks the user to make a required business choice. It is not limited to Artifacts. |
@@ -206,11 +212,11 @@ Every JSON `data.type` value belongs to this list. `Implemented` means the curre
 
 | Type | Server emitter | Frontend receiver and action |
 | --- | --- | --- |
-| `task-start` | `executeAgentTask()` persists `running`, then emits it. Fields: `workflow_id`. | `consumeAgentStream()` passes it to `applyAgentEvent()`, which binds `turn_id` to the optimistic assistant message. |
+| `task-start` | `executeAgentTask()` persists `running`, then emits it. Fields: `canvas_id`. | `consumeAgentStream()` passes it to `applyAgentEvent()`, which binds `turn_id` to the optimistic assistant message. |
 | `progress` | `runDeepSeekAgent()` invokes its `onProgress` callback; `executeAgentTask()` persists the progress item, then emits it. Fields: `step_id`, `label`, `status`. | `applyAgentEvent()` appends `{ label, status }` to the pending assistant message. |
-| `text` | `executeAgentTask()` emits it after the final assistant reply and workflow state have been persisted. Fields: `step_id`, `id`, `text`. | `applyAgentEvent()` replaces the pending assistant message content with the complete `text`. |
-| `workflow-updated` | `executeAgentTask()` first persists `workflows` and `conversations`, then emits this lightweight invalidation. Fields: `workflow_id`, `changed_node_ids`, `structure_changed`. | `consumeAgentStream()` calls `refreshWorkflow(workflow_id, turn_id, structure_changed)`. `refreshWorkflow()` calls `GET /api/workflows/:workflowId`, replaces frontend workflow/conversation state, calls `toCanvas()`, and calls `autoLayout()` only if `structure_changed` is true. |
-| `finish` | `executeAgentTask()` emits it after `workflow-updated` when the Agent turn succeeds. Field: `finish_reason`. | `applyAgentEvent()` returns the completed `turn_id`; `consumeAgentStream()` clears `pending` for that assistant message. It does not request workflow data. |
+| `text` | `executeAgentTask()` emits it after the final assistant reply and canvas state have been persisted. Fields: `step_id`, `id`, `text`. | `applyAgentEvent()` replaces the pending assistant message content with the complete `text`. |
+| `canvas-updated` | `executeAgentTask()` first persists `canvases` and `conversations`, then emits this lightweight invalidation. Fields: `canvas_id`, `changed_node_ids`, `structure_changed`. | `consumeAgentStream()` calls `refreshCanvas(canvas_id, turn_id, structure_changed)`. `refreshCanvas()` calls `GET /api/canvases/:canvasId` and `GET /api/canvases/:canvasId/conversation`, replaces frontend canvas/conversation state, calls `toCanvas()`, and calls `autoLayout()` only if `structure_changed` is true. |
+| `finish` | `executeAgentTask()` emits it after `canvas-updated` when the Agent turn succeeds. Field: `finish_reason`. | `applyAgentEvent()` returns the completed `turn_id`; `consumeAgentStream()` clears `pending` for that assistant message. It does not request canvas data. |
 | `error` | `executeAgentTask()` persists the failed task, then emits it. Field: `error`. | `applyAgentEvent()` throws the error; `sendMessage()` marks the optimistic assistant message as failed and displays the error text. |
 | `request_user_select` | `executeAgentTask()` persists the task as `waiting_for_user`, then emits the server-owned request. Field: `request`. | `applyAgentEvent()` stops the pending state and attaches `request` to the assistant message; the message renders a generic selection card. |
 
@@ -239,14 +245,14 @@ Optional fields are event-specific:
 
 | Field | Used by | Meaning |
 | --- | --- | --- |
-| `workflow_id` | `task-start`, `workflow-updated` | Workflow to synchronize. |
+| `canvas_id` | `task-start`, `canvas-updated` | Canvas to synchronize. |
 | `step_id` | `progress`, `text` | Identifier for an Agent execution step. |
 | `id` | `text` | Assistant message ID. This is not the SSE transport `id:`. |
 | `label` | `progress` | User-visible Agent activity label. |
 | `status` | `progress` | Currently `running` or `complete`. |
 | `text` | `text` | Complete assistant message content. |
-| `changed_node_ids` | `workflow-updated` | Node IDs changed by the Agent turn. |
-| `structure_changed` | `workflow-updated` | Whether nodes or edges changed and auto-layout is needed. |
+| `changed_node_ids` | `canvas-updated` | Node IDs changed by the Agent turn. |
+| `structure_changed` | `canvas-updated` | Whether nodes or edges changed and auto-layout is needed. |
 | `finish_reason` | `finish` | Current success value: `stop`. |
 | `error` | `error` | User-visible task failure message. |
 
@@ -258,11 +264,11 @@ Successful turns emit events in this order:
 task-start
 progress x N
 text
-workflow-updated
+canvas-updated
 finish
 ```
 
-Generated Artifacts are written to workflow nodes and become visible after `workflow-updated`; they do not have their own SSE event. Only a task blocked on one of the explicit selection conditions emits `request_user_select` instead of `finish`. After `POST /api/tasks/:taskId/continue`, the server resumes the task and emits any resulting `workflow-updated`, text events, and `finish`.
+Generated Artifacts are written to canvas nodes and become visible after `canvas-updated`; they do not have their own SSE event. Only a task blocked on one of the explicit selection conditions emits `request_user_select` instead of `finish`. After `POST /api/tasks/:taskId/continue`, the server resumes the task and emits any resulting `canvas-updated`, text events, and `finish`.
 
 Failed turns emit:
 
@@ -281,13 +287,15 @@ id: 3-0
 
 ```
 
-`executeAgentTask()` sends `workflow-updated` after persistence and before `finish`. `consumeAgentStream()` receives it and calls `refreshWorkflow()` immediately. Therefore the Vue frontend refreshes the canvas as soon as the authoritative state is available, rather than waiting for the SSE response to close.
+`executeAgentTask()` sends `canvas-updated` after persistence and before `finish`. `consumeAgentStream()` receives it and calls `refreshCanvas()` immediately. Therefore the Vue frontend refreshes the canvas as soon as the authoritative state is available, rather than waiting for the SSE response to close.
+
+The canvas and the conversation are persisted together before the event is emitted (`server/index.ts` writes both, then emits `text`, `canvas-updated`, and `finish`), so one invalidation covers both resources and either can be read back immediately.
 
 ## Tool Call Boundary
 
-DeepSeek tools, including `get_workflow_structure`, `list_available_node_types`, `get_workflow_parameters`, `build_workflow`, `update_node_parameters`, and `add_workflow_node`, run only between the application server and DeepSeek.
+DeepSeek tools, including `get_canvas_structure`, `list_available_node_types`, `get_canvas_parameters`, `build_canvas`, `update_node_parameters`, and `add_canvas_node`, run only between the application server and DeepSeek.
 
-The browser receives safe `progress` labels rather than raw tool calls or raw tool outputs. In particular, `workflow-updated` is an invalidation event, not an `update_node_parameters` payload and not a full workflow document.
+The browser receives safe `progress` labels rather than raw tool calls or raw tool outputs. In particular, `canvas-updated` is an invalidation event, not an `update_node_parameters` payload and not a full canvas document.
 
 ## User Selection Event
 
@@ -334,9 +342,10 @@ Application server
    -> DeepSeek: chooses generate_images tool
    -> image-generation service: creates two image Artifacts and returns URLs
    -> application server: creates a generate-image node containing both Artifacts
-   -> application server: persists workflow and conversation
-   -> SSE workflow-updated
-  -> Vue frontend: GET /api/workflows/:workflowId as authoritative reconciliation
+   -> application server: persists canvas and conversation
+   -> SSE canvas-updated
+  -> Vue frontend: GET /api/canvases/:canvasId as authoritative reconciliation
+  -> Vue frontend: GET /api/canvases/:canvasId/conversation for the message history
    -> SSE text
   -> SSE finish
 ```
@@ -350,17 +359,19 @@ Application server
    -> user selects an option and submits an answer
    -> Vue frontend: POST /api/tasks/:taskId/continue
    -> application server: validates task state, request_id, option IDs, and selection count
-   -> Agent resumes and emits workflow-updated, text events, and finish
+   -> Agent resumes and emits canvas-updated, text events, and finish
 ```
 
 `POST /api/tasks/:taskId/continue` accepts `request_id` and `selected_option_ids`. It persists the selection and starts a fresh DeepSeek call with the original task request plus the selected option labels, because the current DeepSeek invocation is one-shot rather than checkpoint-resumable.
 
 ## Recovery
 
-Tasks and progress are persisted. When `openWorkflow()` in `src/App.vue` loads a workflow, it calls `restoreAgentTasks()`. `restoreAgentTasks()` queries unfinished tasks:
+Tasks and progress are persisted. `openCanvas()` in `src/composables/useCanvasDocument.ts` loads the canvas document, then calls `loadConversation()` and `restoreAgentTasks()` from `src/composables/useAgentChat.ts`. Opening a canvas therefore issues three requests, each for a distinct resource:
 
 ```http
-GET /api/tasks?workflowId={workflowId}&status=queued,running,waiting_for_user
+GET /api/canvases/{canvasId}
+GET /api/canvases/{canvasId}/conversation
+GET /api/tasks?canvasId={canvasId}&status=queued,running,waiting_for_user
 ```
 
-`restoreAgentTasks()` reconstructs pending chat messages after a reload. The live communication path remains the SSE response that `submitAgentTask()` receives from `POST /api/chat`.
+`loadConversation()` restores the settled message history. `restoreAgentTasks()` covers only what the history cannot: turns that have not finished yet, rebuilt as a pending bubble (`queued`/`running`) or a selection card (`waiting_for_user`). The live communication path remains the SSE response that `submitAgentTask()` receives from `POST /api/chat`.

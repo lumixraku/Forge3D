@@ -3,13 +3,13 @@ import { nextTick, ref } from 'vue'
 // Canvas undo/redo history: each entry is a JSON snapshot of { nodes, edges }.
 const HISTORY_LIMIT = 100
 
-export function useCanvasHistory({ nodes, edges, activeWorkflow, hydrating, updateNodeInternals, scheduleSave }) {
+export function useCanvasHistory({ nodes, edges, activeCanvas, hydrating, updateNodeInternals, scheduleSave }) {
   let historyPast = []
   let historyFuture = []
   let historyPresent = null
   let historyPendingPrev = null
   let historyTimer = null
-  let historyWorkflowId = null
+  let historyCanvasId = null
   let restoringHistory = false
   let historySettling = false
   let historySettleTimer = null
@@ -25,17 +25,17 @@ export function useCanvasHistory({ nodes, edges, activeWorkflow, hydrating, upda
     canRedo.value = historyFuture.length > 0
   }
 
-  // Point the history at a workflow. Switching to a different workflow starts a
+  // Point the history at a canvas. Switching to a different canvas starts a
   // fresh stack; re-hydrating the same one (e.g. after a paste) keeps it.
-  function syncHistoryWorkflow(workflowId) {
-    if (workflowId === historyWorkflowId) return
-    historyWorkflowId = workflowId
+  function syncHistoryCanvas(canvasId) {
+    if (canvasId === historyCanvasId) return
+    historyCanvasId = canvasId
     historyPast = []
     historyFuture = []
     historyPendingPrev = null
     clearTimeout(historyTimer)
     historyTimer = null
-    historyPresent = workflowId ? snapshotCanvas() : null
+    historyPresent = canvasId ? snapshotCanvas() : null
     updateHistoryFlags()
     // The canvas emits a persisted frame-fit as node dimensions settle after a
     // load; absorb that into the baseline so undo doesn't begin with a stray step.
@@ -47,7 +47,7 @@ export function useCanvasHistory({ nodes, edges, activeWorkflow, hydrating, upda
   // Record a history step for the change that just scheduled a save. Rapid bursts
   // (dragging, typing) coalesce into one step via a short debounce.
   function recordHistory() {
-    if (restoringHistory || hydrating.value || !activeWorkflow.value) return
+    if (restoringHistory || hydrating.value || !activeCanvas.value) return
     if (historySettling) {
       historyPresent = snapshotCanvas()
       return
@@ -114,5 +114,5 @@ export function useCanvasHistory({ nodes, edges, activeWorkflow, hydrating, upda
     restoreSnapshot(historyPresent)
   }
 
-  return { canUndo, canRedo, syncHistoryWorkflow, recordHistory, undo, redo }
+  return { canUndo, canRedo, syncHistoryCanvas, recordHistory, undo, redo }
 }

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFile } from 'node:fs/promises'
-import { createMockRun, downstreamWorkflow, executeMockRun, executionNodes, isRunTerminal } from './mock-runs.js'
+import { downstreamCanvas, executeNode, executionNodes } from './mock-runs.js'
 
-const workflow = {
-  id: 'wf-test',
+const canvas = {
+  id: 'canvas-test',
   revision: 3,
   nodes: [
     { id: 'prompt', type: 'prompt', name: 'Text Prompt', config: {} },
@@ -15,40 +15,25 @@ const workflow = {
   ],
 }
 
-test('creates a running mock run with stable node result shapes', () => {
-  const run = createMockRun(workflow, { id: 'run-test', now: () => 'start' })
+const immediate = { wait: async () => {} }
 
-  assert.equal(run.status, 'running')
-  assert.equal(run.completedAt, null)
-  assert.deepEqual(run.nodeRuns.prompt, { status: 'running', durationMs: null, output: null, error: null })
-  assert.deepEqual(run.nodeRuns.model, { status: 'queued', durationMs: null, output: null, error: null })
+test('executes one node and returns its runtime preview output', async () => {
+  const result = await executeNode(canvas.nodes[1], canvas, immediate)
+
+  assert.equal(result.nodeId, 'model')
+  assert.equal(result.status, 'succeeded')
+  assert.equal(typeof result.durationMs, 'number')
+  assert.deepEqual(result.output, { message: 'Text to 3D generated', preview: '/model.png' })
 })
 
-test('executes nodes in order and returns runtime preview output', async () => {
-  const run = createMockRun(workflow, { id: 'run-test', now: () => 'start' })
-  const transitions = []
-  await executeMockRun(run, workflow, {
-    wait: async () => {},
-    now: () => 'complete',
-    persist: async () => transitions.push(workflow.nodes.map((node) => run.nodeRuns[node.id].status)),
-  })
-
-  assert.equal(run.status, 'succeeded')
-  assert.equal(run.completedAt, 'complete')
-  assert.equal(run.nodeRuns.prompt.output.message, 'Mock prompt result')
-  assert.deepEqual(run.nodeRuns.model.output, { message: 'Text to 3D generated', preview: '/model.png' })
-  assert.ok(transitions.some((statuses) => statuses[0] === 'succeeded' && statuses[1] === 'running'))
-  assert.equal(isRunTerminal(run), true)
-})
-
-test('derives execution order from workflow edges', () => {
-  const reversed = { ...workflow, nodes: [...workflow.nodes].reverse() }
+test('derives execution order from canvas edges', () => {
+  const reversed = { ...canvas, nodes: [...canvas.nodes].reverse() }
   assert.deepEqual(executionNodes(reversed).map((node) => node.id), ['prompt', 'model'])
 })
 
 test('treats four view connections as one execution dependency', () => {
-  const multiviewWorkflow = {
-    ...workflow,
+  const multiviewCanvas = {
+    ...canvas,
     nodes: [
       { id: 'views', type: 'generate-multiview-images', name: 'Views', config: {} },
       { id: 'model', type: 'multiview-to-3d', name: 'Model', config: {} },
@@ -56,12 +41,12 @@ test('treats four view connections as one execution dependency', () => {
     edges: ['front', 'back', 'left', 'right'].map((view) => ({ source: { nodeId: 'views', port: view }, target: { nodeId: 'model', port: view } })),
   }
 
-  assert.deepEqual(executionNodes(multiviewWorkflow).map((node) => node.id), ['views', 'model'])
+  assert.deepEqual(executionNodes(multiviewCanvas).map((node) => node.id), ['views', 'model'])
 })
 
-test('emits four named views from a completed multiview generation', async () => {
-  const multiviewWorkflow = {
-    ...workflow,
+test('emits four named views from a multiview generation', async () => {
+  const multiviewCanvas = {
+    ...canvas,
     nodes: [{
       id: 'views',
       type: 'generate-multiview-images',
@@ -70,73 +55,68 @@ test('emits four named views from a completed multiview generation', async () =>
     }],
     edges: [],
   }
-  const run = createMockRun(multiviewWorkflow)
-  await executeMockRun(run, multiviewWorkflow, { wait: async () => {}, persist: async () => {} })
+  const result = await executeNode(multiviewCanvas.nodes[0], multiviewCanvas, immediate)
 
-  assert.deepEqual(run.nodeRuns.views.output.viewPreviews, {
+  assert.deepEqual(result.output.viewPreviews, {
     front: '/front.png', back: '/back.png', left: '/left.png', right: '/right.png',
   })
 })
 
 test('Gen HD Model automatically detects multiple upstream images', async () => {
-  const multiviewWorkflow = {
-    ...workflow,
+  const multiviewCanvas = {
+    ...canvas,
     nodes: [
       { id: 'views', type: 'generate-multiview-images', name: 'Views', config: { viewPreviews: { front: '/front.png', back: '/back.png', left: '/left.png', right: '/right.png' } } },
       { id: 'model', type: 'generate-model', name: 'Gen HD Model', config: { preview: '/model.png' } },
     ],
     edges: [{ source: { nodeId: 'views' }, target: { nodeId: 'model' } }],
   }
-  const run = createMockRun(multiviewWorkflow)
-  await executeMockRun(run, multiviewWorkflow, { wait: async () => {}, persist: async () => {} })
+  const result = await executeNode(multiviewCanvas.nodes[1], multiviewCanvas, immediate)
 
-  assert.equal(run.nodeRuns.model.output.inputMode, 'multi-image')
-  assert.deepEqual(run.nodeRuns.model.output.inputImages, ['/front.png', '/back.png', '/left.png', '/right.png'])
-  assert.equal(run.nodeRuns.model.output.message, 'Gen HD Model generated from 4 images')
+  assert.equal(result.output.inputMode, 'multi-image')
+  assert.deepEqual(result.output.inputImages, ['/front.png', '/back.png', '/left.png', '/right.png'])
+  assert.equal(result.output.message, 'Gen HD Model generated from 4 images')
 })
 
 test('flows the selected candidate image downstream to a review node', async () => {
-  const selectionWorkflow = {
-    ...workflow,
+  const selectionCanvas = {
+    ...canvas,
     nodes: [
       { id: 'concepts', type: 'generate-image', name: 'Image to Image', config: { previews: ['/a.png', '/b.png', '/c.png', '/d.png'], selectedPreview: '/c.png' } },
       { id: 'review', type: 'review', name: 'Human Review', config: { preview: '/fallback.png', approved: true } },
     ],
     edges: [{ source: { nodeId: 'concepts', port: 'image' }, target: { nodeId: 'review', port: 'image' } }],
   }
-  const run = createMockRun(selectionWorkflow)
-  await executeMockRun(run, selectionWorkflow, { wait: async () => {}, persist: async () => {} })
 
-  assert.equal(run.nodeRuns.concepts.output.image, '/c.png')
-  assert.equal(run.nodeRuns.review.output.preview, '/c.png')
+  const concepts = await executeNode(selectionCanvas.nodes[0], selectionCanvas, immediate)
+  const review = await executeNode(selectionCanvas.nodes[1], selectionCanvas, immediate)
+
+  assert.equal(concepts.output.image, '/c.png')
+  assert.equal(review.output.preview, '/c.png')
 })
 
-test('executes the complete seeded production pipeline', async () => {
-  const [seedWorkflow] = JSON.parse(await readFile(new URL('./seed/workflows.json', import.meta.url), 'utf8'))
-  const run = createMockRun(seedWorkflow)
-  await executeMockRun(run, seedWorkflow, { wait: async () => {}, persist: async () => {} })
+test('holds at an unapproved review node without failing it', async () => {
+  const pending = { ...canvas, nodes: [{ id: 'review', type: 'review', name: 'Human Review', config: { preview: '/a.png' } }], edges: [] }
+  const result = await executeNode(pending.nodes[0], pending, immediate)
 
-  assert.deepEqual(executionNodes(seedWorkflow).map((node) => node.id), [
-    'prompt', 'text-to-3d', 'retopology', 'texture', 'preview',
-  ])
-  assert.equal(Object.keys(run.nodeRuns).length, 5)
-  assert.ok(Object.values(run.nodeRuns).every((nodeRun) => nodeRun.status === 'succeeded'))
+  assert.equal(result.status, 'waiting_review')
+  assert.equal(result.output.message, 'Awaiting image approval')
 })
 
-test('creates and executes a run containing only the requested node', async () => {
-  const executionWorkflow = { ...workflow, nodes: [workflow.nodes[1]] }
-  const run = createMockRun(executionWorkflow, { id: 'run-target', now: () => 'start' })
+test('executes every node of the seeded production pipeline', async () => {
+  const [seedCanvas] = JSON.parse(await readFile(new URL('./seed/canvases.json', import.meta.url), 'utf8'))
+  const order = executionNodes(seedCanvas)
 
-  assert.deepEqual(Object.keys(run.nodeRuns), ['model'])
-  await executeMockRun(run, executionWorkflow, { wait: async () => {}, now: () => 'complete', persist: async () => {} })
-  assert.equal(run.status, 'succeeded')
-  assert.deepEqual(Object.keys(run.nodeRuns), ['model'])
-  assert.deepEqual(run.nodeRuns.model.output, { message: 'Text to 3D generated', preview: '/model.png' })
+  assert.deepEqual(order.map((node) => node.id), ['prompt', 'text-to-3d', 'retopology', 'texture', 'preview'])
+  const results = []
+  for (const node of order) results.push(await executeNode(node, seedCanvas, immediate))
+  assert.ok(results.every((result) => result.status === 'succeeded'))
+  assert.ok(results.every((result) => typeof result.durationMs === 'number'))
 })
 
-test('runs a target node and all reachable downstream nodes in topological order', async () => {
-  const branchedWorkflow = {
-    ...workflow,
+test('restricts a downstream run to the target and everything reachable from it', () => {
+  const branchedCanvas = {
+    ...canvas,
     nodes: [
       { id: 'preview', type: 'model-preview', name: 'Preview', config: {} },
       { id: 'texture', type: 'texture', name: 'Texture', config: {} },
@@ -151,24 +131,13 @@ test('runs a target node and all reachable downstream nodes in topological order
       { source: { nodeId: 'prompt' }, target: { nodeId: 'alternate' } },
     ],
   }
-  const executionWorkflow = downstreamWorkflow(branchedWorkflow, 'model')
-  const run = createMockRun(executionWorkflow)
 
-  assert.deepEqual(executionNodes(executionWorkflow).map((node) => node.id), ['model', 'texture', 'preview'])
-  assert.deepEqual(Object.keys(run.nodeRuns), ['model', 'texture', 'preview'])
-  await executeMockRun(run, executionWorkflow, { wait: async () => {}, persist: async () => {} })
-  assert.ok(Object.values(run.nodeRuns).every((nodeRun) => nodeRun.status === 'succeeded'))
-  assert.ok(Object.values(run.nodeRuns).every((nodeRun) => typeof nodeRun.durationMs === 'number'))
+  assert.deepEqual(executionNodes(downstreamCanvas(branchedCanvas, 'model')).map((node) => node.id), ['model', 'texture', 'preview'])
 })
 
-test('stops at a deterministic mocked node failure', async () => {
-  const failingWorkflow = structuredClone(workflow)
-  failingWorkflow.nodes[1].config.mockFailure = true
-  const run = createMockRun(failingWorkflow)
-  await executeMockRun(run, failingWorkflow, { wait: async () => {}, now: () => 'failed', persist: async () => {} })
+test('throws a deterministic mocked node failure', async () => {
+  const failingCanvas = structuredClone(canvas)
+  failingCanvas.nodes[1].config.mockFailure = true
 
-  assert.equal(run.status, 'failed')
-  assert.equal(run.nodeRuns.model.status, 'failed')
-  assert.equal(run.nodeRuns.model.output, null)
-  assert.match(run.nodeRuns.model.error, /execution failed/)
+  await assert.rejects(() => executeNode(failingCanvas.nodes[1], failingCanvas, immediate), /execution failed/)
 })

@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS app_state (
 );
 
 INSERT OR IGNORE INTO app_state (collection, value, updated_at) VALUES
-  ('workflows', '[]', datetime('now')),
+  ('canvases', '[]', datetime('now')),
   ('conversations', '[]', datetime('now')),
   ('runs', '[]', datetime('now')),
   ('fragments', '[]', datetime('now')),

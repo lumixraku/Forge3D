@@ -1,0 +1,106 @@
+import { downstreamCanvas, executeNode, executionNodes } from './mock-runs.js'
+import { randomUUID } from './ids.js'
+import { recordNodeExecution } from './run-log.js'
+
+export function findNode(canvases, nodeId) {
+  const matches = canvases.flatMap((canvas) => (
+    canvas.nodes.filter((node) => node.id === nodeId).map((node) => ({ canvas, node }))
+  ))
+  if (matches.length > 1) {
+    const error = new Error('Node ID is ambiguous across canvases')
+    error.statusCode = 409
+    throw error
+  }
+  return matches[0] || null
+}
+
+export function executionById(runs, executionId) {
+  return runs.find((run) => run.id === executionId) || null
+}
+
+export function executionDto(run) {
+  const nodeExecutions = run.nodeRuns || {}
+  return {
+    id: run.id,
+    entryNodeId: run.entryNodeId || Object.keys(run.nodeRuns || {})[0] || null,
+    canvasId: run.canvasId,
+    canvasRevision: run.canvasRevision,
+    mode: run.mode || 'node',
+    status: run.status,
+    createdAt: run.createdAt,
+    completedAt: run.completedAt,
+    executedNodeCount: Object.values(nodeExecutions).filter((node) => ['succeeded', 'failed', 'waiting_review'].includes(node.status)).length,
+    durationMs: Object.values(nodeExecutions).reduce((total, node) => total + (node.durationMs || 0), 0),
+    nodeExecutions,
+  }
+}
+
+export function paginateAssets(assets, url) {
+  const requested = Number(url.searchParams.get('limit') || 50)
+  const limit = Number.isInteger(requested) ? Math.min(200, Math.max(1, requested)) : 50
+  const cursor = url.searchParams.get('cursor')
+  const start = cursor ? Math.max(0, assets.findIndex((asset) => asset.id === cursor) + 1) : 0
+  const items = assets.slice(start, start + limit)
+  const hasMore = start + limit < assets.length
+  return { items, nextCursor: hasMore ? items.at(-1)?.id || null : null, hasMore }
+}
+
+export function createExecution(runs, canvas, entryNode, mode = 'downstream') {
+  if (!['node', 'downstream'].includes(mode)) {
+    const error = new Error('Invalid execution mode')
+    error.statusCode = 400
+    throw error
+  }
+  const executionCanvas = mode === 'downstream'
+    ? downstreamCanvas(canvas, entryNode.id)
+    : { ...structuredClone(canvas), nodes: [structuredClone(entryNode)], edges: [] }
+  const nodes = executionNodes(executionCanvas)
+  const timestamp = new Date().toISOString()
+  const run = {
+    id: `run-${randomUUID()}`,
+    canvasId: canvas.id,
+    canvasRevision: canvas.revision,
+    entryNodeId: entryNode.id,
+    entryNodeType: entryNode.type,
+    entryNodeName: entryNode.name || entryNode.type,
+    mode,
+    status: 'queued',
+    createdAt: timestamp,
+    completedAt: null,
+    nodeRuns: Object.fromEntries(nodes.map((node) => [node.id, { status: 'queued', nodeType: node.type, nodeName: node.name || node.type, durationMs: null, output: null, error: null }])),
+  }
+  runs.push(run)
+  return { run, executionCanvas, nodes }
+}
+
+export async function executeExecution(runs, run, canvas, executionCanvas, nodes, entryNode, onUpdate = async () => {}) {
+  run.status = 'running'
+  await onUpdate()
+  for (const node of nodes) {
+    run.nodeRuns[node.id].status = 'running'
+    await onUpdate()
+    try {
+      const result = await executeNode(node, executionCanvas)
+      recordNodeExecution(runs, { runId: run.id, canvas, node, result, entryNode, mode: run.mode })
+      await onUpdate()
+      if (result.status !== 'succeeded') break
+    } catch (failure) {
+      run = recordNodeExecution(runs, {
+        runId: run.id,
+        canvas,
+        node,
+        entryNode,
+        mode: run.mode,
+        result: { status: 'failed', durationMs: null, output: null, error: failure.message },
+      })
+      await onUpdate()
+      break
+    }
+  }
+  for (const nodeRun of Object.values(run.nodeRuns)) {
+    if (nodeRun.status === 'queued') nodeRun.status = 'skipped'
+  }
+  run.completedAt = new Date().toISOString()
+  await onUpdate()
+  return executionDto(run)
+}

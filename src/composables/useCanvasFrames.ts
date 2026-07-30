@@ -1,6 +1,6 @@
 import { nextTick } from 'vue'
 import { applyLayoutPositions, buildSelectionFrame, fitFrameNodes, pointInAnyFrame, reparentDraggedNodes } from '../frame-geometry'
-import { frameComponentGap, frameInsets, layoutWorkflow } from '../workflow-layout'
+import { frameComponentGap, frameInsets, layoutCanvas } from '../canvas-layout'
 
 // Frames (sections) are plain Vue Flow parent nodes, so their size and their
 // children's parentage are maintained here in response to canvas interaction.
@@ -114,8 +114,8 @@ export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowC
   }
 
   async function autoLayout({ persist = true } = {}) {
-    const workflowNodes = nodes.value.filter((node) => node.type !== 'frame')
-    const positions = await layoutWorkflow(workflowNodes, edges.value, {
+    const canvasNodes = nodes.value.filter((node) => node.type !== 'frame')
+    const positions = await layoutCanvas(canvasNodes, edges.value, {
       componentGap: frameComponentGap(viewport.value.zoom),
     })
     nodes.value = applyLayoutPositions(nodes.value, positions, frameInsets(viewport.value.zoom))

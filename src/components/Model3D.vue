@@ -6,7 +6,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 
-// A real interactive three.js viewer for the workflow's 3D model.
+// A real interactive three.js viewer for the canvas's 3D model.
 // mode: 'model' (solid) | 'wireframe' | 'rig' (skeleton overlay) | 'split' (exploded mesh parts)
 type ViewerMode = 'model' | 'wireframe' | 'rig' | 'split'
 

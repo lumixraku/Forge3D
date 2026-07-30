@@ -7,14 +7,14 @@ import { startPiAgent, type LiveRun } from './run.js'
 // Cloudflare Worker because Pi depends on Node built-ins (node:fs/os) that the
 // Workers runtime does not provide.
 //
-// Steering: while a run for a workflow is still streaming, a second POST for the
-// same workflow is not a new run — its message is injected into the live Pi
+// Steering: while a run for a canvas is still streaming, a second POST for the
+// same canvas is not a new run — its message is injected into the live Pi
 // Agent via agent.steer() and the request returns {type:'steered'} immediately.
-// The eventual workflow diff flows out of the ORIGINAL run's stream.
+// The eventual canvas diff flows out of the ORIGINAL run's stream.
 
 const port = Number(process.env.AGENT_SERVICE_PORT || 8788)
 
-// Live runs keyed by workflowId, so a follow-up request can find the agent to steer.
+// Live runs keyed by canvasId, so a follow-up request can find the agent to steer.
 const liveRuns = new Map<string, LiveRun>()
 
 function readBody(req: any): Promise<string> {
@@ -44,34 +44,34 @@ const server = createServer(async (req, res) => {
   try {
     const input = JSON.parse(await readBody(req))
     if (!input.apiKey) throw new Error('Missing apiKey')
-    const workflowId = input.workflow?.id || ''
+    const canvasId = input.canvas?.id || ''
     const preview = String(input.message || '').slice(0, 80)
 
-    // Steer path: a run for this workflow is still streaming -> inject the message.
-    const existing = workflowId ? liveRuns.get(workflowId) : undefined
+    // Steer path: a run for this canvas is still streaming -> inject the message.
+    const existing = canvasId ? liveRuns.get(canvasId) : undefined
     if (existing && existing.agent.state.isStreaming) {
-      console.log(`[agent-service] Pi STEER (${workflowId}): ${preview}`)
+      console.log(`[agent-service] Pi STEER (${canvasId}): ${preview}`)
       existing.steer(input.message)
       write({ type: 'steered' })
       return
     }
 
     // Start path: begin a new run and register it so it can be steered.
-    console.log(`[agent-service] Pi START (${workflowId}): ${preview}`)
+    console.log(`[agent-service] Pi START (${canvasId}): ${preview}`)
     const live = startPiAgent({
       apiKey: input.apiKey,
       baseUrl: input.baseUrl,
       model: input.model,
       message: input.message,
-      workflow: input.workflow,
+      canvas: input.canvas,
       onProgress: (event) => write({ type: 'progress', event }),
     })
-    if (workflowId) liveRuns.set(workflowId, live)
+    if (canvasId) liveRuns.set(canvasId, live)
     try {
       const plan = await live.done
       write({ type: 'result', plan })
     } finally {
-      if (workflowId && liveRuns.get(workflowId) === live) liveRuns.delete(workflowId)
+      if (canvasId && liveRuns.get(canvasId) === live) liveRuns.delete(canvasId)
     }
   } catch (error: any) {
     write({ type: 'error', error: error?.message || 'Agent service failure' })

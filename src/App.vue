@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { SelectionMode, VueFlow, addEdge, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
@@ -13,24 +13,24 @@ import FrameNode from './components/FrameNode.vue'
 import ImagePreviewOverlay from './components/ImagePreviewOverlay.vue'
 import RunLogPanel from './components/RunLogPanel.vue'
 import TopBar from './components/TopBar.vue'
-import WorkflowNode from './components/WorkflowNode.vue'
+import CanvasNode from './components/CanvasNode.vue'
 import { useAgentChat } from './composables/useAgentChat'
+import { useAssetLibrary } from './composables/useAssetLibrary'
 import { useCanvasFrames } from './composables/useCanvasFrames'
 import { useCanvasHistory } from './composables/useCanvasHistory'
 import { useCanvasSelection } from './composables/useCanvasSelection'
 import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
 import { useTheme } from './composables/useTheme'
-import { useWorkflowDocument } from './composables/useWorkflowDocument'
-import { useWorkflowRun } from './composables/useWorkflowRun'
-import { buildAssetLibrary, buildAssetRails } from './asset-library'
-import { edgeDefaults, nodePresentation } from './workflow-canvas'
-import { canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeCategories, nodeDefaults, nodeDefinition, nodeInputPorts, nodeOutputPorts } from './workflow-nodes'
+import { useCanvasDocument } from './composables/useCanvasDocument'
+import { useCanvasRun } from './composables/useCanvasRun'
+import { edgeDefaults, nodePresentation } from './canvas-graph'
+import { canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeCategories, nodeDefaults, nodeDefinition, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
 
 const ModelEditor = defineAsyncComponent(() => import('./components/ModelEditor.vue'))
 
 // The document and canvas state every composable below works on.
-const workflows = ref([])
-const activeWorkflow = ref(null)
+const canvases = ref([])
+const activeCanvas = ref(null)
 const conversation = ref(null)
 const nodes = ref([])
 const edges = ref([])
@@ -40,7 +40,7 @@ const busy = ref(false)
 const error = ref('')
 const saving = ref(false)
 const savedState = ref('Saved')
-// Bumped whenever the active workflow changes or a run starts, so in-flight agent
+// Bumped whenever the active canvas changes or a run starts, so in-flight agent
 // streams and run polls belonging to the previous context abandon themselves.
 const runToken = ref(0)
 
@@ -49,9 +49,9 @@ const contextMenu = ref(null)
 const nodeMenuOpen = ref(false)
 const nodeMenuContext = ref(null)
 const viewportDismissVersion = ref(0)
-const workflowMenu = ref(null)
-const workflowSwitcherOpen = ref(false)
-const workspaceMode = ref('workflow')
+const canvasMenu = ref(null)
+const canvasSwitcherOpen = ref(false)
+const workspaceMode = ref('canvas')
 const canvasMode = ref('select')
 const canvasView = ref('canvas')
 const modelEditorNodeId = ref(null)
@@ -64,17 +64,17 @@ const { theme, resolvedTheme, setTheme } = useTheme()
 
 const {
   clipboardFragment, selectedNodes, frameableSelectedNodes, canFrameSelection, canDissolveSelection,
-  selectedCount, hasSelectedNode, hasSelection, deleteSelected, dissolveSelectedFrames, selectAll,
-  selectCanvasEdge, copySelected, pasteFragment, duplicateSelected, createWorkflowFromSelection,
+  selectedCount, hasSelection, deleteSelected, dissolveSelectedFrames, selectAll,
+  selectCanvasEdge, copySelected, pasteFragment, duplicateSelected, createCanvasFromSelection,
 } = useCanvasSelection({
   nodes,
   edges,
-  activeWorkflow,
+  activeCanvas,
   error,
   scheduleSave: () => scheduleSave(),
   fromCanvas: () => fromCanvas(),
-  toCanvas: (workflow) => toCanvas(workflow),
-  loadWorkflows: (preferredId) => loadWorkflows(preferredId),
+  toCanvas: (canvas) => toCanvas(canvas),
+  loadCanvass: (preferredId) => loadCanvass(preferredId),
 })
 
 const {
@@ -93,22 +93,22 @@ const {
   focusNode,
 })
 
-const { syncHistoryWorkflow, recordHistory, undo, redo } = useCanvasHistory({
+const { syncHistoryCanvas, recordHistory, undo, redo } = useCanvasHistory({
   nodes,
   edges,
-  activeWorkflow,
+  activeCanvas,
   hydrating: computed(() => hydrating.value),
   updateNodeInternals,
   scheduleSave: () => scheduleSave(),
 })
 
 const {
-  hydrating, toCanvas, fromCanvas, loadWorkflowList, loadWorkflows, openWorkflow, scheduleSave,
-  flushPendingSave, saveWorkflow, stopPendingSave, duplicateWorkflow, deleteWorkflow, createWorkflow,
-  renameWorkflow, exportWorkflow, importWorkflowFile,
-} = useWorkflowDocument({
-  workflows,
-  activeWorkflow,
+  hydrating, toCanvas, fromCanvas, loadCanvasList, loadCanvass, openCanvas, scheduleSave,
+  flushPendingSave, saveCanvas, stopPendingSave, duplicateCanvas, deleteCanvas, createCanvas,
+  renameCanvas, exportCanvas, importCanvasFile,
+} = useCanvasDocument({
+  canvases,
+  activeCanvas,
   conversation,
   nodes,
   edges,
@@ -121,45 +121,59 @@ const {
   runToken,
   fitView,
   recordHistory,
-  syncHistoryWorkflow,
+  syncHistoryCanvas,
   fitFramesAfterRender,
+  loadConversation: (id) => loadConversation(id),
   restoreAgentTasks: (id) => restoreAgentTasks(id),
   pasteFragment,
   resetWorkspace,
-  closeWorkflowSwitcher,
+  closeCanvasSwitcher,
 })
 
 const {
   composer, composerHasContent, messages, selectedOptions, continuingTaskId, addComposerFiles,
-  restoreAgentTasks, toggleSelectedOption, continueTask, sendMessage,
+  loadConversation, restoreAgentTasks, toggleSelectedOption, continueTask, sendMessage,
 } = useAgentChat({
-  activeWorkflow,
+  activeCanvas,
   conversation,
   busy,
   error,
   runToken,
-  toCanvas: (workflow) => toCanvas(workflow),
-  loadWorkflowList: () => loadWorkflowList(),
+  toCanvas: (canvas) => toCanvas(canvas),
+  loadCanvasList: () => loadCanvasList(),
   flushPendingSave: () => flushPendingSave(),
 })
 
-const { isRunning, runDetails, runSummary, runWorkflow } = useWorkflowRun({
-  activeWorkflow,
+const { isRunning, runDetails, runSummary, runCanvas } = useCanvasRun({
+  activeCanvas,
   nodes,
+  edges,
   run,
   nodeRuns,
   busy,
   error,
   runToken,
-  saveWorkflow: () => saveWorkflow(),
+  saveCanvas: () => saveCanvas(),
   materializeRunBatch: (sourceId, runId, previews) => materializeRunBatch(sourceId, runId, previews),
 })
 
+const { rails: assetRails, library: assetLibrary, loading: assetsLoading, loadAssets } = useAssetLibrary({ activeCanvas, error })
+
 const panOnDrag = computed(() => canvasMode.value === 'move')
 const toolbarMenuOpen = computed(() => nodeMenuOpen.value && !nodeMenuContext.value)
-const assetLibrary = computed(() => buildAssetLibrary(nodes.value))
-const assetRails = computed(() => buildAssetRails(assetLibrary.value))
+// Assets outlive their nodes, so the model editor is only offered for the ones
+// whose node is still on the canvas.
+const canvasNodeIds = computed(() => nodes.value.map((node) => node.id))
 const modelEditorNode = computed(() => nodes.value.find((node) => node.id === modelEditorNodeId.value) || null)
+
+// The library reads the run history, so it is refetched when the panel opens and
+// whenever a run finishes adding to that history.
+watch([canvasView, () => activeCanvas.value?.id], ([view]) => {
+  if (view === 'assets') loadAssets()
+})
+watch(isRunning, (running, wasRunning) => {
+  if (wasRunning && !running && canvasView.value === 'assets') loadAssets()
+})
 
 // The single input handle is untyped, so the inbound media is read from what
 // each upstream node produces rather than from a named target port.
@@ -172,14 +186,14 @@ function inboundSourceNodes(nodeId) {
 
 function inboundExportTarget(nodeId) {
   const sources = inboundSourceNodes(nodeId)
-  if (sources.some((node) => nodeOutputPorts(node.data?.workflowType)[0]?.type === 'model')) return '3D Model'
-  if (sources.some((node) => nodeOutputPorts(node.data?.workflowType)[0]?.type === 'image')) return 'Image'
+  if (sources.some((node) => nodeOutputPorts(node.data?.canvasType)[0]?.type === 'model')) return '3D Model'
+  if (sources.some((node) => nodeOutputPorts(node.data?.canvasType)[0]?.type === 'image')) return 'Image'
   return null
 }
 
 function inboundImage(nodeId) {
   for (const source of inboundSourceNodes(nodeId)) {
-    if (nodeOutputPorts(source.data?.workflowType)[0]?.type !== 'image') continue
+    if (nodeOutputPorts(source.data?.canvasType)[0]?.type !== 'image') continue
     const config = source.data?.config
     const image = config?.selectedPreview || config?.preview || config?.previews?.[0]
     if (image) return image
@@ -200,7 +214,7 @@ function isValidConnection(connection) {
   if (!connection?.source || !connection?.target || connection.source === connection.target) return false
   const source = nodes.value.find((node) => node.id === connection.source)
   const target = nodes.value.find((node) => node.id === connection.target)
-  return Boolean(source && target && canConnectPorts(source.data.workflowType, connection.sourceHandle, target.data.workflowType, connection.targetHandle))
+  return Boolean(source && target && canConnectPorts(source.data.canvasType, connection.sourceHandle, target.data.canvasType, connection.targetHandle))
 }
 
 function addConnection(connection) {
@@ -234,7 +248,7 @@ function onConnectEnd(event) {
   const target = targetElement?.dataset.id
   if (target) {
     const targetNode = nodes.value.find((node) => node.id === target)
-    const targetHandle = nodeInputPorts(targetNode?.data.workflowType).find((port) => canConnectPorts(nodes.value.find((node) => node.id === pendingConnection.nodeId)?.data.workflowType, pendingConnection.sourceHandle, targetNode?.data.workflowType, port.id))?.id
+    const targetHandle = nodeInputPorts(targetNode?.data.canvasType).find((port) => canConnectPorts(nodes.value.find((node) => node.id === pendingConnection.nodeId)?.data.canvasType, pendingConnection.sourceHandle, targetNode?.data.canvasType, port.id))?.id
     if (targetHandle) addConnection({ source: pendingConnection.nodeId, sourceHandle: pendingConnection.sourceHandle, target, targetHandle })
   }
   else if (point) openNodeMenuAt(point.clientX, point.clientY, pendingConnection.nodeId)
@@ -264,14 +278,14 @@ function openModelEditor(id) {
   if (!id) return
   const node = nodes.value.find((candidate) => candidate.id === id)
   const modelTypes = ['model-preview', 'texture', 'retopology', 'generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'bake', 'rigging', 'segments', 'export-model']
-  if (!node || !modelTypes.includes(node.data.workflowType) || nodeRuns.value[id]?.status !== 'succeeded') return
+  if (!node || !modelTypes.includes(node.data.canvasType) || nodeRuns.value[id]?.status !== 'succeeded') return
   modelEditorNodeId.value = node.id
   workspaceMode.value = 'model-editor'
   nextTick(() => window.scrollTo({ top: 0 }))
 }
 
 function closeModelEditor() {
-  workspaceMode.value = 'workflow'
+  workspaceMode.value = 'canvas'
   modelEditorNodeId.value = null
   nextTick(() => {
     window.scrollTo({ top: 0 })
@@ -287,11 +301,11 @@ function closeImagePreview() {
   imagePreview.value = null
 }
 
-// Opening another workflow leaves the model editor and any open overlay behind.
+// Opening another canvas leaves the model editor and any open overlay behind.
 function resetWorkspace() {
-  closeWorkflowSwitcher()
+  closeCanvasSwitcher()
   imagePreview.value = null
-  workspaceMode.value = 'workflow'
+  workspaceMode.value = 'canvas'
   modelEditorNodeId.value = null
 }
 
@@ -325,11 +339,11 @@ function focusNode(id, padding = 0.25) {
   nextTick(() => fitView({ nodes: [id], padding, maxZoom: 1, duration: 350 }))
 }
 
-function buildWorkflowNode(type, { id, position, selected = false, config, parentNode } = {}) {
+function buildCanvasNode(type, { id, position, selected = false, config, parentNode } = {}) {
   const [kind, detail, tone] = nodePresentation[type]
   return {
     id: id || nextNodeId(type),
-    type: 'workflow',
+    type: 'canvas',
     position,
     parentNode,
     selected,
@@ -339,7 +353,7 @@ function buildWorkflowNode(type, { id, position, selected = false, config, paren
       detail,
       tone,
       status: 'ready',
-      workflowType: type,
+      canvasType: type,
       config: { ...nodeDefaults(type), ...config },
       inputTypes: nodeDefinition(type)?.inputTypes || [],
       outputType: nodeDefinition(type)?.outputType || null,
@@ -351,7 +365,7 @@ function buildWorkflowNode(type, { id, position, selected = false, config, paren
 
 function addNode(type, sourceId, position) {
   const presentation = nodePresentation[type]
-  if (!presentation || !activeWorkflow.value) return
+  if (!presentation || !activeCanvas.value) return
   if (type === 'frame') {
     const width = 900
     const height = 600
@@ -364,7 +378,7 @@ function addNode(type, sourceId, position) {
       height,
       selected: true,
       style: { pointerEvents: 'none' },
-      data: { label: 'New workflow section', description: '' },
+      data: { label: 'New canvas section', description: '' },
     }
     nodes.value = [frame, ...nodes.value.map((item) => ({ ...item, selected: false }))]
     closeContextMenu()
@@ -372,7 +386,7 @@ function addNode(type, sourceId, position) {
     focusNode(frame.id)
     return
   }
-  const node = buildWorkflowNode(type, { position: position || nodePosition(sourceId), selected: true })
+  const node = buildCanvasNode(type, { position: position || nodePosition(sourceId), selected: true })
   nodes.value = [...nodes.value.map((item) => ({ ...item, selected: false })), node]
   closeContextMenu()
   scheduleSave()
@@ -380,7 +394,7 @@ function addNode(type, sourceId, position) {
     if (sourceId) {
       const source = nodes.value.find((item) => item.id === sourceId)
       const sourceHandle = source?.data.outputPorts?.[0]?.id
-      const targetHandle = node.data.inputPorts.find((port) => canConnectPorts(source?.data.workflowType, sourceHandle, type, port.id))?.id
+      const targetHandle = node.data.inputPorts.find((port) => canConnectPorts(source?.data.canvasType, sourceHandle, type, port.id))?.id
       if (sourceHandle && targetHandle) addConnection({ source: sourceId, sourceHandle, target: node.id, targetHandle })
     }
     fitView({ nodes: [node.id], padding: 1.5, maxZoom: 1, duration: 350 })
@@ -411,7 +425,7 @@ function materializeRunBatch(sourceId, runId, previews) {
   const created = previews.map((preview, index) => {
     const id = nextNodeId('generated-image', taken)
     taken.add(id)
-    return buildWorkflowNode('generated-image', {
+    return buildCanvasNode('generated-image', {
       id,
       position: { x: origin.x + index * BATCH_COLUMN_GAP, y: origin.y },
       parentNode: source.parentNode,
@@ -423,7 +437,7 @@ function materializeRunBatch(sourceId, runId, previews) {
   nextTick(() => {
     const sourceHandle = source.data.outputPorts?.[0]?.id
     for (const node of created) {
-      const targetHandle = node.data.inputPorts.find((port) => canConnectPorts(source.data.workflowType, sourceHandle, 'generated-image', port.id))?.id
+      const targetHandle = node.data.inputPorts.find((port) => canConnectPorts(source.data.canvasType, sourceHandle, 'generated-image', port.id))?.id
       if (sourceHandle && targetHandle) addConnection({ source: sourceId, sourceHandle, target: node.id, targetHandle })
     }
     scheduleSave()
@@ -433,7 +447,7 @@ function materializeRunBatch(sourceId, runId, previews) {
 function catalogForMenu() {
   if (!nodeMenuContext.value?.sourceId) return nodeCatalog.filter((item) => !item.hidden)
   const source = nodes.value.find((node) => node.id === nodeMenuContext.value.sourceId)
-  return source ? compatibleNodeTypes(source.data.workflowType) : []
+  return source ? compatibleNodeTypes(source.data.canvasType) : []
 }
 
 function openNodeMenuAt(clientX, clientY, sourceId = null) {
@@ -457,30 +471,30 @@ function dismissCanvasPopups() {
   viewportDismissVersion.value += 1
 }
 
-function openWorkflowMenu(event, workflow) {
+function openCanvasMenu(event, canvas) {
   event.preventDefault()
   const width = 164
   const height = 84
   const gap = 8
-  workflowMenu.value = {
-    workflowId: workflow.id,
+  canvasMenu.value = {
+    canvasId: canvas.id,
     left: Math.min(event.clientX, window.innerWidth - width - gap),
     top: Math.min(event.clientY, window.innerHeight - height - gap),
   }
 }
 
-function closeWorkflowMenu() {
-  workflowMenu.value = null
+function closeCanvasMenu() {
+  canvasMenu.value = null
 }
 
-function closeWorkflowSwitcher() {
-  workflowSwitcherOpen.value = false
+function closeCanvasSwitcher() {
+  canvasSwitcherOpen.value = false
 }
 
-function runWorkflowMenuAction(action) {
-  const workflowId = workflowMenu.value?.workflowId
-  closeWorkflowMenu()
-  action(workflowId)
+function runCanvasMenuAction(action) {
+  const canvasId = canvasMenu.value?.canvasId
+  closeCanvasMenu()
+  action(canvasId)
 }
 
 async function constrainContextMenu() {
@@ -547,16 +561,16 @@ function selectNodeType(type) {
 }
 
 function startNodeDrag(event, type) {
-  event.dataTransfer.setData('application/x-workflow-node', type)
+  event.dataTransfer.setData('application/x-canvas-node', type)
   event.dataTransfer.effectAllowed = 'copy'
 }
 
 function onCanvasDragOver(event) {
-  if (event.dataTransfer.types.includes('application/x-workflow-node')) event.preventDefault()
+  if (event.dataTransfer.types.includes('application/x-canvas-node')) event.preventDefault()
 }
 
 function onCanvasDrop(event) {
-  const type = event.dataTransfer.getData('application/x-workflow-node')
+  const type = event.dataTransfer.getData('application/x-canvas-node')
   if (!type) return
   event.preventDefault()
   addNode(type, null, screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
@@ -565,16 +579,16 @@ function onCanvasDrop(event) {
 useKeyboardShortcuts({
   imagePreview,
   workspaceMode,
-  workflowSwitcherOpen,
+  canvasSwitcherOpen,
   nodeMenuOpen,
-  workflowMenu,
+  canvasMenu,
   hasSelection,
   clipboardFragment,
   closeImagePreview,
   closeModelEditor,
-  closeWorkflowSwitcher,
+  closeCanvasSwitcher,
   closeContextMenu,
-  closeWorkflowMenu,
+  closeCanvasMenu,
   openNodeMenuAt,
   undo,
   redo,
@@ -586,16 +600,16 @@ useKeyboardShortcuts({
 })
 
 onMounted(async () => {
-  window.addEventListener('pointerdown', closeWorkflowMenu)
+  window.addEventListener('pointerdown', closeCanvasMenu)
   try {
-    await loadWorkflows()
+    await loadCanvass()
   } catch (caught) {
     error.value = caught.message
   }
 })
 onUnmounted(() => {
   stopPendingSave()
-  window.removeEventListener('pointerdown', closeWorkflowMenu)
+  window.removeEventListener('pointerdown', closeCanvasMenu)
 })
 </script>
 
@@ -604,30 +618,30 @@ onUnmounted(() => {
 <template>
   <main class="app-shell">
     <TopBar
-      v-model:switcher-open="workflowSwitcherOpen"
-      :active-workflow="activeWorkflow"
-      :workflows="workflows"
+      v-model:switcher-open="canvasSwitcherOpen"
+      :active-canvas="activeCanvas"
+      :canvases="canvases"
       :workspace-mode="workspaceMode"
       :canvas-view="canvasView"
       :saved-state="savedState"
       :theme="theme"
       :busy="busy"
-      @rename="renameWorkflow"
-      @open-workflow="openWorkflow"
-      @create-workflow="createWorkflow"
-      @workflow-context-menu="openWorkflowMenu($event.event, $event.workflow)"
-      @import-file="importWorkflowFile"
+      @rename="renameCanvas"
+      @open-canvas="openCanvas"
+      @create-canvas="createCanvas"
+      @canvas-context-menu="openCanvasMenu($event.event, $event.canvas)"
+      @import-file="importCanvasFile"
       @set-theme="setTheme"
       @update:canvas-view="canvasView = $event"
     />
 
-    <div v-if="workflowMenu" class="workflow-menu" :style="{ left: `${workflowMenu.left}px`, top: `${workflowMenu.top}px` }" @pointerdown.stop>
-      <button type="button" @click="runWorkflowMenuAction(exportWorkflow)">Export JSON</button>
-      <button type="button" @click="runWorkflowMenuAction(duplicateWorkflow)">Duplicate</button>
-      <button class="danger" type="button" @click="runWorkflowMenuAction(deleteWorkflow)">Delete</button>
+    <div v-if="canvasMenu" class="canvas-menu" :style="{ left: `${canvasMenu.left}px`, top: `${canvasMenu.top}px` }" @pointerdown.stop>
+      <button type="button" @click="runCanvasMenuAction(exportCanvas)">Export JSON</button>
+      <button type="button" @click="runCanvasMenuAction(duplicateCanvas)">Duplicate</button>
+      <button class="danger" type="button" @click="runCanvasMenuAction(deleteCanvas)">Delete</button>
     </div>
 
-    <section v-if="workspaceMode === 'workflow'" class="workspace">
+    <section v-if="workspaceMode === 'canvas'" class="workspace">
       <ChatPanel
         :messages="messages"
         :editor="composer"
@@ -650,11 +664,10 @@ onUnmounted(() => {
           :edge-count="edges.length"
           :selected-count="selectedCount"
           :asset-library="assetLibrary"
-          :has-workflow="Boolean(activeWorkflow)"
+          :has-canvas="Boolean(activeCanvas)"
           :busy="busy"
           :saving="saving"
           :is-running="isRunning"
-          :has-selected-node="hasSelectedNode"
           :menu-open="toolbarMenuOpen"
           :catalog="catalogForMenu()"
           :categories="nodeCategories"
@@ -666,7 +679,6 @@ onUnmounted(() => {
           @add-frame="addNode('frame')"
           @fit-view="fitView({ padding: .18, duration: 400 })"
           @auto-layout="autoLayout"
-          @run="runWorkflow()"
         />
         <CanvasContextMenu
           v-if="nodeMenuOpen && nodeMenuContext"
@@ -679,7 +691,7 @@ onUnmounted(() => {
           :has-clipboard="Boolean(clipboardFragment)"
           @frame-selection="runContextMenuAction(makeSelectionFrame)"
           @dissolve-selection="runContextMenuAction(dissolveSelectedFrames)"
-          @create-workflow="runContextMenuAction(createWorkflowFromSelection)"
+          @create-canvas="runContextMenuAction(createCanvasFromSelection)"
           @copy="runContextMenuAction(copySelected)"
           @paste="runContextMenuAction(pasteFragment)"
           @duplicate="runContextMenuAction(duplicateSelected)"
@@ -688,13 +700,13 @@ onUnmounted(() => {
           @drag-node-type="startNodeDrag($event.event, $event.type)"
         />
         <VueFlow v-show="canvasView === 'canvas'" v-model:nodes="nodes" v-model:edges="edges" :class="['flow-canvas', `canvas-mode-${canvasMode}`]" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="canvasMode === 'select' ? true : null" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @viewport-change-start="dismissCanvasPopups" @pointerdown.capture="onCanvasPointerDown" @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
-          <template #node-frame="props"><FrameNode v-bind="props" :running="busy || isRunning" :zoom="viewport.zoom" @update-name="updateNodeName(props.id, $event)" @run-workflow="runWorkflow()" @resize-start="onFrameResizeStart(props.id)" @resize-end="onFrameResizeEnd" /></template>
-          <template #node-workflow="props"><WorkflowNode v-bind="props" :node-run="nodeRuns[props.id] || null" :run-id="run?.id || null" :inbound-type="inboundExportTarget(props.id)" :inbound-image="inboundImage(props.id)" :node-catalog="compatibleNodeTypes(props.data.workflowType)" :viewport-dismiss-version="viewportDismissVersion" @update-config="updateNodeConfig(props.id, $event)" @update-name="updateNodeName(props.id, $event)" @open-model-editor="openModelEditor(props.id)" @preview-image="openImagePreview" @add-next="addNode($event, props.id)" @run-workflow="runWorkflow($event, 'downstream')" @run-downstream="runWorkflow($event, 'downstream')" /></template>
+          <template #node-frame="props"><FrameNode v-bind="props" :zoom="viewport.zoom" @update-name="updateNodeName(props.id, $event)" @resize-start="onFrameResizeStart(props.id)" @resize-end="onFrameResizeEnd" /></template>
+          <template #node-canvas="props"><CanvasNode v-bind="props" :node-run="nodeRuns[props.id] || null" :run-id="run?.id || null" :inbound-type="inboundExportTarget(props.id)" :inbound-image="inboundImage(props.id)" :node-catalog="compatibleNodeTypes(props.data.canvasType)" :viewport-dismiss-version="viewportDismissVersion" @update-config="updateNodeConfig(props.id, $event)" @update-name="updateNodeName(props.id, $event)" @open-model-editor="openModelEditor(props.id)" @preview-image="openImagePreview" @add-next="addNode($event, props.id)" @run-canvas="runCanvas($event, 'downstream')" @run-downstream="runCanvas($event, 'downstream')" /></template>
           <Background :gap="24" :size="1.2" :pattern-color="resolvedTheme === 'dark' ? '#252b2c' : '#cdd2cf'" />
           <MiniMap position="bottom-right" :width="160" :height="100" :pannable="true" :zoomable="true" :mask-color="resolvedTheme === 'dark' ? 'rgba(10, 12, 12, .7)' : 'rgba(238, 241, 238, .72)'" :node-color="resolvedTheme === 'dark' ? '#606a63' : '#a6afa9'" :node-stroke-color="resolvedTheme === 'dark' ? '#929a94' : '#737d76'" :node-stroke-width="1" :node-border-radius="4" />
           <Controls position="bottom-right" />
         </VueFlow>
-        <AssetLibraryView v-if="canvasView === 'assets'" :rails="assetRails" :total="assetLibrary.total" @preview="openImagePreview" @open-model-editor="openModelEditor" />
+        <AssetLibraryView v-if="canvasView === 'assets'" :rails="assetRails" :total="assetLibrary.total" :loading="assetsLoading" :canvas-node-ids="canvasNodeIds" @preview="openImagePreview" @open-model-editor="openModelEditor" />
         <RunLogPanel v-if="runDetails && runSummaryOpen" :details="runDetails" @close="runSummaryOpen = false" />
         <footer><div class="run-status"><span><i />{{ runSummary }}</span><button v-if="runDetails" type="button" :aria-expanded="runSummaryOpen" @click="runSummaryOpen = !runSummaryOpen">{{ runSummaryOpen ? 'Hide logs' : 'Logs' }} <b>{{ runSummaryOpen ? '↓' : '↑' }}</b></button></div><span>Click or drag a node from Add node · Drop a connection on empty canvas to create a compatible node · Press / to add</span></footer>
       </section>

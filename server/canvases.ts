@@ -6,30 +6,30 @@ function invalid(message) {
   throw error
 }
 
-export function createWorkflow(input) {
-  if (!input.name?.trim()) invalid('Workflow name is required')
-  if (!Array.isArray(input.nodes)) invalid('Workflow nodes are invalid')
+export function createCanvas(input) {
+  if (!input.name?.trim()) invalid('Canvas name is required')
+  if (!Array.isArray(input.nodes)) invalid('Canvas nodes are invalid')
   if (!input.nodes.every((node) =>
     typeof node.id === 'string' && node.id &&
     typeof node.type === 'string' && node.type &&
     typeof node.name === 'string' && node.name &&
     node.config && typeof node.config === 'object' && !Array.isArray(node.config) &&
     Number.isFinite(node.ui?.position?.x) && Number.isFinite(node.ui?.position?.y)
-  )) invalid('Workflow nodes are invalid')
+  )) invalid('Canvas nodes are invalid')
 
   const nodeIds = new Set(input.nodes.map((node) => node.id))
-  if (nodeIds.size !== input.nodes.length) invalid('Workflow node IDs must be unique')
-  if (input.edges && !Array.isArray(input.edges)) invalid('Workflow edges are invalid')
+  if (nodeIds.size !== input.nodes.length) invalid('Canvas node IDs must be unique')
+  if (input.edges && !Array.isArray(input.edges)) invalid('Canvas edges are invalid')
   if ((input.edges || []).some((edge) =>
     typeof edge.id !== 'string' || !edge.id ||
     !nodeIds.has(edge.source?.nodeId) || !nodeIds.has(edge.target?.nodeId) ||
     typeof edge.source?.port !== 'string' || typeof edge.target?.port !== 'string'
-  )) invalid('Workflow edges must connect nodes inside the workflow')
+  )) invalid('Canvas edges must connect nodes inside the canvas')
 
   const now = new Date().toISOString()
   return {
     schemaVersion: '1.0',
-    id: `wf-${randomUUID()}`,
+    id: `canvas-${randomUUID()}`,
     name: input.name.trim(),
     description: input.description?.trim() || '',
     revision: 1,
@@ -41,17 +41,29 @@ export function createWorkflow(input) {
   }
 }
 
-export function createInitialConversation(workflow) {
-  const now = workflow.createdAt
+// A readable stand-in for a canvas whose conversation row is missing, so opening
+// the canvas still succeeds. It is not persisted.
+export function emptyConversation(canvas) {
   return {
     id: `conv-${randomUUID()}`,
-    workflowId: workflow.id,
+    canvasId: canvas.id,
+    createdAt: canvas.createdAt,
+    updatedAt: canvas.updatedAt || canvas.createdAt,
+    messages: [],
+  }
+}
+
+export function createInitialConversation(canvas) {
+  const now = canvas.createdAt
+  return {
+    id: `conv-${randomUUID()}`,
+    canvasId: canvas.id,
     createdAt: now,
     updatedAt: now,
     messages: [{
       id: `msg-${randomUUID()}`,
       role: 'assistant',
-      content: 'This workflow was created from a canvas selection and can now evolve independently.',
+      content: 'This canvas was created from a canvas selection and can now evolve independently.',
       createdAt: now,
     }],
   }

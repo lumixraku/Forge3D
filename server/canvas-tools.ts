@@ -1,29 +1,29 @@
-import { workflowParameterJsonSchema } from './workflow-parameters.js'
-import { workflowNodeSchema } from '../src/workflow-schema.js'
+import { canvasParameterJsonSchema } from './canvas-parameters.js'
+import { canvasNodeSchema } from '../src/canvas-schema.js'
 
-export const workflowNodeTypes = workflowNodeSchema.filter((node) => !['frame', 'generated-image'].includes(node.type)).map((node) => node.type)
+export const canvasNodeTypes = canvasNodeSchema.filter((node) => !['frame', 'generated-image'].includes(node.type)).map((node) => node.type)
 
-export const workflowToolDefinitions = [
+export const canvasToolDefinitions = [
   {
-    name: 'get_workflow_structure',
-    description: 'Inspect every node and connection on the current canvas, across all workflow sections.',
+    name: 'get_canvas_structure',
+    description: 'Inspect every node and connection on the current canvas, across all canvas sections.',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     name: 'list_available_node_types',
-    description: 'List every node type that can be created in a workflow.',
+    description: 'List every node type that can be created in a canvas.',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
-    name: 'build_workflow',
-    description: 'Append a workflow section from an ordered list of node types without replacing existing canvas content. All new nodes are placed inside one frame and compatible nodes are connected automatically.',
+    name: 'build_canvas',
+    description: 'Append a canvas section from an ordered list of node types without replacing existing canvas content. All new nodes are placed inside one frame and compatible nodes are connected automatically.',
     parameters: {
       type: 'object',
       properties: {
         nodeTypes: {
           type: 'array',
           description: 'Complete ordered node type list. Do not include frame; it is created automatically.',
-          items: { type: 'string', enum: workflowNodeTypes },
+          items: { type: 'string', enum: canvasNodeTypes },
           minItems: 1,
         },
       },
@@ -32,29 +32,29 @@ export const workflowToolDefinitions = [
     },
   },
   {
-    name: 'get_workflow_parameters',
+    name: 'get_canvas_parameters',
     description: 'List all nodes on the current canvas and their adjustable parameters, valid ranges, and options.',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     name: 'update_node_parameters',
-    description: 'Update validated parameters on one existing workflow node. You must use the exact nodeId returned by get_workflow_structure; do not use a display name or node type.',
+    description: 'Update validated parameters on one existing canvas node. You must use the exact nodeId returned by get_canvas_structure; do not use a display name or node type.',
     parameters: {
       type: 'object',
       properties: {
         nodeId: { type: 'string', description: 'Exact ID of a node on the current canvas.' },
-        parameters: workflowParameterJsonSchema(),
+        parameters: canvasParameterJsonSchema(),
       },
       required: ['nodeId', 'parameters'],
       additionalProperties: false,
     },
   },
   {
-    name: 'add_workflow_node',
-    description: 'Add one workflow node of the requested type when that node type does not already exist. Frame can also be added as a separate workflow container.',
+    name: 'add_canvas_node',
+    description: 'Add one canvas node of the requested type when that node type does not already exist. Frame can also be added as a separate canvas container.',
     parameters: {
       type: 'object',
-      properties: { type: { type: 'string', enum: ['frame', ...workflowNodeTypes] } },
+      properties: { type: { type: 'string', enum: ['frame', ...canvasNodeTypes] } },
       required: ['type'],
       additionalProperties: false,
     },
@@ -88,6 +88,6 @@ export const workflowToolDefinitions = [
   },
 ]
 
-export function workflowToolDefinition(name) {
-  return workflowToolDefinitions.find((definition) => definition.name === name)
+export function canvasToolDefinition(name) {
+  return canvasToolDefinitions.find((definition) => definition.name === name)
 }

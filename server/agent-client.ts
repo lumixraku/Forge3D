@@ -4,11 +4,11 @@
 // streams, so it runs in both Node and the Cloudflare Workers runtime.
 
 export async function runAgentViaService(opts: any) {
-  const { serviceUrl, apiKey, baseUrl, model, message, workflow, onProgress = async () => {} } = opts
+  const { serviceUrl, apiKey, baseUrl, model, message, canvas, onProgress = async () => {} } = opts
   const response = await fetch(serviceUrl, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ apiKey, baseUrl, model, message, workflow }),
+    body: JSON.stringify({ apiKey, baseUrl, model, message, canvas }),
   })
   if (!response.ok || !response.body) {
     const text = await response.text().catch(() => '')

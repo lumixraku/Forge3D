@@ -1,10 +1,11 @@
-import { createMockRun, downstreamWorkflow, executeMockRun } from './server/mock-runs.js'
 import { latestNodeRuns } from './server/node-state.js'
-import { createInitialConversation, createWorkflow } from './server/workflows.js'
+import { executionAssets } from './server/run-assets.js'
+import { createExecution, executeExecution, executionById, executionDto, findNode, paginateAssets } from './server/executions.js'
+import { createInitialConversation, createCanvas, emptyConversation } from './server/canvases.js'
 import { runDeepSeekAgent } from './server/deepseek.js'
 import { runAgentViaService } from './server/agent-client.js'
 
-const collections = ['workflows', 'conversations', 'runs', 'tasks']
+const collections = ['canvases', 'conversations', 'runs', 'tasks']
 const terminalStatuses = new Set(['succeeded', 'failed'])
 
 function id() {
@@ -59,12 +60,12 @@ async function writeSse(writer, event) {
   await writer.write(`event: ${event.data.type === 'error' ? 'error' : 'message'}\ndata: ${JSON.stringify(event.data)}\nid: ${event.id}\n\n`)
 }
 
-function workflowById(state, workflowId) {
-  return state.workflows.find((workflow) => workflow.id === workflowId)
+function canvasById(state, canvasId) {
+  return state.canvases.find((canvas) => canvas.id === canvasId)
 }
 
-function conversationFor(state, workflowId) {
-  return state.conversations.find((conversation) => conversation.workflowId === workflowId)
+function conversationFor(state, canvasId) {
+  return state.conversations.find((conversation) => conversation.canvasId === canvasId)
 }
 
 function taskById(state, taskId) {
@@ -76,10 +77,10 @@ async function executeAgentTask(env, state, task, emit = async () => {}) {
     task.status = 'running'
     task.startedAt = new Date().toISOString()
     await writeCollections(env, state, ['tasks'])
-    await emit(taskEvent(task, 'task-start', { workflow_id: task.workflowId }))
-    const workflow = workflowById(state, task.workflowId)
-    if (!workflow) throw new Error('Workflow not found')
-    const conversation = conversationFor(state, task.workflowId)
+    await emit(taskEvent(task, 'task-start', { canvas_id: task.canvasId }))
+    const canvas = canvasById(state, task.canvasId)
+    if (!canvas) throw new Error('Canvas not found')
+    const conversation = conversationFor(state, task.canvasId)
     const runAgent = env.AGENT_SERVICE_URL ? runAgentViaService : runDeepSeekAgent
     const plan = await runAgent({
       serviceUrl: env.AGENT_SERVICE_URL,
@@ -87,7 +88,7 @@ async function executeAgentTask(env, state, task, emit = async () => {}) {
       baseUrl: env.DEEPSEEK_BASE_URL,
       model: env.DEEPSEEK_MODEL,
       message: task.selection ? `${task.message}\n\nThe user selected: ${task.selection.selected_option_ids.map((optionId) => task.request.options.find((option) => option.id === optionId)?.label || optionId).join(', ')}. Continue the task using this selection.` : task.message,
-      workflow,
+      canvas,
       history: conversation?.messages || [],
       onProgress: async (event) => {
         task.progress.push(event)
@@ -101,9 +102,9 @@ async function executeAgentTask(env, state, task, emit = async () => {}) {
       delete task.selection
       task.request = { request_id: `request-${id()}`, ...plan.userSelectionRequest }
       const now = new Date().toISOString()
-      const conversationIndex = state.conversations.findIndex((item) => item.workflowId === task.workflowId)
+      const conversationIndex = state.conversations.findIndex((item) => item.canvasId === task.canvasId)
       const nextConversation = conversationIndex < 0
-        ? { id: task.threadId, workflowId: task.workflowId, messages: [], createdAt: now }
+        ? { id: task.threadId, canvasId: task.canvasId, messages: [], createdAt: now }
         : structuredClone(state.conversations[conversationIndex])
       if (!nextConversation.messages.some((message) => message.taskId === task.id && message.role === 'user')) {
         nextConversation.messages.push({ id: `msg-${id()}`, role: 'user', content: task.message, taskId: task.id, createdAt: now })
@@ -119,12 +120,12 @@ async function executeAgentTask(env, state, task, emit = async () => {}) {
       await emit(taskEvent(task, 'request_user_select', { request: task.request }))
       return
     }
-    const index = state.workflows.findIndex((item) => item.id === plan.workflow.id)
-    if (index < 0) state.workflows.push(plan.workflow)
-    else state.workflows[index] = plan.workflow
-    let nextConversation = conversationFor(state, plan.workflow.id)
+    const index = state.canvases.findIndex((item) => item.id === plan.canvas.id)
+    if (index < 0) state.canvases.push(plan.canvas)
+    else state.canvases[index] = plan.canvas
+    let nextConversation = conversationFor(state, plan.canvas.id)
     if (!nextConversation) {
-      nextConversation = { id: `conv-${id()}`, workflowId: plan.workflow.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), messages: [] }
+      nextConversation = { id: `conv-${id()}`, canvasId: plan.canvas.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), messages: [] }
       state.conversations.push(nextConversation)
     }
     const now = new Date().toISOString()
@@ -136,9 +137,9 @@ async function executeAgentTask(env, state, task, emit = async () => {}) {
     task.result = clone({ ...plan, conversation: nextConversation })
     task.completedAt = new Date().toISOString()
     task.updatedAt = task.completedAt
-    await writeCollections(env, state, ['workflows', 'conversations', 'tasks'])
+    await writeCollections(env, state, ['canvases', 'conversations', 'tasks'])
     await emit(taskEvent(task, 'text', { step_id: 'final-response', id: assistantMessageId, text: plan.reply }))
-    await emit(taskEvent(task, 'workflow-updated', { workflow_id: task.workflowId, changed_node_ids: plan.changedNodeIds, structure_changed: plan.structureChanged }))
+    await emit(taskEvent(task, 'canvas-updated', { canvas_id: task.canvasId, changed_node_ids: plan.changedNodeIds, structure_changed: plan.structureChanged }))
     await emit(taskEvent(task, 'finish', { finish_reason: 'stop' }))
   } catch (error) {
     task.status = 'failed'
@@ -160,54 +161,58 @@ async function route(request, env, ctx) {
   if (parts[0] !== 'api') return env.ASSETS.fetch(request)
   const state = await loadState(env)
 
-  if (request.method === 'GET' && parts[1] === 'workflows' && parts.length === 2) {
-    return response(state.workflows.map(({ nodes, edges, ...workflow }) => ({ ...workflow, nodeCount: nodes.length, edgeCount: edges.length })))
+  if (request.method === 'GET' && parts[1] === 'canvases' && parts.length === 2) {
+    return response(state.canvases.map(({ nodes, edges, ...canvas }) => ({ ...canvas, nodeCount: nodes.length, edgeCount: edges.length })))
   }
-  if (request.method === 'GET' && parts[1] === 'workflows' && parts.length === 3) {
-    const workflow = workflowById(state, parts[2])
-    return workflow ? response({ workflow, conversation: conversationFor(state, workflow.id), nodeRuns: latestNodeRuns(workflow, state.runs) }) : response({ error: 'Workflow not found' }, 404)
+  if (request.method === 'GET' && parts[1] === 'canvases' && parts.length === 3) {
+    const canvas = canvasById(state, parts[2])
+    return canvas ? response({ canvas, nodeRuns: latestNodeRuns(canvas, state.runs) }) : response({ error: 'Canvas not found' }, 404)
   }
-  if (request.method === 'POST' && parts[1] === 'workflows' && parts.length === 2) {
-    const workflow = createWorkflow(await parseJson(request))
-    state.workflows.push(workflow)
-    state.conversations.push(createInitialConversation(workflow))
-    await writeCollections(env, state, ['workflows', 'conversations'])
-    return response(workflow, 201)
+  // The Agent conversation is its own resource; it is not part of the canvas document.
+  if (request.method === 'GET' && parts[1] === 'canvases' && parts[2] && parts[3] === 'conversation' && parts.length === 4) {
+    const canvas = canvasById(state, parts[2])
+    if (!canvas) return response({ error: 'Canvas not found' }, 404)
+    // Every canvas is created with a conversation; an empty one keeps a canvas
+    // whose row is missing loadable instead of failing the whole canvas open.
+    return response(conversationFor(state, canvas.id) || emptyConversation(canvas))
   }
-  if (request.method === 'PUT' && parts[1] === 'workflows' && parts.length === 3) {
-    const index = state.workflows.findIndex((workflow) => workflow.id === parts[2])
-    if (index < 0) return response({ error: 'Workflow not found' }, 404)
-    state.workflows[index] = { ...(await parseJson(request)), id: parts[2], updatedAt: new Date().toISOString() }
-    await writeCollections(env, state, ['workflows'])
-    return response(state.workflows[index])
+  if (request.method === 'POST' && parts[1] === 'canvases' && parts.length === 2) {
+    const canvas = createCanvas(await parseJson(request))
+    state.canvases.push(canvas)
+    state.conversations.push(createInitialConversation(canvas))
+    await writeCollections(env, state, ['canvases', 'conversations'])
+    return response(canvas, 201)
   }
-  if (request.method === 'DELETE' && parts[1] === 'workflows' && parts.length === 3) {
-    const index = state.workflows.findIndex((workflow) => workflow.id === parts[2])
-    if (index < 0) return response({ error: 'Workflow not found' }, 404)
-    state.workflows.splice(index, 1)
-    state.conversations = state.conversations.filter((conversation) => conversation.workflowId !== parts[2])
-    state.runs = state.runs.filter((run) => run.workflowId !== parts[2])
-    state.tasks = state.tasks.filter((task) => task.workflowId !== parts[2] || terminalStatuses.has(task.status))
-    await writeCollections(env, state, ['workflows', 'conversations', 'runs', 'tasks'])
+  if (request.method === 'PUT' && parts[1] === 'canvases' && parts.length === 3) {
+    const index = state.canvases.findIndex((canvas) => canvas.id === parts[2])
+    if (index < 0) return response({ error: 'Canvas not found' }, 404)
+    state.canvases[index] = { ...(await parseJson(request)), id: parts[2], updatedAt: new Date().toISOString() }
+    await writeCollections(env, state, ['canvases'])
+    return response(state.canvases[index])
+  }
+  if (request.method === 'DELETE' && parts[1] === 'canvases' && parts.length === 3) {
+    const index = state.canvases.findIndex((canvas) => canvas.id === parts[2])
+    if (index < 0) return response({ error: 'Canvas not found' }, 404)
+    state.canvases.splice(index, 1)
+    state.conversations = state.conversations.filter((conversation) => conversation.canvasId !== parts[2])
+    state.runs = state.runs.filter((run) => run.canvasId !== parts[2])
+    state.tasks = state.tasks.filter((task) => task.canvasId !== parts[2] || terminalStatuses.has(task.status))
+    await writeCollections(env, state, ['canvases', 'conversations', 'runs', 'tasks'])
     return response(null, 204)
   }
-  if (request.method === 'POST' && parts[1] === 'workflows' && parts[3] === 'duplicate') {
-    const source = workflowById(state, parts[2])
-    if (!source) return response({ error: 'Workflow not found' }, 404)
+  if (request.method === 'POST' && parts[1] === 'canvases' && parts[3] === 'duplicate') {
+    const source = canvasById(state, parts[2])
+    if (!source) return response({ error: 'Canvas not found' }, 404)
     const now = new Date().toISOString()
-    const workflow = { ...clone(source), id: `wf-${id()}`, name: `${source.name} Copy`, revision: 1, createdAt: now, updatedAt: now }
-    state.workflows.push(workflow)
-    state.conversations.push({ id: `conv-${id()}`, workflowId: workflow.id, createdAt: now, updatedAt: now, messages: [{ id: `msg-${id()}`, role: 'assistant', content: 'This workflow was duplicated and can now evolve independently.', createdAt: now }] })
-    await writeCollections(env, state, ['workflows', 'conversations'])
-    return response(workflow, 201)
-  }
-  if (request.method === 'GET' && parts[1] === 'tasks' && parts.length === 3) {
-    const task = taskById(state, parts[2])
-    return task ? response(task) : response({ error: 'Task not found' }, 404)
+    const canvas = { ...clone(source), id: `canvas-${id()}`, name: `${source.name} Copy`, revision: 1, createdAt: now, updatedAt: now }
+    state.canvases.push(canvas)
+    state.conversations.push({ id: `conv-${id()}`, canvasId: canvas.id, createdAt: now, updatedAt: now, messages: [{ id: `msg-${id()}`, role: 'assistant', content: 'This canvas was duplicated and can now evolve independently.', createdAt: now }] })
+    await writeCollections(env, state, ['canvases', 'conversations'])
+    return response(canvas, 201)
   }
   if (request.method === 'GET' && parts[1] === 'tasks' && parts.length === 2) {
     const statuses = new Set((url.searchParams.get('status') || '').split(',').filter(Boolean))
-    return response(state.tasks.filter((task) => (!url.searchParams.get('workflowId') || task.workflowId === url.searchParams.get('workflowId')) && (!statuses.size || statuses.has(task.status))))
+    return response(state.tasks.filter((task) => (!url.searchParams.get('canvasId') || task.canvasId === url.searchParams.get('canvasId')) && (!statuses.size || statuses.has(task.status))))
   }
   if (request.method === 'POST' && parts[1] === 'tasks' && parts[3] === 'continue' && parts.length === 4) {
     const task = taskById(state, parts[2])
@@ -222,7 +227,7 @@ async function route(request, env, ctx) {
     if (task.status !== 'waiting_for_user' || !task.request || input.request_id !== task.request.request_id) return response({ error: 'Task is not waiting for this selection' }, 409)
     if (!Array.isArray(selectedOptionIds) || selectedOptionIds.some((optionId) => typeof optionId !== 'string') || new Set(selectedOptionIds).size !== selectedOptionIds.length || selectedOptionIds.length < task.request.min || selectedOptionIds.length > task.request.max || selectedOptionIds.some((optionId) => !task.request.options.some((option) => option.id === optionId))) return response({ error: 'Selected options are invalid' }, 400)
     task.selection = { request_id: task.request.request_id, selected_option_ids: selectedOptionIds }
-    const conversation = state.conversations.find((item) => item.workflowId === task.workflowId)
+    const conversation = state.conversations.find((item) => item.canvasId === task.canvasId)
     const requestMessage = conversation?.messages.find((message) => message.id === task.requestMessageId)
     const selectedLabels = selectedOptionIds.map((optionId) => task.request.options.find((option) => option.id === optionId).label)
     if (conversation && requestMessage) {
@@ -249,17 +254,17 @@ async function route(request, env, ctx) {
     const input = await parseJson(request)
     if (typeof input.message !== 'string' || !input.message.trim()) return response({ error: 'message is required' }, 400)
     if (!env.DEEPSEEK_API_KEY) return response({ error: 'DeepSeek is not configured.' }, 503)
-    const workflow = input.workflowId ? workflowById(state, input.workflowId) : createWorkflow({ name: 'New workflow', nodes: [], edges: [] })
-    if (!workflow) return response({ error: 'Workflow not found' }, 404)
-    if (!input.workflowId) {
-      state.workflows.push(workflow)
-      state.conversations.push(createInitialConversation(workflow))
+    const canvas = input.canvasId ? canvasById(state, input.canvasId) : createCanvas({ name: 'New canvas', nodes: [], edges: [] })
+    if (!canvas) return response({ error: 'Canvas not found' }, 404)
+    if (!input.canvasId) {
+      state.canvases.push(canvas)
+      state.conversations.push(createInitialConversation(canvas))
     }
     const now = new Date().toISOString()
-    const conversation = conversationFor(state, workflow.id)
-    const task = { id: `task-${id()}`, threadId: conversation?.id || `conv-${id()}`, workflowId: workflow.id, message: input.message, status: 'queued', progress: [], eventId: 0, createdAt: now, updatedAt: now }
+    const conversation = conversationFor(state, canvas.id)
+    const task = { id: `task-${id()}`, threadId: conversation?.id || `conv-${id()}`, canvasId: canvas.id, message: input.message, status: 'queued', progress: [], eventId: 0, createdAt: now, updatedAt: now }
     state.tasks.push(task)
-    await writeCollections(env, state, ['workflows', 'conversations', 'tasks'])
+    await writeCollections(env, state, ['canvases', 'conversations', 'tasks'])
     if (!request.headers.get('accept')?.includes('text/event-stream')) {
       ctx.waitUntil(executeAgentTask(env, state, task))
       return response(task, 202)
@@ -272,30 +277,29 @@ async function route(request, env, ctx) {
     ctx.waitUntil(execution)
     return sseResponse(readable)
   }
-  if (request.method === 'GET' && parts[1] === 'workflows' && parts[3] === 'runs' && parts.length === 5) {
-    const run = state.runs.find((item) => item.id === parts[4] && item.workflowId === parts[2])
-    return run ? response(run) : response({ error: 'Run not found' }, 404)
+  if (request.method === 'GET' && parts[1] === 'canvases' && parts[2] && parts[3] === 'assets' && parts.length === 4) {
+    const canvas = canvasById(state, parts[2])
+    if (!canvas) return response({ error: 'Canvas not found' }, 404)
+    const assets = executionAssets(state.runs, {
+      canvasId: canvas.id,
+      executionId: url.searchParams.get('executionId'),
+      nodeId: url.searchParams.get('producerNodeId'),
+      kind: url.searchParams.get('kind'),
+    }).filter((asset) => !url.searchParams.get('entryNodeId') || asset.entryNodeId === url.searchParams.get('entryNodeId'))
+    return response(paginateAssets(assets, url))
   }
-  if (request.method === 'POST' && parts[1] === 'workflows' && parts[3] === 'runs' && parts.length === 4) {
-    const workflow = workflowById(state, parts[2])
-    if (!workflow) return response({ error: 'Workflow not found' }, 404)
-    const input = await parseJson(request)
-    const { targetNodeId, scope = 'node' } = input
-    const targetNode = targetNodeId ? workflow.nodes.find((node) => node.id === targetNodeId) : null
-    if (targetNodeId && !targetNode) return response({ error: 'Target node not found' }, 400)
-    if (!['node', 'downstream'].includes(scope)) return response({ error: 'Invalid run scope' }, 400)
-    if (scope === 'downstream' && !targetNode) return response({ error: 'A target node is required for downstream runs' }, 400)
-    let executionWorkflow = clone(workflow)
-    if (scope === 'downstream') executionWorkflow = downstreamWorkflow(workflow, targetNodeId)
-    else if (targetNode) {
-      executionWorkflow.nodes = [clone(targetNode)]
-      executionWorkflow.edges = []
-    }
-    const run = createMockRun(executionWorkflow)
-    state.runs.push(run)
+  if (request.method === 'GET' && parts[1] === 'executions' && parts.length === 3) {
+    const execution = executionById(state.runs, parts[2])
+    return execution ? response(executionDto(execution)) : response({ error: 'Execution not found' }, 404)
+  }
+  if (request.method === 'POST' && parts[1] === 'nodes' && parts[2] && parts[3] === 'executions' && parts.length === 4) {
+    const match = findNode(state.canvases, parts[2])
+    if (!match) return response({ error: 'Node not found' }, 404)
+    const { mode = 'downstream' } = await parseJson(request)
+    const pending = createExecution(state.runs, match.canvas, match.node, mode)
     await writeCollections(env, state, ['runs'])
-    ctx.waitUntil(executeMockRun(run, executionWorkflow, { persist: () => writeCollections(env, state, ['runs']) }))
-    return response(run, 201)
+    ctx.waitUntil(executeExecution(state.runs, pending.run, match.canvas, pending.executionCanvas, pending.nodes, match.node, () => writeCollections(env, state, ['runs'])))
+    return response(executionDto(pending.run), 202)
   }
   return response({ error: 'Not found' }, 404)
 }

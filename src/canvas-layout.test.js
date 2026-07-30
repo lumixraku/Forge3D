@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { FRAME_PADDING, FRAME_TITLE_SCREEN_HEIGHT, frameComponentGap, frameInsets, layoutWorkflow } from './workflow-layout.js'
+import { FRAME_PADDING, FRAME_TITLE_SCREEN_HEIGHT, frameComponentGap, frameInsets, layoutCanvas } from './canvas-layout.js'
 
 function overlaps(a, b, positions) {
   const first = positions.get(a.id)
@@ -8,9 +8,9 @@ function overlaps(a, b, positions) {
   return first.x < second.x + b.width && first.x + a.width > second.x && first.y < second.y + b.height && first.y + a.height > second.y
 }
 
-test('lays out a linear workflow from left to right', async () => {
+test('lays out a linear canvas from left to right', async () => {
   const nodes = ['a', 'b', 'c'].map((id) => ({ id, width: 290, height: 430 }))
-  const positions = await layoutWorkflow(nodes, [
+  const positions = await layoutCanvas(nodes, [
     { source: 'a', target: 'b' },
     { source: 'b', target: 'c' },
   ])
@@ -36,7 +36,7 @@ test('lays out multiple inputs and outputs around a merge and split', async () =
     { source: 'process', target: 'output-a' },
     { source: 'process', target: 'output-b' },
   ]
-  const positions = await layoutWorkflow(nodes, edges)
+  const positions = await layoutCanvas(nodes, edges)
 
   assert.equal(positions.get('input-a').x, positions.get('input-b').x)
   assert.equal(positions.get('output-a').x, positions.get('output-b').x)
@@ -48,9 +48,9 @@ test('lays out multiple inputs and outputs around a merge and split', async () =
   }
 })
 
-test('separates independent workflow components', async () => {
+test('separates independent canvas components', async () => {
   const nodes = ['a1', 'a2', 'b1', 'b2'].map((id) => ({ id, width: 290, height: 300 }))
-  const positions = await layoutWorkflow(nodes, [
+  const positions = await layoutCanvas(nodes, [
     { source: 'a1', target: 'a2' },
     { source: 'b1', target: 'b2' },
   ])
@@ -77,8 +77,8 @@ test('ignores missing endpoints and handles cycles deterministically', async () 
     { source: 'missing', target: 'a' },
   ]
 
-  const first = await layoutWorkflow(nodes, edges)
-  const second = await layoutWorkflow(nodes, edges)
+  const first = await layoutCanvas(nodes, edges)
+  const second = await layoutCanvas(nodes, edges)
 
   assert.deepEqual([...first], [...second])
   assert.equal(first.size, nodes.length)

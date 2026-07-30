@@ -1,7 +1,7 @@
 [
   {
     "schemaVersion": "1.0",
-    "id": "wf-stylized-character",
+    "id": "canvas-stylized-character",
     "name": "Text to Production 3D Pipeline",
     "description": "Generate, optimize, texture, and review a production-ready 3D asset from a text prompt.",
     "revision": 1,
