@@ -2,6 +2,11 @@
 
 ## Current Goal
 
+Run the 3D main chain against the real Tripo API, keeping the simulated path
+intact for development without a key. See Real Tripo API Integration below.
+
+## Earlier Goal (done)
+
 Complete and verify the Vue Flow canvas editing canvas, including categorized node creation, typed connections, deletion, and persistence.
 
 ## Completed
@@ -61,11 +66,76 @@ Complete and verify the Vue Flow canvas editing canvas, including categorized no
   - Each deletion changed the save state to `Unsaved changes`, then back to `Saved`.
   - A forced refresh retained the first deleted edge, confirming persistence.
 
+## Real Tripo API Integration
+
+The 3D main chain now runs against Tripo v3 instead of the simulation:
+`generate-model`, `retopology`, `texture`, `segments`, `rigging`, `export-model`.
+The Cloudflare worker stays on the mock.
+
+- `executeNode` takes an optional provider that returns `null` for node types it
+  does not back, so the no-key path stays byte-identical.
+- A floating debug ball switches Auto / Mock / Tripo API per run; the Tripo
+  option is disabled when no key is configured.
+- Output urls expire in about five minutes, so each result is copied to
+  `server/data/assets/` under its content hash and served from `/api/assets/`.
+- The run threads a context of `nodeId -> {tripoTaskId, modelUrl, preview}`,
+  seeded from earlier runs, because a real backend cannot read an upstream
+  result off the saved canvas the way the simulation does.
+
+### Verified end to end in the browser
+
+Shark reference image through the whole chain, all five nodes green:
+
+| Node | Credits | Output |
+| --- | --- | --- |
+| Image Upload | – | `shark-reference.png` |
+| Gen HD Model | 30 | 3.4 MB `.glb` |
+| Retopology | 30 | `.fbx` |
+| UV Texture | 10 | textured `.fbx` |
+| Export | 10 | 5.3 MB `.glb`, 512x512 thumbnail |
+
+Total 80 credits, 11m28s. Export was also verified as a standalone re-run, and
+the exported file downloads from the node with a `glTF` magic number intact.
+
+### Bugs the mock path could not expose
+
+- Input resolution ran against the pruned execution canvas, so a single-node
+  run saw no upstream at all.
+- The reference-image search stopped at model-producing nodes, so texturing a
+  retopologised mesh sent no `texture_prompt` and Tripo failed with
+  `reference_image_path not found`. Diagnosed by reading `error_message` off
+  `GET /v3/tasks/{id}` — an earlier black-box A/B had produced a confident
+  wrong answer.
+- An asset download had no retry. The credits are already spent and the url is
+  gone in five minutes, so one dropped connection discarded a finished mesh,
+  and the error swallowed its cause.
+- `run.status` was overwritten per node, so a chain reported `succeeded` as soon
+  as its first node landed and the frontend stopped polling.
+- A convert task renders no image, so `export-model` had `preview: null` and
+  showed a broken thumbnail. It now falls back to the upstream thumbnail.
+- The export download only fired from the live polling loop, and from an anchor
+  never attached to the document. The node now offers the file directly, which
+  also survives a reload.
+- Re-running one node could not see what an earlier run produced upstream, so
+  exporting a finished chain failed with "Export needs an upstream 3D model".
+
+### Data loss found and fixed
+
+`persistCanvasFiles` used to unlink every canvas file absent from the saving
+process's own in-memory list. Two server processes running at once therefore
+deleted each other's canvases; three were lost during this work and could not be
+recovered, as `server/data/canvases/` is not tracked by git. Saves now only
+write, and deletion goes through an explicit `removeCanvas`.
+
 ## Next Steps
 
 1. Continue browser QA for future canvas interaction changes.
 2. Keep node media compatibility rules covered by unit tests when adding node types.
-3. Replace the deterministic mock runner with a real execution backend when service integrations are available.
+3. Decide whether `GENERATION_NODE_TYPES` in `server/tripo-provider.ts` is
+   needed: restricting task-id passthrough to generation nodes is unverified
+   caution that costs one extra mesh upload per processing node.
+4. Consider backing up `server/data/canvases/` — it holds the only copy of each
+   canvas.
 
 ## Browser Verification State
 
@@ -77,13 +147,15 @@ Complete and verify the Vue Flow canvas editing canvas, including categorized no
 
 ## Git State
 
-- Current branch: `feat/canvas-fragments`
+- Current branch: `main`
 - Latest feature commit pushed:
-  - `29215fc feat: add typed canvas node connections`
-- Lychee node title alignment is implemented and locally verified.
+  - `3cd85e1 feat: run the 3D main chain against the real Tripo API`
 - `.codegraph/` is ignored as local generated project metadata.
+- `server/data/canvases/` is not tracked, so a lost canvas cannot be recovered.
 
 ## Services
 
-- Frontend: `http://localhost:5174`
+- Frontend: `http://localhost:5175`
 - Backend: `http://127.0.0.1:8787`
+- `TRIPO_API_KEY` and `TRIPO_BASE_URL` live in `.env`; without them the runner
+  falls back to the simulation and the debug ball's Tripo option is disabled.

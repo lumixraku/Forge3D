@@ -26,8 +26,13 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, busy, 
       if (!output.downloadUrl) continue
       const anchor = document.createElement('a')
       anchor.href = output.downloadUrl
-      anchor.download = output.filename || `shark-gardener.${String(output.format || 'GLB').toLowerCase()}`
+      anchor.download = output.filename || `model.${String(output.format || 'glb').toLowerCase()}`
+      // Chrome ignores a download click from an anchor that is not in the
+      // document, so it has to be attached for the duration of the click.
+      anchor.style.display = 'none'
+      document.body.append(anchor)
       anchor.click()
+      anchor.remove()
     }
   }
 

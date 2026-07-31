@@ -1,6 +1,7 @@
 import { downstreamCanvas, executeNode, executionNodes } from './mock-runs.js'
 import { randomUUID } from './ids.js'
 import { recordNodeExecution } from './run-log.js'
+import { latestNodeRuns } from './node-state.js'
 
 export function findNode(canvases, nodeId) {
   const matches = canvases.flatMap((canvas) => (
@@ -79,7 +80,19 @@ export async function executeExecution(runs, run, canvas, executionCanvas, nodes
   // What each node produced during this run. A real backend cannot read an
   // upstream result off the saved canvas the way the simulation does, because the
   // output only exists once the task finishes, so it is threaded here instead.
+  //
+  // Seeded from what earlier runs produced, so re-running one node on its own
+  // still sees the mesh its upstream already made. Without this, exporting a
+  // finished chain fails with "needs an upstream 3D model".
   const context = new Map()
+  // This run's own nodes are queued, not produced, so it is excluded: leaving it
+  // in would overwrite an earlier succeeded result with its own queued entry.
+  const earlier = latestNodeRuns(canvas, runs.filter((candidate) => candidate.id !== run.id))
+  for (const [nodeId, nodeRun] of Object.entries(earlier)) {
+    if (nodeRun.status !== 'succeeded' || !nodeRun.output) continue
+    const { modelUrl = null, preview = null } = nodeRun.output
+    if (modelUrl || preview) context.set(nodeId, { tripoTaskId: nodeRun.tripoTaskId || null, modelUrl, preview })
+  }
   // The provider resolves inputs against the full canvas, not the pruned
   // execution canvas: a single-node run carries no edges, so the upstream image
   // or mesh would be invisible to it.

@@ -202,3 +202,20 @@ test('glb export keeps the gltf format but a .glb filename', () => {
   const output = tripoNodeOutput(node('export-model', { fileName: 'shark' }), task, { modelUrl: '/api/assets/bb.glb' })
   assert.deepEqual(output.outputs.map((entry) => entry.filename), ['shark.glb'])
 })
+
+test('a task that renders no image falls back to the upstream thumbnail', () => {
+  // A convert task returns only a model_url, so without the fallback the export
+  // node renders a broken thumbnail.
+  const task = { task_id: 'task_abc', output: { model_url: 'https://cdn.tripo3d.ai/m.glb' } }
+  const output = tripoNodeOutput(node('export-model', { fileName: 'shark' }), task, {
+    modelUrl: '/api/assets/bb.glb',
+    fallbackPreview: '/api/assets/aa.webp',
+  })
+  assert.equal(output.preview, '/api/assets/aa.webp')
+})
+
+test('a task with its own render ignores the fallback', () => {
+  const task = { task_id: 'task_abc', output: { model_url: 'https://cdn/m.glb', rendered_image_url: 'https://cdn/r.webp' } }
+  const output = tripoNodeOutput(node('texture'), task, { preview: '/api/assets/own.webp', fallbackPreview: '/api/assets/up.webp' })
+  assert.equal(output.preview, '/api/assets/own.webp')
+})

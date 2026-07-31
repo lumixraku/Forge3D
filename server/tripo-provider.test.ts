@@ -176,3 +176,21 @@ test('progress is reported while the task runs and the result is persisted', asy
   assert.match(result.output.modelUrl, /^\/api\/assets\//)
   assert.match(result.output.preview, /^\/api\/assets\//)
 })
+
+test('an export shows the upstream thumbnail when its own task renders none', async () => {
+  const exportNode = { id: 'exp', type: 'export-model', name: 'Export', config: { modelFormat: 'gltf', fileName: 'shark' } }
+  const canvas = canvasOf([REFERENCE, MODEL, exportNode], [['ref', 'model'], ['model', 'exp']])
+  const client = {
+    ...stubClient(),
+    // A convert task returns a model only, which is what left the node with a
+    // broken thumbnail.
+    async awaitTask() { return { task_id: 'task_new', status: 'success', credits_consumed: 10, output: { model_url: 'https://cdn/out.glb' } } },
+  }
+  const context = new Map([['model', { tripoTaskId: 'task_gen', preview: '/api/assets/aa.webp' }]])
+
+  const result = await executeTripoNode(exportNode, canvas, { client, context, fetchImpl: noopFetch })
+
+  assert.equal(result.output.preview, '/api/assets/aa.webp')
+  assert.equal(result.output.outputs[0].filename, 'shark.glb')
+  assert.match(result.output.outputs[0].downloadUrl, /^\/api\/assets\//)
+})

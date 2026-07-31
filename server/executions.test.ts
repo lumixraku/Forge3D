@@ -50,3 +50,24 @@ test('paginates assets with stable cursors', () => {
   assert.deepEqual(first, { items: assets.slice(0, 2), nextCursor: 'b', hasMore: true })
   assert.deepEqual(second, { items: assets.slice(2), nextCursor: null, hasMore: false })
 })
+
+test('re-running one node sees what an earlier run produced upstream', async () => {
+  // A real backend reads upstream results from the run context, not the canvas.
+  // Without seeding it from earlier runs, exporting a finished chain fails with
+  // "needs an upstream 3D model".
+  const runs = []
+  const first = createExecution(runs, canvas, canvas.nodes[0], 'downstream')
+  await executeExecution(runs, first.run, canvas, first.executionCanvas, first.nodes, canvas.nodes[0])
+  runs[0].nodeRuns.model.output = { modelUrl: '/api/assets/aa.glb', preview: '/api/assets/bb.webp' }
+
+  const seen = []
+  const second = createExecution(runs, canvas, canvas.nodes[1], 'node')
+  await executeExecution(runs, second.run, canvas, second.executionCanvas, second.nodes, canvas.nodes[1], async () => {}, {
+    createProvider: ({ context }) => {
+      seen.push(context.get('model'))
+      return async () => null
+    },
+  })
+
+  assert.deepEqual(seen[0], { tripoTaskId: null, modelUrl: '/api/assets/aa.glb', preview: '/api/assets/bb.webp' })
+})

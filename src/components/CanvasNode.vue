@@ -61,6 +61,13 @@ const runStateDetail = computed(() => {
   return runProgress.value === null ? 'Execution is in progress' : `Tripo task in progress · ${runProgress.value}%`
 })
 const runtimePreview = computed(() => props.nodeRun?.output?.preview || props.data.config.preview)
+// The run downloads the export once as it finishes, which is no help after a
+// reload, so a finished export also offers the file directly.
+const exportDownloads = computed(() => {
+  const output = props.nodeRun?.output
+  if (!output) return []
+  return (output.outputs || (output.downloadUrl ? [output] : [])).filter((item) => item.downloadUrl)
+})
 const reviewImage = computed(() => props.inboundImage || props.nodeRun?.output?.preview || props.data.config.preview)
 const runtimePreviews = computed(() => props.nodeRun?.output?.previews || props.data.config.previews || [])
 const runtimeViewPreviews = computed(() => props.nodeRun?.output?.viewPreviews || props.data.config.viewPreviews || {})
@@ -216,8 +223,9 @@ function loadMockImage(file: File) {
       </template>
     </div>
 
-    <div v-if="data.canvasType === 'export-model'" class="node-run-actions single nodrag">
+    <div v-if="data.canvasType === 'export-model'" class="node-run-actions nodrag" :class="{ single: !exportDownloads.length }">
       <button type="button" class="generate-node" :disabled="['queued', 'running'].includes(runtimeStatus)" @click.stop="emit('run-canvas', props.id)">{{ ['queued', 'running'].includes(runtimeStatus) ? 'Preparing…' : 'Export' }}</button>
+      <a v-for="download in exportDownloads" :key="download.downloadUrl" class="run-downstream download-export" :href="download.downloadUrl" :download="download.filename" @click.stop>Download {{ download.filename }}</a>
     </div>
     <div v-else-if="isExecutableNode" class="node-run-actions nodrag">
       <button type="button" class="generate-node" :disabled="['queued', 'running'].includes(runtimeStatus)" @click.stop="emit('run-canvas', props.id)">{{ actionLabel }}</button>

@@ -166,6 +166,27 @@ function resolveUpstreamImage(node, canvas, context = new Map()) {
 }
 
 /**
+ * The thumbnail of the nearest upstream node that produced one this run. Used by
+ * a node whose own task renders no image, so it still shows what it acted on.
+ */
+function resolveUpstreamPreview(node, canvas, context) {
+  const seen = new Set([node.id])
+  let frontier = inboundSources(node, canvas)
+  while (frontier.length) {
+    const next = []
+    for (const source of frontier) {
+      if (seen.has(source.id)) continue
+      seen.add(source.id)
+      const produced = context.get(source.id)
+      if (produced?.preview) return produced.preview
+      next.push(...inboundSources(source, canvas))
+    }
+    frontier = next
+  }
+  return null
+}
+
+/**
  * Executes one node through Tripo and returns the same `{ status, durationMs,
  * output }` shape the mock producer returns.
  *
@@ -214,6 +235,10 @@ export async function executeTripoNode(node, canvas, {
     persistTripoAsset(task.output?.model_url, { fetchImpl }),
   ])
 
+  // A convert task renders no image, so the node falls back to the thumbnail of
+  // the mesh it was given.
+  const fallbackPreview = resolveUpstreamPreview(node, canvas, context)
+
   return {
     nodeId: node.id,
     status: 'succeeded',
@@ -221,6 +246,6 @@ export async function executeTripoNode(node, canvas, {
     tripoTaskId: taskId,
     progress: 100,
     creditsConsumed: task.credits_consumed ?? null,
-    output: tripoNodeOutput(node, task, { preview, modelUrl }),
+    output: tripoNodeOutput(node, task, { preview, modelUrl, fallbackPreview }),
   }
 }

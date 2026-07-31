@@ -128,9 +128,11 @@ export function usesTripo(node) {
  * renders. `preview` keeps pointing at an image so the node thumbnail works;
  * `modelUrl` is what the model editor and the export download consume.
  */
-export function tripoNodeOutput(node, task, { preview = null, modelUrl = null } = {}) {
+export function tripoNodeOutput(node, task, { preview = null, modelUrl = null, fallbackPreview = null } = {}) {
   const output = task?.output || {}
-  const resolvedPreview = preview || output.rendered_image_url || null
+  // A convert task renders no image of its own, so the node would show a broken
+  // thumbnail without the upstream one to fall back on.
+  const resolvedPreview = preview || output.rendered_image_url || fallbackPreview || null
   const resolvedModel = modelUrl || output.model_url || null
   const shared = {
     preview: resolvedPreview,
