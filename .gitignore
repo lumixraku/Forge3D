@@ -10,4 +10,5 @@ dist-cloudflare/
 server/data/*.json
 !server/data/.gitkeep
 server/data/canvases/*.json
+server/data/assets/
 .vercel/

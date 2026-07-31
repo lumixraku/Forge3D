@@ -73,14 +73,25 @@ export function createExecution(runs, canvas, entryNode, mode = 'downstream') {
   return { run, executionCanvas, nodes }
 }
 
-export async function executeExecution(runs, run, canvas, executionCanvas, nodes, entryNode, onUpdate = async () => {}) {
+export async function executeExecution(runs, run, canvas, executionCanvas, nodes, entryNode, onUpdate = async () => {}, { createProvider = null } = {}) {
   run.status = 'running'
   await onUpdate()
+  // What each node produced during this run. A real backend cannot read an
+  // upstream result off the saved canvas the way the simulation does, because the
+  // output only exists once the task finishes, so it is threaded here instead.
+  const context = new Map()
+  // The provider resolves inputs against the full canvas, not the pruned
+  // execution canvas: a single-node run carries no edges, so the upstream image
+  // or mesh would be invisible to it.
+  const provider = createProvider ? createProvider({ context, run, onUpdate, canvas }) : null
   for (const node of nodes) {
     run.nodeRuns[node.id].status = 'running'
     await onUpdate()
     try {
-      const result = await executeNode(node, executionCanvas)
+      const result = await executeNode(node, executionCanvas, provider ? { provider } : undefined)
+      if (result.status === 'succeeded') {
+        context.set(node.id, { tripoTaskId: result.tripoTaskId || null, modelUrl: result.output?.modelUrl || null, preview: result.output?.preview || null })
+      }
       recordNodeExecution(runs, { runId: run.id, canvas, node, result, entryNode, mode: run.mode })
       await onUpdate()
       if (result.status !== 'succeeded') break

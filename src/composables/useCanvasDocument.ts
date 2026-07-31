@@ -24,6 +24,8 @@ export function useCanvasDocument({
   fitFramesAfterRender,
   loadConversation,
   restoreTurns,
+  subscribeCanvasEvents,
+  closeCanvasEvents,
   pasteFragment,
   resetWorkspace,
   closeCanvasSwitcher,
@@ -73,6 +75,7 @@ export function useCanvasDocument({
   async function openCanvas(id) {
     resetWorkspace()
     if (activeCanvas.value && activeCanvas.value.id !== id) await flushPendingSave()
+    closeCanvasEvents()
     runToken.value += 1
     error.value = ''
     const data = await request(`/api/canvases/${id}`)
@@ -82,6 +85,9 @@ export function useCanvasDocument({
     await toCanvas(data.canvas)
     await loadConversation(id)
     await restoreTurns(id)
+    // Subscribe after the REST reads, so the channel only has to carry what
+    // happens from here on; an interrupted turn was already restored above.
+    subscribeCanvasEvents(id)
     fitView({ padding: 0.18, duration: 500 })
   }
 
@@ -161,7 +167,10 @@ export function useCanvasDocument({
 
     try {
       const deletingActiveCanvas = activeCanvas.value?.id === canvasId
-      if (deletingActiveCanvas) await flushPendingSave()
+      if (deletingActiveCanvas) {
+        await flushPendingSave()
+        closeCanvasEvents()
+      }
       await request(`/api/canvases/${canvasId}`, { method: 'DELETE' })
       await loadCanvasList()
       if (!deletingActiveCanvas) return

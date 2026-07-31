@@ -17,7 +17,7 @@ Forge3D combines two editing modes over the same authoritative canvas document:
 1. **Conversational editing**: the Canvas Copilot inspects, builds, and updates the graph through validated tools.
 2. **Direct manipulation**: the user adds, connects, moves, groups, configures, copies, runs, imports, and exports nodes on the canvas.
 
-The important architectural boundary is that Vue Flow is a renderer and interaction surface, not the persisted data model. The server owns a framework-neutral canvas JSON document containing domain nodes, semantic edges, viewport state, revision metadata, conversation history, Agent turns, and mock execution runs.
+The important architectural boundary is that Vue Flow is a renderer and interaction surface, not the persisted data model. The server owns a framework-neutral canvas JSON document containing domain nodes, semantic edges, viewport state, revision metadata, conversation history, Agent turns, and execution runs.
 
 ## Current Product Surface
 
@@ -499,9 +499,50 @@ The layout preserves frame hierarchy by building a compound graph:
 
 When an Agent emits `canvas-updated` with `structure_changed: true`, the frontend refreshes the authoritative canvas, automatically lays it out, and saves the resulting positions.
 
-## Mock Canvas Execution
+## Canvas Execution
 
-Agent tools modify the canvas definition; execution is a separate simulated system.
+Agent tools modify the canvas definition; execution is a separate system with two
+interchangeable backends.
+
+| Provider | When it runs | Behaviour |
+| --- | --- | --- |
+| `mock` | Always available | Simulated. ~600 ms per node, deterministic previews from `public/`, no credits. |
+| `tripo` | `TRIPO_API_KEY` is set | Real Tripo v3 tasks. Tens of seconds per node, real geometry, spends credits. |
+
+A run picks `tripo` whenever it is configured. The floating debug panel (bottom
+right) overrides that per run, and `POST /api/nodes/:nodeId/executions` accepts an
+explicit `"provider": "mock" | "tripo"`. `GET /api/capabilities` reports which
+providers this server can serve.
+
+Six node types are backed by Tripo; everything else stays simulated even when the
+provider is `tripo`:
+
+| Node | Tripo endpoint |
+| --- | --- |
+| `generate-model` | `POST /generation/image-to-model`, or `/text-to-model` with no image upstream |
+| `retopology` | `POST /mesh/decimate` (`smartPoly` selects the `v2.0` AI tier) |
+| `texture` | `POST /models/texture` |
+| `segments` | `POST /mesh/segment` |
+| `rigging` | `POST /animations/rig` |
+| `export-model` | `POST /models/convert` |
+
+`bake` has no v3 equivalent, and the 2D image nodes are not mapped yet because
+Tripo's image models are a separate enum (`seedream`, `banana`, `chat_image`).
+
+Tripo output URLs expire about five minutes after a task succeeds, so each result
+is copied to `server/data/assets/` as soon as the task completes and the canvas
+stores that local path. Files are named by content hash and served from
+`GET /api/assets/:file`, which only resolves hashed names.
+
+Because a real result only exists once its task finishes, a run threads a
+per-node context and passes each upstream `task_id` straight into the next node's
+`input`, so no mesh is re-uploaded between stages. Input resolution reads the full
+canvas rather than the pruned execution subgraph: a single-node run carries no
+edges, so the upstream image would otherwise be invisible.
+
+### Simulated Execution
+
+The `mock` provider is the original simulated system.
 
 The UI can run:
 
@@ -621,7 +662,6 @@ Turns persist queued, active, waiting, successful, and failed Agent turns. Impor
   "message": "Add retopology and export",
   "status": "waiting_for_user",
   "progress": [],
-  "eventId": 4,
   "request": {
     "request_id": "request-example",
     "prompt": "Choose an export format",
@@ -834,20 +874,15 @@ Input:
 }
 ```
 
-Option IDs must be unique, the option list must be non-empty, and `1 <= min <= max <= options.length`. The turn becomes `waiting_for_user`, persists the request, emits the selection event, and closes the current stream.
+Option IDs must be unique, the option list must be non-empty, and `1 <= min <= max <= options.length`. The turn becomes `waiting_for_user`, persists the request, emits the selection event, and stops without a `finish`.
 
 ## Agent SSE Protocol
 
-The browser opens the stream with `fetch`, not `EventSource`, because the request is a POST:
+One long-lived SSE channel per canvas carries every server-pushed event for it. The browser opens it with `EventSource` when it opens the canvas, and closes it when it opens another or unmounts:
 
 ```http
-POST /api/canvases/canvas-example/turns
+GET /api/canvases/canvas-example/events
 Accept: text/event-stream
-Content-Type: application/json
-
-{
-  "message": "Add retopology and export"
-}
 ```
 
 Response headers:
@@ -858,11 +893,22 @@ Cache-Control: no-cache
 Connection: keep-alive
 ```
 
+Starting a turn is a separate plain request that returns `202` with the turn; its events arrive on the channel:
+
+```http
+POST /api/canvases/canvas-example/turns
+Content-Type: application/json
+
+{
+  "message": "Add retopology and export"
+}
+```
+
 Every SSE frame has a transport event name, a JSON business payload, and a transport ID:
 
 ```text
 event: message
-data: {"type":"progress","conversation_id":"conv-example","turn_id":"turn-example","step_id":"progress-1","label":"Building canvas","status":"running"}
+data: {"type":"progress","canvas_id":"canvas-example","conversation_id":"conv-example","turn_id":"turn-example","step_id":"progress-1","label":"Building canvas","status":"running"}
 id: 2-0
 
 ```
@@ -870,22 +916,28 @@ id: 2-0
 - Normal business events use `event: message`.
 - Failures use `event: error`.
 - The business event type is always `data.type`.
-- Every payload contains `conversation_id` and `turn_id`.
-- SSE `id:` is `<turn.eventId>-0` and is not the same as a chat message's JSON `id`.
+- Every payload contains `canvas_id`, `conversation_id` and `turn_id`. A client matches an event to a chat bubble by `turn_id`.
+- SSE `id:` is `<seq>-0`, where `seq` counts events per canvas. It is not the same as a chat message's JSON `id`.
+- Comment lines (`: subscribed` on open, `: keepalive` every 15s) carry no event and are ignored.
 - Final assistant text is sent as one complete event, not token deltas.
-- Event replay using `Last-Event-ID` is not implemented.
+- Nothing is buffered or replayed: `Last-Event-ID` has no effect. A client that reconnects re-reads state with `GET /api/canvases/:id`, `GET /api/canvases/:id/conversation` and `GET /api/canvases/:id/turns`, which is what opening a canvas already does.
+- Because the channel belongs to the canvas and not to one request, a second client watching the same canvas sees the same events.
 
 ### Business Events
 
-| `data.type` | Important fields | Frontend behavior |
-| --- | --- | --- |
-| `turn-start` | `canvas_id` | Bind the server turn ID to the optimistic assistant message. |
-| `progress` | `step_id`, `label`, `status` | Append safe visible Agent activity. |
-| `request_user_select` | `request` | Stop pending state and render a choice card. |
-| `text` | `step_id`, `id`, `text` | Replace pending text with the complete assistant reply. |
-| `canvas-updated` | `canvas_id`, `changed_node_ids`, `structure_changed` | Fetch authoritative canvas state; auto-layout if structure changed. |
-| `finish` | `finish_reason: "stop"` | End pending state. |
-| `error` | `error` | Mark the turn failed and show the message. |
+Only two user actions produce events: sending a message (`POST /api/canvases/:id/turns`)
+and submitting a choice the Agent asked for (`POST /api/turns/:id/continue`). Both return
+`202`; everything after that arrives on the channel.
+
+| `data.type` | User action behind it | What the server just did | Frontend behavior | Important fields |
+| --- | --- | --- | --- | --- |
+| `turn-start` | The user pressed Enter to send a message, or submitted a choice for a paused turn. | Accepted the turn and moved it from `queued` to `running`. | Bind the server turn ID to the optimistic assistant message. A turn that asked a question emits this twice — once per user action — with the same `turn_id`. | — |
+| `progress` | Same action; the user does nothing more. These frames are the Agent working. | Reported one step (reading canvas structure, building the node chain, inspecting or updating parameters). | Append safe visible Agent activity. | `step_id`, `label`, `status` |
+| `request_user_select` | The user's message was underspecified, so the Agent asks back. | Persisted the options and parked the turn in `waiting_for_user` without a `finish`. | Stop pending state and render a choice card; submitting it resumes the turn with a new `turn-start`. | `request` |
+| `text` | Nothing — this is the Agent answering the user's message. | Wrote the reply into the conversation, then emitted this. | Replace pending text with the complete assistant reply. | `step_id`, `id`, `text` |
+| `canvas-updated` | The user's message asked for canvas changes and the Agent made them. | Persisted the new canvas, then emitted this. | Fetch authoritative canvas state; auto-layout if structure changed. | `changed_node_ids`, `structure_changed` |
+| `finish` | Nothing. | Closed the turn successfully; last frame for that `turn_id`. | End pending state. | `finish_reason: "stop"` |
+| `error` | Nothing — any step above can fail into this. | Marked the turn `failed` and emitted the one `event: error` frame. | Mark the turn failed and show the message; the user can send again. | `error` |
 
 Successful sequence:
 
@@ -897,13 +949,12 @@ canvas-updated
 finish
 ```
 
-Selection sequence:
+Selection sequence, which pauses the turn without ending the channel:
 
 ```text
 turn-start
 progress × N
 request_user_select
-stream closes
 ```
 
 Failure sequence:
@@ -920,7 +971,6 @@ The canvas itself is never embedded in `canvas-updated`. The event is an invalid
 
 ```http
 POST /api/turns/:turnId/continue
-Accept: text/event-stream
 Content-Type: application/json
 
 {
@@ -929,7 +979,7 @@ Content-Type: application/json
 }
 ```
 
-The server validates turn state, request ID, unique options, allowed option IDs, and min/max selection count. It persists the answer, adds a user conversation message containing selected labels, returns the turn to `queued`, and starts a fresh Agent call using the original request plus the selection.
+The server validates turn state, request ID, unique options, allowed option IDs, and min/max selection count. It persists the answer, adds a user conversation message containing selected labels, returns the turn to `queued`, and starts a fresh Agent call using the original request plus the selection. Like starting a turn, this returns `202`; the resumed turn's events continue on the canvas channel.
 
 Submitting the exact same request ID and ordered selection again is idempotent. A conflicting second answer returns `409`.
 
@@ -1001,6 +1051,8 @@ Creation requires a non-empty name, unique node IDs, finite node positions, vali
 | --- | --- | --- |
 | `POST` | `/api/nodes/:nodeId/executions` | Create an execution from a globally unique entry node. |
 | `GET` | `/api/executions/:executionId` | Return one execution with its per-node status and output. |
+| `GET` | `/api/capabilities` | Report which execution providers this server can serve. |
+| `GET` | `/api/assets/:file` | Serve a result copied off Tripo before its URL expired. |
 
 The server derives and executes either the entry node alone or its reachable
 downstream graph. Node IDs must be globally unique; an ambiguous ID returns `409`.
@@ -1008,7 +1060,25 @@ downstream graph. Node IDs must be globally unique; an ambiguous ID returns `409
 Request:
 
 ```json
-{ "mode": "downstream" }
+{ "mode": "downstream", "provider": "tripo" }
+```
+
+`provider` is optional and accepts `mock` or `tripo`. Omit it to let the server
+choose, which is `tripo` when a key is configured. Anything else returns `400`, and
+asking for `tripo` without a key returns `503`.
+
+A node produced by Tripo carries three extra fields on its node run:
+`tripoTaskId`, `progress` (0-100, updated while the task runs), and
+`creditsConsumed`. Simulated nodes have none of them.
+
+`/api/capabilities` response:
+
+```json
+{
+  "providers": { "mock": true, "tripo": true },
+  "defaultProvider": "tripo",
+  "tripoNodeTypes": ["generate-model", "retopology", "texture", "segments", "rigging", "export-model"]
+}
 ```
 
 Response:
@@ -1062,7 +1132,8 @@ them. Filter with `?kind=reference|image|model`, `?producerNodeId=`,
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/api/canvases/:canvasId/turns` | Start an Agent turn; returns SSE when requested or `202` JSON otherwise. Pass `new` as `:canvasId` to create the canvas with the turn. |
+| `GET` | `/api/canvases/:canvasId/events` | Subscribe to the canvas's SSE event channel. |
+| `POST` | `/api/canvases/:canvasId/turns` | Start an Agent turn; returns `202` JSON. Pass `new` as `:canvasId` to create the canvas with the turn. |
 | `GET` | `/api/canvases/:canvasId/conversation` | Return the canvas conversation and its full message history. |
 | `GET` | `/api/canvases/:canvasId/turns` | List the canvas's turns, filtered by comma-separated `status`. |
 | `POST` | `/api/turns/:id/continue` | Validate a selection and resume a waiting turn. |
@@ -1133,7 +1204,8 @@ D1 migration initializes all collections to empty arrays. It does not import loc
 - Modern Node.js. Node 20+ is recommended; the repository does not currently enforce an `engines` version.
 - Corepack or pnpm `11.16.0`.
 - A DeepSeek API key for chat features.
-- No API key is required for the canvas, mock execution, tests, or production build.
+- A Tripo API key for real 3D generation. Optional: without it every node stays simulated.
+- No API key is required for the canvas, simulated execution, tests, or production build.
 
 ### Install
 
@@ -1150,7 +1222,17 @@ Set the key in `.env`:
 DEEPSEEK_API_KEY=
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-chat
+TRIPO_API_KEY=
+TRIPO_BASE_URL=https://openapi.tripo3d.ai/v3
 ```
+
+`TRIPO_BASE_URL` must use the `.ai` host. Tripo's own docs show `openapi.tripo3d.com`
+in some samples, but that host rejects a valid key with `Invalid API key`.
+
+Behind an HTTP proxy, note that Node's `fetch` ignores `HTTP_PROXY` unless told
+otherwise. The `dev:server` and `server` scripts pass `--use-env-proxy` and default
+`NO_PROXY` to `127.0.0.1,localhost`; the localhost bypass matters because proxying
+loopback traffic breaks the agent service on `127.0.0.1:8788`.
 
 ### Start All Services
 
@@ -1275,7 +1357,7 @@ This runs tests, applies the remote D1 migration, and deploys. It does not run `
 
 Without `AGENT_SERVICE_URL`, the Worker executes the direct DeepSeek tool loop. An external Pi Agent Service can be configured with `AGENT_SERVICE_URL`, but it must be reachable from Cloudflare and secured before public exposure.
 
-The Worker uses `ctx.waitUntil()` for non-streaming background Agent turns. Its concurrency and steering behavior is not fully equivalent to the local Node server's in-memory canvas queues.
+The Worker uses `ctx.waitUntil()` to run Agent turns after their `202` response. Its concurrency and steering behavior is not fully equivalent to the local Node server's in-memory canvas queues, and its canvas event channels are per-isolate, so a turn's events only reach clients subscribed on the same isolate.
 
 ## Environment And Bindings
 
@@ -1395,7 +1477,7 @@ An independent implementation should preserve these invariants:
 3. Persist positions, frame relationships, dimensions, viewport, and revision.
 4. Serialize autosaves so stale requests cannot overwrite recent edits.
 5. Make server state authoritative after every Agent mutation.
-6. Use POST + fetch streaming for SSE, not `EventSource`.
+6. Push server events on one long-lived per-canvas channel, not on the response of the request that started the work.
 7. Send full final assistant messages, not token deltas.
 8. Keep raw Agent tool calls private; expose only safe progress labels.
 9. Pause finite decisions as persisted `waiting_for_user` turns.
@@ -1422,7 +1504,8 @@ An independent implementation should preserve these invariants:
 - D1 stores each collection as one JSON value; it is simple but not suitable for large-scale concurrent workloads.
 - Remote migration does not seed the sample canvas.
 - Fragment validation failures currently may surface as `500` rather than `400`.
-- SSE event IDs are persisted but replay and `Last-Event-ID` recovery are not implemented.
+- SSE events are not buffered, so replay and `Last-Event-ID` recovery are not implemented; a reconnecting client re-reads state over REST.
+- Canvas event channels and their sequence counters live in memory, so a canvas open on two Workers isolates does not share one channel.
 - Local queues and active Pi runs are in memory and do not survive a Node process restart.
 - No browser E2E, visual regression, Worker/D1 integration, or deployment smoke tests exist.
 - Type checking does not cover the complete frontend and Agent Service.

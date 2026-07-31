@@ -2,14 +2,11 @@
 
 ## Overview
 
-The Vue frontend in `src/App.vue` creates an Agent turn. `sendMessage()` calls `submitTurn()`, which sends `POST /api/canvases/{canvasId}/turns`. When the request accepts `text/event-stream`, the Node server (`server/index.js`) or Cloudflare Worker (`worker.js`) returns an SSE stream.
+Server events travel on one long-lived SSE channel per canvas, not on the response of the request that started the work. `openCanvas()` in `src/composables/useCanvasDocument.ts` calls `subscribeCanvasEvents()`, which opens an `EventSource` against the Node server (`server/index.ts`) or Cloudflare Worker (`worker.ts`):
 
 ```http
-POST /api/canvases/{canvasId}/turns
+GET /api/canvases/{canvasId}/events
 Accept: text/event-stream
-Content-Type: application/json
-
-{"message":"将导出格式改为 STL"}
 ```
 
 The response headers are:
@@ -20,16 +17,33 @@ Cache-Control: no-cache
 Connection: keep-alive
 ```
 
+Creating an Agent turn is a separate plain request. `sendMessage()` sends it and gets the turn back as `202` JSON; the turn's events arrive on the channel that is already open.
+
+```http
+POST /api/canvases/{canvasId}/turns
+Content-Type: application/json
+
+{"message":"将导出格式改为 STL"}
+```
+
 Each SSE frame contains a protocol event name in `event:`, a JSON business payload in `data:`, and a transport event ID in `id:`. Normal business payloads use `event: message`; failed turn payloads use `event: error`. The specific business event type is always `data.type`. Final assistant replies use one complete `text` payload rather than incremental text fragments.
 
 ```text
 event: message
-data: {"type":"progress","conversation_id":"conv-dba980cd","turn_id":"turn-a2b2cee2","step_id":"progress-4","label":"Updating node parameters","status":"running"}
+data: {"type":"progress","canvas_id":"canvas-8f31","conversation_id":"conv-dba980cd","turn_id":"turn-a2b2cee2","step_id":"progress-4","label":"Updating node parameters","status":"running"}
 id: 8-0
 
 ```
 
-`event:` classifies the SSE protocol frame, while `data.type` identifies the application business event. `id:` is the transport event ID. It is not the same as the JSON `id` used by `text-*` events to identify a chat message.
+`event:` classifies the SSE protocol frame, while `data.type` identifies the application business event. `id:` is `<seq>-0`, where `seq` counts events per canvas; it is not the same as the JSON `id` used by `text` events to identify a chat message.
+
+The channel also carries comment-only frames that are not events: `: subscribed` when it opens, and `: keepalive` every 15 seconds so an idle stream is not dropped by a proxy.
+
+### Why One Channel Per Canvas Instead Of One Stream Per Turn
+
+Because the channel belongs to the canvas rather than to a request, it is the same stream regardless of who started the work. A second client watching the same canvas sees the same events, and events that no single request owns — a node finishing, another client's turn — have somewhere to go. The cost is that a client must match each event to a chat bubble by `turn_id` rather than by which stream it arrived on, and that a turn posted against `new` has to wait for the client to subscribe to the canvas it just created (`whenSubscribed()` in `server/index.ts`).
+
+Nothing is buffered or replayed, so `Last-Event-ID` has no effect. A reconnecting client re-reads state with `GET /api/canvases/:canvasId`, `GET /api/canvases/:canvasId/conversation` and `GET /api/canvases/:canvasId/turns`, which is what opening a canvas already does.
 
 ### Canvas And Conversation Are Separate Resources
 
@@ -49,13 +63,12 @@ The user says: `生成两张赛博朋克鲨鱼的概念图`.
 
 ```http
 POST /api/canvases/{canvasId}/turns
-Accept: text/event-stream
 Content-Type: application/json
 
 {"message":"生成两张赛博朋克鲨鱼的概念图"}
 ```
 
-The application server creates `turn-images-123`, opens the SSE response, then emits:
+The application server creates `turn-images-123`, answers `202` with it, then emits on the canvas channel:
 
 ```text
 event: message
@@ -77,7 +90,7 @@ id: 3-0
 
 ```
 
-On `canvas-updated`, `consumeAgentStream()` calls `refreshCanvas("canvas-123", "turn-images-123", true)`. `refreshCanvas()` requests `GET /api/canvases/canvas-123` and `GET /api/canvases/canvas-123/conversation` in parallel, updates the canvas and the conversation from them, then runs `autoLayout()` because a node was added.
+On `canvas-updated`, the channel handler calls `refreshCanvas("canvas-123", "turn-images-123", true)`. `refreshCanvas()` requests `GET /api/canvases/canvas-123` and `GET /api/canvases/canvas-123/conversation` in parallel, updates the canvas and the conversation from them, then runs `autoLayout()` because a node was added.
 
 The Agent then sends its text response and completes the first turn:
 
@@ -113,7 +126,7 @@ id: 3-0
 
 ```
 
-The frontend handles this second `canvas-updated` exactly as in turn 1: `consumeAgentStream()` calls `refreshCanvas()`, which fetches the persisted canvas and its conversation and redraws the canvas. The canvas now contains the image node followed by the 3D model, retopology, and UV texture nodes.
+The frontend handles this second `canvas-updated` exactly as in turn 1: the channel handler calls `refreshCanvas()`, which fetches the persisted canvas and its conversation and redraws the canvas. The canvas now contains the image node followed by the 3D model, retopology, and UV texture nodes.
 
 ```text
 event: message
@@ -179,7 +192,7 @@ id: 5-0
 
 ```
 
-After `canvas-updated`, `consumeAgentStream()` calls `refreshCanvas("canvas-123", "turn-123", false)`. `refreshCanvas()` requests `GET /api/canvases/canvas-123` and `GET /api/canvases/canvas-123/conversation` in parallel, then replaces the local canvas and conversation state with the persisted authoritative versions.
+After `canvas-updated`, the channel handler calls `refreshCanvas("canvas-123", "turn-123", false)`. `refreshCanvas()` requests `GET /api/canvases/canvas-123` and `GET /api/canvases/canvas-123/conversation` in parallel, then replaces the local canvas and conversation state with the persisted authoritative versions.
 
 ### 6. Agent Finishes the Turn
 
@@ -198,26 +211,28 @@ id: 11-0
 
 Every JSON `data.type` value belongs to this list. `Implemented` means the current server emits and the current Vue frontend handles it. All business values except `error` are framed as SSE `event: message`; `error` is framed as SSE `event: error`.
 
-| Type | Status | Purpose |
-| --- | --- | --- |
-| `turn-start` | Implemented | Starts an Agent turn. |
-| `progress` | Implemented | Reports user-visible execution progress. |
-| `text` | Implemented | Delivers a complete assistant message. |
-| `canvas-updated` | Implemented | Invalidates local canvas state after server persistence. |
-| `finish` | Implemented | Marks a successful Agent turn complete. |
-| `error` | Implemented | Reports a failed Agent turn. |
-| `request_user_select` | Implemented | Pauses a turn and asks the user to make a required business choice. It is not limited to Artifacts. |
+Only two user actions produce events. Sending a message (`POST /api/canvases/:id/turns`) starts a turn; submitting a choice (`POST /api/turns/:id/continue`) resumes one that asked a question. Both return `202` — the events for either arrive on the channel that was already open.
+
+| Type | Status | User action behind it | Purpose |
+| --- | --- | --- | --- |
+| `turn-start` | Implemented | Message sent, or choice submitted. | Starts an Agent turn. A turn that asked a question emits it twice, once per action, under the same `turn_id`. |
+| `progress` | Implemented | Neither; the Agent is working. | Reports user-visible execution progress. |
+| `text` | Implemented | Neither; this answers the user's message. | Delivers a complete assistant message. |
+| `canvas-updated` | Implemented | Neither; the message asked for canvas changes and they are persisted. | Invalidates local canvas state after server persistence. |
+| `finish` | Implemented | Neither. | Marks a successful Agent turn complete. |
+| `error` | Implemented | Neither; any step can fail into it. | Reports a failed Agent turn. |
+| `request_user_select` | Implemented | Neither; the user's message was underspecified, so the Agent asks back. | Pauses a turn and asks the user to make a required business choice. It is not limited to Artifacts. |
 
 ### Implemented Event Details
 
 | Type | Server emitter | Frontend receiver and action |
 | --- | --- | --- |
-| `turn-start` | `executeAgentTurn()` persists `running`, then emits it. Fields: `canvas_id`. | `consumeAgentStream()` passes it to `applyAgentEvent()`, which binds `turn_id` to the optimistic assistant message. |
+| `turn-start` | `executeAgentTurn()` persists `running`, then emits it. No extra fields. | `applyAgentEvent()` binds `turn_id` to the optimistic assistant message that has none yet. |
 | `progress` | `runDeepSeekAgent()` invokes its `onProgress` callback; `executeAgentTurn()` persists the progress item, then emits it. Fields: `step_id`, `label`, `status`. | `applyAgentEvent()` appends `{ label, status }` to the pending assistant message. |
 | `text` | `executeAgentTurn()` emits it after the final assistant reply and canvas state have been persisted. Fields: `step_id`, `id`, `text`. | `applyAgentEvent()` replaces the pending assistant message content with the complete `text`. |
-| `canvas-updated` | `executeAgentTurn()` first persists `canvases` and `conversations`, then emits this lightweight invalidation. Fields: `canvas_id`, `changed_node_ids`, `structure_changed`. | `consumeAgentStream()` calls `refreshCanvas(canvas_id, turn_id, structure_changed)`. `refreshCanvas()` calls `GET /api/canvases/:canvasId` and `GET /api/canvases/:canvasId/conversation`, replaces frontend canvas/conversation state, calls `toCanvas()`, and calls `autoLayout()` only if `structure_changed` is true. |
-| `finish` | `executeAgentTurn()` emits it after `canvas-updated` when the Agent turn succeeds. Field: `finish_reason`. | `applyAgentEvent()` returns the completed `turn_id`; `consumeAgentStream()` clears `pending` for that assistant message. It does not request canvas data. |
-| `error` | `executeAgentTurn()` persists the failed turn, then emits it. Field: `error`. | `applyAgentEvent()` throws the error; `sendMessage()` marks the optimistic assistant message as failed and displays the error text. |
+| `canvas-updated` | `executeAgentTurn()` first persists `canvases` and `conversations`, then emits this lightweight invalidation. Fields: `changed_node_ids`, `structure_changed`. | The channel handler calls `refreshCanvas(canvas_id, turn_id, structure_changed)`. `refreshCanvas()` calls `GET /api/canvases/:canvasId` and `GET /api/canvases/:canvasId/conversation`, replaces frontend canvas/conversation state, calls `toCanvas()`, and calls `autoLayout()` only if `structure_changed` is true. |
+| `finish` | `executeAgentTurn()` emits it after `canvas-updated` when the Agent turn succeeds. Field: `finish_reason`. | `applyAgentEvent()` clears `pending` on the bubble matching `turn_id`. It does not request canvas data. |
+| `error` | `executeAgentTurn()` persists the failed turn, then emits it. Field: `error`. | `applyAgentEvent()` marks the bubble matching `turn_id` failed with the error text and sets the panel error. It cannot throw into the caller of `sendMessage()`, because the event arrives on the channel rather than on that request's response. |
 | `request_user_select` | `executeAgentTurn()` persists the turn as `waiting_for_user`, then emits the server-owned request. Field: `request`. | `applyAgentEvent()` stops the pending state and attaches `request` to the assistant message; the message renders a generic selection card. |
 
 ## `request_user_select` Fields
@@ -238,14 +253,14 @@ Every event contains these fields:
 | Field | Meaning |
 | --- | --- |
 | `type` | One of the event types listed above. |
+| `canvas_id` | Canvas the channel belongs to. |
 | `conversation_id` | Conversation ID. |
-| `turn_id` | Agent turn ID for the current user request. |
+| `turn_id` | Agent turn ID for the current user request. A client matches an event to a chat bubble by this. |
 
 Optional fields are event-specific:
 
 | Field | Used by | Meaning |
 | --- | --- | --- |
-| `canvas_id` | `turn-start`, `canvas-updated` | Canvas to synchronize. |
 | `step_id` | `progress`, `text` | Identifier for an Agent execution step. |
 | `id` | `text` | Assistant message ID. This is not the SSE transport `id:`. |
 | `label` | `progress` | User-visible Agent activity label. |
@@ -287,7 +302,7 @@ id: 3-0
 
 ```
 
-`executeAgentTurn()` sends `canvas-updated` after persistence and before `finish`. `consumeAgentStream()` receives it and calls `refreshCanvas()` immediately. Therefore the Vue frontend refreshes the canvas as soon as the authoritative state is available, rather than waiting for the SSE response to close.
+`executeAgentTurn()` sends `canvas-updated` after persistence and before `finish`. The channel handler receives it and calls `refreshCanvas()` immediately, so the Vue frontend refreshes as soon as the authoritative state exists rather than at the end of the turn.
 
 The canvas and the conversation are persisted together before the event is emitted (`server/index.ts` writes both, then emits `text`, `canvas-updated`, and `finish`), so one invalidation covers both resources and either can be read back immediately.
 
@@ -299,7 +314,7 @@ The browser receives safe `progress` labels rather than raw tool calls or raw to
 
 ## User Selection Event
 
-`request_user_select` is implemented in both `server/index.js` and `worker.js`. The DeepSeek tool is only used when a finite user choice is required before the turn can continue. It persists the turn as `waiting_for_user`; the generic card is restored after reload by `restoreTurns()`.
+`request_user_select` is implemented in both `server/index.ts` and `worker.ts`. The DeepSeek tool is only used when a finite user choice is required before the turn can continue. It persists the turn as `waiting_for_user`; the generic card is restored after reload by `restoreTurns()`.
 
 ### `request_user_select`
 
@@ -333,9 +348,12 @@ The Vue frontend retains `turn_id` and `request.request_id`; both identify the p
 The desired end-to-end sequence is:
 
 ```text
+Vue frontend
+  -> GET /api/canvases/{canvasId}/events as the canvas opens, held open
+
 User
   -> Vue frontend: POST /api/canvases/{canvasId}/turns
-  -> application server: creates the turn and opens SSE
+  -> application server: creates the turn, answers 202
 
 Application server
    -> SSE turn-start
@@ -366,12 +384,13 @@ Application server
 
 ## Recovery
 
-Turns and progress are persisted. `openCanvas()` in `src/composables/useCanvasDocument.ts` loads the canvas document, then calls `loadConversation()` and `restoreTurns()` from `src/composables/useAgentChat.ts`. Opening a canvas therefore issues three requests, each for a distinct resource:
+Turns and progress are persisted. `openCanvas()` in `src/composables/useCanvasDocument.ts` loads the canvas document, then calls `loadConversation()`, `restoreTurns()` and `subscribeCanvasEvents()` from `src/composables/useAgentChat.ts`. Opening a canvas therefore reads three resources and then subscribes:
 
 ```http
 GET /api/canvases/{canvasId}
 GET /api/canvases/{canvasId}/conversation
 GET /api/canvases/{canvasId}/turns?status=queued,running,waiting_for_user
+GET /api/canvases/{canvasId}/events
 ```
 
-`loadConversation()` restores the settled message history. `restoreTurns()` covers only what the history cannot: turns that have not finished yet, rebuilt as a pending bubble (`queued`/`running`) or a selection card (`waiting_for_user`). The live communication path remains the SSE response that `submitTurn()` receives from `POST /api/canvases/{canvasId}/turns`.
+`loadConversation()` restores the settled message history. `restoreTurns()` covers only what the history cannot: turns that have not finished yet, rebuilt as a pending bubble (`queued`/`running`) or a selection card (`waiting_for_user`). `subscribeCanvasEvents()` then opens the channel, so anything those turns emit from that point on lands on a restored bubble.

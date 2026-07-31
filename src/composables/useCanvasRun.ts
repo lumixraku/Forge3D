@@ -3,7 +3,12 @@ import { request } from '../api'
 import { planNodes } from '../run-plan'
 import { formatDuration, summarizeRun } from '../run-summary'
 
-export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, busy, error, runToken, saveCanvas, materializeRunBatch }) {
+// A simulated node settles in well under a second, but a real Tripo task takes
+// tens of seconds and Tripo asks for 1-2s polling, so the interval follows
+// whichever backend the run is actually using.
+const POLL_INTERVAL_MS = { mock: 250, tripo: 1500 }
+
+export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, busy, error, runToken, saveCanvas, materializeRunBatch, provider = { value: null } }) {
   const isRunning = computed(() => run.value?.status === 'running')
   const runDetails = computed(() => summarizeRun(run.value, nodes.value))
   const runSummary = computed(() => {
@@ -46,12 +51,17 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, busy, 
       const execution = await request(`/api/nodes/${targetNodeId}/executions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ mode: scope === 'downstream' ? 'downstream' : 'node' }),
+        body: JSON.stringify({
+          mode: scope === 'downstream' ? 'downstream' : 'node',
+          // Omitted entirely when no override is set, so the server keeps deciding.
+          ...(provider.value ? { provider: provider.value } : {}),
+        }),
       })
       if (runToken.value !== pollToken || activeCanvas.value?.id !== canvasId) return
+      const pollInterval = POLL_INTERVAL_MS[provider.value === 'mock' ? 'mock' : 'tripo']
       run.value = { id: execution.id, status: execution.status, nodeRuns: execution.nodeExecutions }
       while (['queued', 'running'].includes(run.value.status) && runToken.value === pollToken) {
-        await new Promise((resolve) => setTimeout(resolve, 250))
+        await new Promise((resolve) => setTimeout(resolve, pollInterval))
         const current = await request(`/api/executions/${execution.id}`)
         if (runToken.value !== pollToken || activeCanvas.value?.id !== canvasId) return
         run.value = { id: current.id, status: current.status, nodeRuns: current.nodeExecutions }

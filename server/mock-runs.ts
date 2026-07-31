@@ -153,17 +153,27 @@ export function downstreamCanvas(canvas, startNodeId) {
 
 // Executes one node and returns its result. Failing nodes surface as a thrown
 // error so the caller can stop the sequence and report which node broke.
+//
+// `provider` runs the node against a real backend. It returns null for a node it
+// does not handle, which falls through to the simulation below, so a canvas with
+// no provider configured behaves exactly as it always has.
 export async function executeNode(node, canvas, {
   wait = (duration) => new Promise((resolve) => setTimeout(resolve, duration)),
+  provider = null,
 } = {}) {
-  const startedAt = Date.now()
-  await wait(600)
-
   if (node.config?.mockFailure) {
     const error = new Error(`Mock ${node.type} execution failed`)
     error.statusCode = 422
     throw error
   }
+
+  if (provider) {
+    const produced = await provider(node, canvas)
+    if (produced) return produced
+  }
+
+  const startedAt = Date.now()
+  await wait(600)
 
   // An unapproved check node is not a failure: it holds the sequence until the
   // user approves, so the caller stops without marking anything red.

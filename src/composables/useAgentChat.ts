@@ -12,6 +12,7 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
   const composerVersion = ref(0)
   const selectedOptions = ref({})
   const continuingTurnId = ref(null)
+  let events = null
   const messages = computed(() => conversation.value?.messages || [])
   const composer = useEditor({
     extensions: [
@@ -69,20 +70,6 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
     }
   }
 
-  async function submitTurn(canvasId, input) {
-    const response = await fetch(`/api/canvases/${canvasId}/turns`, {
-      method: 'POST',
-      headers: { accept: 'text/event-stream', 'content-type': 'application/json' },
-      body: JSON.stringify(input),
-    })
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}))
-      throw new Error(data.error || 'Request failed')
-    }
-    if (!response.body) throw new Error('Agent stream is unavailable')
-    return response.body
-  }
-
   async function loadConversation(canvasId) {
     conversation.value = await request(`/api/canvases/${canvasId}/conversation`)
   }
@@ -100,9 +87,21 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
     await nextTick()
   }
 
-  function applyAgentEvent(event, pendingAssistantId) {
-    const pending = conversation.value?.messages.find((item) => item.id === pendingAssistantId || item.turnId === event.turn_id)
-    if (event.type === 'turn-start' && pending) pending.turnId = event.turn_id
+  // Events arrive on the canvas channel, not on the response of the POST that
+  // started the turn, so a pending bubble is matched by turn id. The one bubble
+  // that has no turn id yet is the message we just sent; it adopts the id of the
+  // first `turn-start` that has no bubble of its own.
+  function pendingMessageFor(event) {
+    const byTurn = conversation.value?.messages.find((item) => item.turnId === event.turn_id)
+    if (byTurn) return byTurn
+    if (event.type !== 'turn-start') return null
+    const unclaimed = conversation.value?.messages.find((item) => item.pending && !item.turnId && item.role === 'assistant')
+    if (unclaimed) unclaimed.turnId = event.turn_id
+    return unclaimed
+  }
+
+  function applyAgentEvent(event) {
+    const pending = pendingMessageFor(event)
     if (event.type === 'progress' && pending) pending.progress = [...(pending.progress || []), { label: event.label, status: event.status }]
     if (event.type === 'text' && pending) {
       pending.streamMessageId = event.id
@@ -113,36 +112,41 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
       pending.request = event.request
       pending.content = ''
     }
-    if (event.type === 'error') throw new Error(event.error || 'Agent turn failed')
-    return event.type === 'finish' ? { turnId: event.turn_id } : null
+    if (event.type === 'error') {
+      if (pending) {
+        pending.pending = false
+        pending.failed = true
+        pending.content = event.error || 'Agent turn failed'
+      }
+      error.value = event.error || 'Agent turn failed'
+    }
+    if (event.type === 'finish' && pending) pending.pending = false
   }
 
-  async function consumeAgentStream(stream, pendingAssistantId, token = runToken.value) {
-    const reader = stream.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let completion = null
-    while (token === runToken.value) {
-      const { done, value } = await reader.read()
-      buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
-      const frames = buffer.split(/\r?\n\r?\n/)
-      buffer = frames.pop()
-      for (const frame of frames) {
-        const protocolType = frame.split(/\r?\n/).find((line) => line.startsWith('event: '))?.slice(7)
-        const data = frame.split(/\r?\n/).find((line) => line.startsWith('data: '))?.slice(6)
-        if (!data) continue
-        const event = JSON.parse(data)
-        if (!['message', 'error'].includes(protocolType) || (protocolType === 'error') !== (event.type === 'error')) throw new Error('Invalid SSE event framing')
-        const outcome = applyAgentEvent(event, pendingAssistantId)
-        if (event.type === 'canvas-updated') await refreshCanvas(event.canvas_id, event.turn_id, event.structure_changed)
-        completion = outcome || completion
-      }
-      if (done) break
+  // The canvas's single event channel, opened when the canvas opens and closed
+  // when it closes. Nothing is replayed on reconnect: `openCanvas` re-reads the
+  // canvas, the conversation and the in-flight turns over REST instead.
+  function subscribeCanvasEvents(canvasId) {
+    closeCanvasEvents()
+    const token = runToken.value
+    const source = new EventSource(`/api/canvases/${encodeURIComponent(canvasId)}/events`)
+    events = source
+    const handle = async (message) => {
+      // EventSource dispatches its own transport failures under the same name as
+      // an `event: error` frame; only the frame carries data. EventSource
+      // reconnects on its own, so a transport failure needs nothing from us.
+      if (!message.data || token !== runToken.value) return
+      const event = JSON.parse(message.data)
+      applyAgentEvent(event)
+      if (event.type === 'canvas-updated') await refreshCanvas(event.canvas_id, event.turn_id, event.structure_changed)
     }
-    if (completion) {
-      const pending = conversation.value?.messages.find((item) => item.turnId === completion.turnId)
-      if (pending) pending.pending = false
-    }
+    source.addEventListener('message', handle)
+    source.addEventListener('error', handle)
+  }
+
+  function closeCanvasEvents() {
+    events?.close()
+    events = null
   }
 
   async function restoreTurns(canvasId) {
@@ -175,17 +179,12 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
     error.value = ''
     message.pending = true
     try {
-      const response = await fetch(`/api/turns/${message.turnId}/continue`, {
+      // The turn resumes on the canvas channel; this only hands over the selection.
+      await request(`/api/turns/${message.turnId}/continue`, {
         method: 'POST',
-        headers: { accept: 'text/event-stream', 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ request_id: message.request.request_id, selected_option_ids: selectedOptionIds(message, selectedOptions.value) }),
       })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || 'Request failed')
-      }
-      if (!response.body) throw new Error('Agent stream is unavailable')
-      await consumeAgentStream(response.body, message.id, runToken.value)
       delete selectedOptions.value[message.turnId]
     } catch (caught) {
       message.pending = false
@@ -217,8 +216,17 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
       await flushPendingSave()
       const canvasId = activeCanvas.value?.id
       busy.value = false
-      const stream = await submitTurn(canvasId || 'new', { message })
-      await consumeAgentStream(stream, pendingAssistantId, runToken.value)
+      // 202 with the turn; its events arrive on the canvas channel. A first
+      // message has no canvas yet, so the turn creates one and we subscribe to
+      // the id it comes back with.
+      const turn = await request(`/api/canvases/${canvasId || 'new'}/turns`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message }),
+      })
+      const current = conversation.value?.messages.find((item) => item.id === pendingAssistantId)
+      if (current) current.turnId = turn.id
+      if (!canvasId) subscribeCanvasEvents(turn.canvasId)
     } catch (caught) {
       const current = conversation.value?.messages.find((item) => item.id === pendingAssistantId)
       if (current) {
@@ -235,7 +243,10 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
     }
   }
 
-  onUnmounted(() => composer.value?.destroy())
+  onUnmounted(() => {
+    closeCanvasEvents()
+    composer.value?.destroy()
+  })
 
   return {
     composer,
@@ -246,6 +257,8 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
     addComposerFiles,
     loadConversation,
     restoreTurns,
+    subscribeCanvasEvents,
+    closeCanvasEvents,
     toggleSelectedOption,
     continueTurn,
     sendMessage,

@@ -7,8 +7,8 @@
   "scripts": {
     "dev": "concurrently -k \"pnpm run agent:service\" \"AGENT_SERVICE_URL=http://127.0.0.1:8788/agent pnpm run dev:server\" \"pnpm run dev:web\"",
     "dev:web": "vite",
-    "dev:server": "node --env-file-if-exists=.env --watch --import tsx server/index.ts",
-    "server": "node --env-file-if-exists=.env --import tsx server/index.ts",
+    "dev:server": "NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\" node --use-env-proxy --env-file-if-exists=.env --watch --import tsx server/index.ts",
+    "server": "NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\" node --use-env-proxy --env-file-if-exists=.env --import tsx server/index.ts",
     "agent:service": "node --env-file-if-exists=.env --watch --import tsx agent-service/server.ts",
     "build": "vite build",
     "preview": "vite preview",

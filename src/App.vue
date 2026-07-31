@@ -11,6 +11,7 @@ import CanvasToolbar from './components/CanvasToolbar.vue'
 import ChatPanel from './components/ChatPanel.vue'
 import FrameNode from './components/FrameNode.vue'
 import ImagePreviewOverlay from './components/ImagePreviewOverlay.vue'
+import DebugPanel from './components/DebugPanel.vue'
 import RunLogPanel from './components/RunLogPanel.vue'
 import TopBar from './components/TopBar.vue'
 import CanvasNode from './components/CanvasNode.vue'
@@ -23,6 +24,7 @@ import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
 import { useTheme } from './composables/useTheme'
 import { useCanvasDocument } from './composables/useCanvasDocument'
 import { useCanvasRun } from './composables/useCanvasRun'
+import { useDebugSettings } from './composables/useDebugSettings'
 import { edgeDefaults, nodePresentation } from './canvas-graph'
 import { canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeCategories, nodeDefaults, nodeDefinition, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
 
@@ -125,6 +127,8 @@ const {
   fitFramesAfterRender,
   loadConversation: (id) => loadConversation(id),
   restoreTurns: (id) => restoreTurns(id),
+  subscribeCanvasEvents: (id) => subscribeCanvasEvents(id),
+  closeCanvasEvents: () => closeCanvasEvents(),
   pasteFragment,
   resetWorkspace,
   closeCanvasSwitcher,
@@ -132,7 +136,8 @@ const {
 
 const {
   composer, composerHasContent, messages, selectedOptions, continuingTurnId, addComposerFiles,
-  loadConversation, restoreTurns, toggleSelectedOption, continueTurn, sendMessage,
+  loadConversation, restoreTurns, subscribeCanvasEvents, closeCanvasEvents, toggleSelectedOption,
+  continueTurn, sendMessage,
 } = useAgentChat({
   activeCanvas,
   conversation,
@@ -143,6 +148,8 @@ const {
   syncCanvasSummary: (canvas) => syncCanvasSummary(canvas),
   flushPendingSave: () => flushPendingSave(),
 })
+
+const { capabilitiesError, debugPanelOpen, selectedProvider, activeProvider, tripoAvailable, tripoNodeTypes, setProvider } = useDebugSettings()
 
 const { isRunning, runDetails, runSummary, runCanvas } = useCanvasRun({
   activeCanvas,
@@ -155,6 +162,8 @@ const { isRunning, runDetails, runSummary, runCanvas } = useCanvasRun({
   runToken,
   saveCanvas: () => saveCanvas(),
   materializeRunBatch: (sourceId, runId, previews) => materializeRunBatch(sourceId, runId, previews),
+  // Null lets the server pick; the debug panel forces one backend.
+  provider: selectedProvider,
 })
 
 const { rails: assetRails, library: assetLibrary, loading: assetsLoading, loadAssets } = useAssetLibrary({ activeCanvas, error })
@@ -713,5 +722,14 @@ onUnmounted(() => {
     </section>
     <ModelEditor v-else-if="modelEditorNode" :node="modelEditorNode" @back="closeModelEditor" @update-config="updateNodeConfig(modelEditorNode.id, $event)" />
     <ImagePreviewOverlay :preview="imagePreview" @close="closeImagePreview" />
+    <DebugPanel
+      v-model:open="debugPanelOpen"
+      :selected-provider="selectedProvider"
+      :active-provider="activeProvider"
+      :tripo-available="tripoAvailable"
+      :tripo-node-types="tripoNodeTypes"
+      :error="capabilitiesError"
+      @set-provider="setProvider"
+    />
   </main>
 </template>

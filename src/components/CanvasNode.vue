@@ -37,8 +37,11 @@ const isExecutableNode = computed(() => Boolean(schema.value?.executable))
 const visibleParameters = computed(() => (schema.value?.parameters || []).filter((parameter) => conditionsMatch(parameter.visibleWhen, props.data.config)))
 const hasEditor = computed(() => visibleParameters.value.length > 0)
 const showResult = computed(() => !isExecutableNode.value || runtimeStatus.value === 'succeeded')
+// Only a real backend reports progress; a simulated node finishes too fast to
+// have any.
+const runProgress = computed(() => (typeof props.nodeRun?.progress === 'number' ? props.nodeRun.progress : null))
 const actionLabel = computed(() => {
-  if (runtimeStatus.value === 'running') return 'Generating…'
+  if (runtimeStatus.value === 'running') return runProgress.value === null ? 'Generating…' : `Generating… ${runProgress.value}%`
   if (runtimeStatus.value === 'queued') return 'Queued'
   if (runtimeStatus.value === 'failed') return 'Try again'
   return runtimeStatus.value === 'succeeded' ? 'Regenerate' : 'Generate'
@@ -50,7 +53,13 @@ const runStateTitle = computed(() => {
   if (runtimeStatus.value === 'succeeded') return 'Result ready'
   return 'Ready to run'
 })
-const runStateDetail = computed(() => props.nodeRun?.error || props.nodeRun?.output?.message || (runtimeStatus.value === 'running' ? 'Mock execution is in progress' : 'Run this node to create its output'))
+const runStateDetail = computed(() => {
+  if (props.nodeRun?.error) return props.nodeRun.error
+  if (props.nodeRun?.output?.message) return props.nodeRun.output.message
+  if (runtimeStatus.value !== 'running') return 'Run this node to create its output'
+  // A real task reports progress and can take tens of seconds; a simulated one cannot.
+  return runProgress.value === null ? 'Execution is in progress' : `Tripo task in progress · ${runProgress.value}%`
+})
 const runtimePreview = computed(() => props.nodeRun?.output?.preview || props.data.config.preview)
 const reviewImage = computed(() => props.inboundImage || props.nodeRun?.output?.preview || props.data.config.preview)
 const runtimePreviews = computed(() => props.nodeRun?.output?.previews || props.data.config.previews || [])
@@ -220,6 +229,8 @@ function loadMockImage(file: File) {
       <div v-if="runDetailsOpen" class="node-run-detail-content">
         <small>Run {{ runId || 'previous run' }}</small>
         <dl><div><dt>Node</dt><dd>{{ id }}</dd></div><div><dt>Type</dt><dd>{{ data.canvasType }}</dd></div><div><dt>Status</dt><dd>{{ nodeRun.status }}</dd></div><div><dt>Duration</dt><dd>{{ nodeRun.durationMs === null ? 'Pending' : `${nodeRun.durationMs} ms` }}</dd></div></dl>
+        <!-- Present only for a node a real backend produced. -->
+        <dl v-if="nodeRun.tripoTaskId"><div><dt>Tripo task</dt><dd>{{ nodeRun.tripoTaskId }}</dd></div><div v-if="nodeRun.creditsConsumed !== null && nodeRun.creditsConsumed !== undefined"><dt>Credits</dt><dd>{{ nodeRun.creditsConsumed }}</dd></div></dl>
         <dl v-if="runConfig.length" class="node-run-config"><div v-for="[key, value] in runConfig" :key="key"><dt>{{ key }}</dt><dd>{{ value }}</dd></div></dl>
         <p>{{ nodeRun.error || nodeRun.output?.message || 'Waiting for output' }}</p>
       </div>

@@ -48,16 +48,35 @@ function sseResponse(body) {
   })
 }
 
-function turnEvent(turn, type, fields = {}) {
-  turn.eventId = (turn.eventId || 0) + 1
-  return {
-    id: `${turn.eventId}-0`,
-    data: { type, conversation_id: turn.conversationId, turn_id: turn.id, ...fields },
+// One SSE channel per canvas, subscribed when a client opens the canvas. Nothing
+// is buffered or replayed - a client that reconnects re-reads state over REST.
+// Isolate-local, so this only holds for clients served by the same isolate.
+const canvasChannels = new Map()
+const canvasEventSeqs = new Map()
+const encoder = new TextEncoder()
+
+function subscribeCanvas(canvasId, writer) {
+  const subscribers = canvasChannels.get(canvasId) || new Set()
+  subscribers.add(writer)
+  canvasChannels.set(canvasId, subscribers)
+  return () => {
+    subscribers.delete(writer)
+    if (!subscribers.size) canvasChannels.delete(canvasId)
   }
 }
 
-async function writeSse(writer, event) {
-  await writer.write(`event: ${event.data.type === 'error' ? 'error' : 'message'}\ndata: ${JSON.stringify(event.data)}\nid: ${event.id}\n\n`)
+function turnEvent(turn, type, fields = {}) {
+  const seq = (canvasEventSeqs.get(turn.canvasId) || 0) + 1
+  canvasEventSeqs.set(turn.canvasId, seq)
+  return {
+    id: `${seq}-0`,
+    data: { type, canvas_id: turn.canvasId, conversation_id: turn.conversationId, turn_id: turn.id, ...fields },
+  }
+}
+
+async function broadcast(canvasId, event) {
+  const frame = encoder.encode(`event: ${event.data.type === 'error' ? 'error' : 'message'}\ndata: ${JSON.stringify(event.data)}\nid: ${event.id}\n\n`)
+  await Promise.all([...(canvasChannels.get(canvasId) || [])].map((writer) => writer.write(frame).catch(() => {})))
 }
 
 function canvasById(state, canvasId) {
@@ -72,12 +91,15 @@ function turnById(state, turnId) {
   return state.turns.find((turn) => turn.id === turnId)
 }
 
-async function executeAgentTurn(env, state, turn, emit = async () => {}) {
+async function executeAgentTurn(env, state, turn) {
+  // Everything this turn produces goes out on the canvas's channel, so a client
+  // that is not the one which posted the turn still sees it.
+  const emit = (type, fields) => broadcast(turn.canvasId, turnEvent(turn, type, fields))
   try {
     turn.status = 'running'
     turn.startedAt = new Date().toISOString()
     await writeCollections(env, state, ['turns'])
-    await emit(turnEvent(turn, 'turn-start', { canvas_id: turn.canvasId }))
+    await emit('turn-start')
     const canvas = canvasById(state, turn.canvasId)
     if (!canvas) throw new Error('Canvas not found')
     const conversation = conversationFor(state, turn.canvasId)
@@ -94,7 +116,7 @@ async function executeAgentTurn(env, state, turn, emit = async () => {}) {
         turn.progress.push(event)
         turn.updatedAt = new Date().toISOString()
         await writeCollections(env, state, ['turns'])
-        await emit(turnEvent(turn, 'progress', { step_id: `progress-${turn.progress.length}`, ...event }))
+        await emit('progress', { step_id: `progress-${turn.progress.length}`, ...event })
       },
     })
     if (plan.userSelectionRequest) {
@@ -117,7 +139,7 @@ async function executeAgentTurn(env, state, turn, emit = async () => {}) {
       if (conversationIndex < 0) state.conversations.push(nextConversation)
       else state.conversations[conversationIndex] = nextConversation
       await writeCollections(env, state, ['conversations', 'turns'])
-      await emit(turnEvent(turn, 'request_user_select', { request: turn.request }))
+      await emit('request_user_select', { request: turn.request })
       return
     }
     const index = state.canvases.findIndex((item) => item.id === plan.canvas.id)
@@ -138,16 +160,16 @@ async function executeAgentTurn(env, state, turn, emit = async () => {}) {
     turn.completedAt = new Date().toISOString()
     turn.updatedAt = turn.completedAt
     await writeCollections(env, state, ['canvases', 'conversations', 'turns'])
-    await emit(turnEvent(turn, 'text', { step_id: 'final-response', id: assistantMessageId, text: plan.reply }))
-    await emit(turnEvent(turn, 'canvas-updated', { canvas_id: turn.canvasId, changed_node_ids: plan.changedNodeIds, structure_changed: plan.structureChanged }))
-    await emit(turnEvent(turn, 'finish', { finish_reason: 'stop' }))
+    await emit('text', { step_id: 'final-response', id: assistantMessageId, text: plan.reply })
+    await emit('canvas-updated', { changed_node_ids: plan.changedNodeIds, structure_changed: plan.structureChanged })
+    await emit('finish', { finish_reason: 'stop' })
   } catch (error) {
     turn.status = 'failed'
     turn.error = error.message
     turn.completedAt = new Date().toISOString()
     turn.updatedAt = turn.completedAt
     await writeCollections(env, state, ['turns'])
-    await emit(turnEvent(turn, 'error', { error: turn.error }))
+    await emit('error', { error: turn.error })
   }
 }
 
@@ -210,6 +232,33 @@ async function route(request, env, ctx) {
     await writeCollections(env, state, ['canvases', 'conversations'])
     return response(canvas, 201)
   }
+  // The canvas's event channel. One long-lived SSE per open canvas carries every
+  // server-pushed event for it, so posting a turn is a plain 202 and a second
+  // client watching the same canvas sees the same stream.
+  if (request.method === 'GET' && parts[1] === 'canvases' && parts[2] && parts[3] === 'events' && parts.length === 4) {
+    const canvas = canvasById(state, parts[2])
+    if (!canvas) return response({ error: 'Canvas not found' }, 404)
+    const { readable, writable } = new TransformStream()
+    const writer = writable.getWriter()
+    const unsubscribe = subscribeCanvas(canvas.id, writer)
+    // Flush the headers so the client's EventSource opens before the first event,
+    // then keep the stream warm; proxies drop an idle one. Comment lines are ignored.
+    await writer.write(encoder.encode(': subscribed\n\n'))
+    ctx.waitUntil((async () => {
+      try {
+        for (;;) {
+          await scheduler.wait(15000)
+          await writer.write(encoder.encode(': keepalive\n\n'))
+        }
+      } catch {
+        // The client went away; drop it from the channel.
+      } finally {
+        unsubscribe()
+      }
+    })())
+    return sseResponse(readable)
+  }
+
   // Turns in progress for a canvas. The conversation holds the messages that
   // already landed; this holds the ones still running, so a reload can pick an
   // interrupted turn back up.
@@ -243,17 +292,8 @@ async function route(request, env, ctx) {
     turn.status = 'queued'
     turn.updatedAt = new Date().toISOString()
     await writeCollections(env, state, ['conversations', 'turns'])
-    if (!request.headers.get('accept')?.includes('text/event-stream')) {
-      ctx.waitUntil(executeAgentTurn(env, state, turn))
-      return response(turn, 202)
-    }
-    const { readable, writable } = new TransformStream()
-    const writer = writable.getWriter()
-    const execution = executeAgentTurn(env, state, turn, (event) => writeSse(writer, event))
-      .catch(() => {})
-      .finally(() => writer.close())
-    ctx.waitUntil(execution)
-    return sseResponse(readable)
+    ctx.waitUntil(executeAgentTurn(env, state, turn))
+    return response(turn, 202)
   }
   // Start a turn. `canvasId` may be `new`, which creates the canvas this turn
   // will build, so the first message does not need a canvas up front.
@@ -270,20 +310,11 @@ async function route(request, env, ctx) {
     }
     const now = new Date().toISOString()
     const conversation = conversationFor(state, canvas.id)
-    const turn = { id: `turn-${id()}`, conversationId: conversation?.id || `conv-${id()}`, canvasId: canvas.id, message: input.message, status: 'queued', progress: [], eventId: 0, createdAt: now, updatedAt: now }
+    const turn = { id: `turn-${id()}`, conversationId: conversation?.id || `conv-${id()}`, canvasId: canvas.id, message: input.message, status: 'queued', progress: [], createdAt: now, updatedAt: now }
     state.turns.push(turn)
     await writeCollections(env, state, ['canvases', 'conversations', 'turns'])
-    if (!request.headers.get('accept')?.includes('text/event-stream')) {
-      ctx.waitUntil(executeAgentTurn(env, state, turn))
-      return response(turn, 202)
-    }
-    const { readable, writable } = new TransformStream()
-    const writer = writable.getWriter()
-    const execution = executeAgentTurn(env, state, turn, (event) => writeSse(writer, event))
-      .catch(() => {})
-      .finally(() => writer.close())
-    ctx.waitUntil(execution)
-    return sseResponse(readable)
+    ctx.waitUntil(executeAgentTurn(env, state, turn))
+    return response(turn, 202)
   }
   if (request.method === 'GET' && parts[1] === 'canvases' && parts[2] && parts[3] === 'assets' && parts.length === 4) {
     const canvas = canvasById(state, parts[2])

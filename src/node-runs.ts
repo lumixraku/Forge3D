@@ -4,6 +4,10 @@ export interface NodeRun {
   status: string
   durationMs?: number | null
   error?: string | null
+  // Only set when a real backend produced this node; a simulated run has none.
+  progress?: number
+  tripoTaskId?: string
+  creditsConsumed?: number | null
   output?: {
     message?: string
     preview?: string

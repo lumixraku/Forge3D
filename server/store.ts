@@ -85,7 +85,12 @@ export async function createStore() {
     await persist('canvases')
   }
 
-  return { state, persist }
+  /** Deletes one canvas file. Deleting is explicit so a save can never do it. */
+  async function removeCanvas(canvasId) {
+    await unlink(path.join(canvasDirectory, `${canvasId}.json`)).catch(() => {})
+  }
+
+  return { state, persist, removeCanvas }
 
   async function migrateCanvasFiles() {
     let files
@@ -113,20 +118,16 @@ export async function createStore() {
     return Promise.all(files.map(async (file) => JSON.parse(await readFile(path.join(canvasDirectory, file), 'utf8'))))
   }
 
+  // Writes only; a canvas file is removed by `removeCanvas`. Reaping every file
+  // absent from this list would delete a canvas a second server process had just
+  // created, which is how one went missing during development.
   async function persistCanvasFiles(canvases) {
     await mkdir(canvasDirectory, { recursive: true })
-    const currentFiles = new Set()
-
     await Promise.all(canvases.map(async (canvas) => {
-      const file = `${canvas.id}.json`
-      currentFiles.add(file)
-      const destination = path.join(canvasDirectory, file)
+      const destination = path.join(canvasDirectory, `${canvas.id}.json`)
       const temporary = `${destination}.tmp`
       await writeFile(temporary, `${JSON.stringify(canvas, null, 2)}\n`)
       await rename(temporary, destination)
     }))
-
-    const files = (await readdir(canvasDirectory)).filter((file) => file.endsWith('.json'))
-    await Promise.all(files.filter((file) => !currentFiles.has(file)).map((file) => unlink(path.join(canvasDirectory, file))))
   }
 }

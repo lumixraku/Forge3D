@@ -53,6 +53,44 @@ test('stores node identity and failures', () => {
   assert.equal(runs[0].status, 'failed')
 })
 
+test('a run stays running until every node has left the queue', () => {
+  // The whole subgraph is queued up front, so recording the first node must not
+  // report the run as finished: a client polling for a terminal status would stop
+  // while the rest of the chain was still executing.
+  const runs = [{
+    id: 'run-1',
+    canvasId: 'canvas-1',
+    canvasRevision: 3,
+    status: 'running',
+    nodeRuns: {
+      'generate-image': { status: 'queued' },
+      model: { status: 'queued' },
+    },
+  }]
+
+  recordNodeExecution(runs, { runId: 'run-1', canvas, node: canvas.nodes[0], result: succeeded })
+  assert.equal(runs[0].status, 'running')
+
+  recordNodeExecution(runs, { runId: 'run-1', canvas, node: canvas.nodes[1], result: succeeded })
+  assert.equal(runs[0].status, 'succeeded')
+})
+
+test('a failure anywhere fails the run, even after a later node succeeds', () => {
+  const runs = []
+  const run = recordNodeExecution(runs, { runId: null, canvas, node: canvas.nodes[0], result: { status: 'failed', durationMs: null, output: null, error: 'boom' } })
+  assert.equal(run.status, 'failed')
+
+  recordNodeExecution(runs, { runId: run.id, canvas, node: canvas.nodes[1], result: succeeded })
+  assert.equal(runs[0].status, 'failed')
+})
+
+test('a review checkpoint holds the run instead of completing it', () => {
+  const runs = []
+  const run = recordNodeExecution(runs, { runId: null, canvas, node: canvas.nodes[0], result: { status: 'waiting_review', durationMs: 10, output: null } })
+
+  assert.equal(run.status, 'waiting_review')
+})
+
 test('re-running a node inside the same pass overwrites its entry', () => {
   const runs = []
   const run = recordNodeExecution(runs, { runId: null, canvas, node: canvas.nodes[0], result: { ...succeeded, output: { preview: '/old.png' } }, now: () => 'a' })

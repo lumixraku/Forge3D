@@ -8,14 +8,25 @@ import { createExecution, executeExecution, executionById, executionDto, findNod
 import { createInitialConversation, createCanvas, emptyConversation } from './canvases.js'
 import { runDeepSeekAgent } from './deepseek.js'
 import { runAgentViaService } from './agent-client.js'
+import { createTripoRunner } from './tripo-run.js'
+import { readAsset } from './tripo-assets.js'
+import { tripoNodeTypes } from './tripo-mapping.js'
 
 const port = Number(process.env.PORT || 8787)
-const { state, persist } = await createStore()
+// Null when TRIPO_API_KEY is unset, which keeps every node on the simulated
+// producer so the demo runs without credentials.
+const createTripoProvider = createTripoRunner()
+const { state, persist, removeCanvas } = await createStore()
 const canvasTurnQueues = new Map()
 // How many agent runs are currently streaming per canvas. A new turn
 // for a canvas with an active run is dispatched immediately (bypassing the
 // serial queue) so the agent service can steer it into the running run.
 const activeRuns = new Map()
+// One SSE channel per canvas: a client subscribes when it opens the canvas and
+// every event the server pushes for that canvas is multiplexed onto it. Nothing
+// is buffered or replayed - a client that reconnects re-reads state over REST.
+const canvasChannels = new Map()
+const canvasEventSeqs = new Map()
 
 function json(response, status, body) {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
@@ -30,16 +41,48 @@ function openSse(response) {
   })
 }
 
+const canvasSubscribeWaiters = new Map()
+
+function subscribeCanvas(canvasId, response) {
+  const subscribers = canvasChannels.get(canvasId) || new Set()
+  subscribers.add(response)
+  canvasChannels.set(canvasId, subscribers)
+  for (const resolve of canvasSubscribeWaiters.get(canvasId) || []) resolve()
+  canvasSubscribeWaiters.delete(canvasId)
+  return () => {
+    subscribers.delete(response)
+    if (!subscribers.size) canvasChannels.delete(canvasId)
+  }
+}
+
+// A turn that creates its own canvas has no subscriber yet: the client only
+// learns the canvas id from the 202. Wait for it to subscribe before running, or
+// the whole first turn would be pushed into an empty channel.
+function whenSubscribed(canvasId, timeout = 5000) {
+  if (canvasChannels.get(canvasId)?.size) return Promise.resolve()
+  return new Promise((resolve) => {
+    const waiters = canvasSubscribeWaiters.get(canvasId) || new Set()
+    waiters.add(resolve)
+    canvasSubscribeWaiters.set(canvasId, waiters)
+    setTimeout(resolve, timeout).unref()
+  })
+}
+
 function turnEvent(turn, type, fields = {}) {
-  turn.eventId = (turn.eventId || 0) + 1
+  const seq = (canvasEventSeqs.get(turn.canvasId) || 0) + 1
+  canvasEventSeqs.set(turn.canvasId, seq)
   return {
-    id: `${turn.eventId}-0`,
-    data: { type, conversation_id: turn.conversationId, turn_id: turn.id, ...fields },
+    id: `${seq}-0`,
+    data: { type, canvas_id: turn.canvasId, conversation_id: turn.conversationId, turn_id: turn.id, ...fields },
   }
 }
 
 function writeSse(response, event) {
   response.write(`event: ${event.data.type === 'error' ? 'error' : 'message'}\ndata: ${JSON.stringify(event.data)}\nid: ${event.id}\n\n`)
+}
+
+function broadcast(canvasId, event) {
+  for (const response of canvasChannels.get(canvasId) || []) writeSse(response, event)
 }
 
 async function body(request) {
@@ -64,12 +107,16 @@ function turnById(id) {
   return state.turns.find((turn) => turn.id === id)
 }
 
-async function executeAgentTurn(turn, emit = async () => {}) {
+async function executeAgentTurn(turn) {
+  // Everything this turn produces goes out on the canvas's channel, so a client
+  // that is not the one which posted the turn still sees it.
+  const emit = (type, fields) => broadcast(turn.canvasId, turnEvent(turn, type, fields))
   try {
+    await whenSubscribed(turn.canvasId)
     turn.status = 'running'
     turn.startedAt = new Date().toISOString()
     await persist('turns')
-    await emit(turnEvent(turn, 'turn-start', { canvas_id: turn.canvasId }))
+    emit('turn-start')
     const canvas = canvasById(turn.canvasId)
     if (!canvas) throw new Error('Canvas not found')
     const conversation = conversationFor(turn.canvasId)
@@ -92,7 +139,7 @@ async function executeAgentTurn(turn, emit = async () => {}) {
           turn.progress.push(event)
           turn.updatedAt = new Date().toISOString()
           await persist('turns')
-          await emit(turnEvent(turn, 'progress', { step_id: `progress-${turn.progress.length}`, ...event }))
+          emit('progress', { step_id: `progress-${turn.progress.length}`, ...event })
         },
       })
     } finally {
@@ -118,8 +165,8 @@ async function executeAgentTurn(turn, emit = async () => {}) {
       turn.completedAt = steerNow
       turn.updatedAt = steerNow
       await Promise.all([persist('conversations'), persist('turns')])
-      await emit(turnEvent(turn, 'text', { step_id: 'final-response', id: steerAssistantId, text: steerReply }))
-      await emit(turnEvent(turn, 'finish', { finish_reason: 'stop' }))
+      emit('text', { step_id: 'final-response', id: steerAssistantId, text: steerReply })
+      emit('finish', { finish_reason: 'stop' })
       return
     }
     if (plan.userSelectionRequest) {
@@ -142,7 +189,7 @@ async function executeAgentTurn(turn, emit = async () => {}) {
       if (conversationIndex < 0) state.conversations.push(nextConversation)
       else state.conversations[conversationIndex] = nextConversation
       await Promise.all([persist('conversations'), persist('turns')])
-      await emit(turnEvent(turn, 'request_user_select', { request: turn.request }))
+      emit('request_user_select', { request: turn.request })
       return
     }
     const canvasIndex = state.canvases.findIndex((item) => item.id === plan.canvas.id)
@@ -164,9 +211,9 @@ async function executeAgentTurn(turn, emit = async () => {}) {
     turn.completedAt = new Date().toISOString()
     turn.updatedAt = turn.completedAt
     await Promise.all([persist('canvases'), persist('conversations'), persist('turns')])
-    await emit(turnEvent(turn, 'text', { step_id: 'final-response', id: assistantMessageId, text: plan.reply }))
-    await emit(turnEvent(turn, 'canvas-updated', { canvas_id: turn.canvasId, changed_node_ids: plan.changedNodeIds, structure_changed: plan.structureChanged }))
-    await emit(turnEvent(turn, 'finish', { finish_reason: 'stop' }))
+    emit('text', { step_id: 'final-response', id: assistantMessageId, text: plan.reply })
+    emit('canvas-updated', { changed_node_ids: plan.changedNodeIds, structure_changed: plan.structureChanged })
+    emit('finish', { finish_reason: 'stop' })
   } catch (error) {
     turn.status = 'failed'
     turn.error = error.message
@@ -177,15 +224,15 @@ async function executeAgentTurn(turn, emit = async () => {}) {
     } catch {
       // Keep the terminal status in memory if persistence itself fails.
     }
-    await emit(turnEvent(turn, 'error', { error: turn.error }))
+    emit('error', { error: turn.error })
   }
 }
 
-function enqueueAgentTurn(turn, emit) {
+function enqueueAgentTurn(turn) {
   const previous = canvasTurnQueues.get(turn.canvasId) || Promise.resolve()
   const current = previous
     .catch(() => {})
-    .then(() => executeAgentTurn(turn, emit))
+    .then(() => executeAgentTurn(turn))
     .finally(() => {
       if (canvasTurnQueues.get(turn.canvasId) === current) canvasTurnQueues.delete(turn.canvasId)
     })
@@ -197,6 +244,16 @@ const server = createServer(async (request, response) => {
   try {
     const parts = route(request)
     if (parts[0] !== 'api') return json(response, 404, { error: 'Not found' })
+
+    // What this server can actually do, so the debug panel can disable a
+    // provider it has no credentials for instead of failing on execution.
+    if (request.method === 'GET' && parts[1] === 'capabilities' && parts.length === 2) {
+      return json(response, 200, {
+        providers: { mock: true, tripo: Boolean(createTripoProvider) },
+        defaultProvider: createTripoProvider ? 'tripo' : 'mock',
+        tripoNodeTypes: [...tripoNodeTypes],
+      })
+    }
 
     if (request.method === 'GET' && parts[1] === 'canvases' && parts.length === 2) {
       return json(response, 200, state.canvases.map(({ nodes, edges, ...canvas }) => ({ ...canvas, nodeCount: nodes.length, edgeCount: edges.length })))
@@ -241,8 +298,28 @@ const server = createServer(async (request, response) => {
       state.canvases.splice(index, 1)
       state.conversations = state.conversations.filter((conversation) => conversation.canvasId !== parts[2])
       state.runs = state.runs.filter((run) => run.canvasId !== parts[2])
+      await removeCanvas(parts[2])
       await Promise.all([persist('canvases'), persist('conversations'), persist('runs')])
       return json(response, 204, null)
+    }
+
+    // The canvas's event channel. One long-lived SSE per open canvas carries
+    // every server-pushed event for it, so posting a turn is a plain 202 and a
+    // second client watching the same canvas sees the same stream.
+    if (request.method === 'GET' && parts[1] === 'canvases' && parts[2] && parts[3] === 'events' && parts.length === 4) {
+      const canvas = canvasById(parts[2])
+      if (!canvas) return json(response, 404, { error: 'Canvas not found' })
+      openSse(response)
+      // Flush the headers so the client's EventSource opens before the first event.
+      response.write(': subscribed\n\n')
+      const unsubscribe = subscribeCanvas(canvas.id, response)
+      // Proxies drop an idle stream; a comment line keeps it warm and is ignored.
+      const keepalive = setInterval(() => response.write(': keepalive\n\n'), 15000)
+      request.on('close', () => {
+        clearInterval(keepalive)
+        unsubscribe()
+      })
+      return
     }
 
     // Turns in progress for a canvas. The conversation holds the messages that
@@ -285,13 +362,6 @@ const server = createServer(async (request, response) => {
       turn.status = 'queued'
       turn.updatedAt = new Date().toISOString()
       await Promise.all([persist('conversations'), persist('turns')])
-      if (request.headers.accept?.includes('text/event-stream')) {
-        openSse(response)
-        enqueueAgentTurn(turn, (event) => writeSse(response, event))
-          .catch(() => {})
-          .finally(() => response.end())
-        return
-      }
       void enqueueAgentTurn(turn)
       return json(response, 202, turn)
     }
@@ -326,7 +396,6 @@ const server = createServer(async (request, response) => {
         message: input.message,
         status: 'queued',
         progress: [],
-        eventId: 0,
         createdAt: now,
         updatedAt: now,
       }
@@ -336,13 +405,6 @@ const server = createServer(async (request, response) => {
       // the serial queue) so the agent service steers this message into it.
       // Otherwise queue it as the canvas's next run.
       const dispatch = (activeRuns.get(canvas.id) || 0) > 0 ? executeAgentTurn : enqueueAgentTurn
-      if (request.headers.accept?.includes('text/event-stream')) {
-        openSse(response)
-        dispatch(turn, (event) => writeSse(response, event))
-          .catch(() => {})
-          .finally(() => response.end())
-        return
-      }
       void dispatch(turn)
       return json(response, 202, turn)
     }
@@ -371,6 +433,19 @@ const server = createServer(async (request, response) => {
       return json(response, 200, paginateAssets(assets, url))
     }
 
+    // Files copied off Tripo before their URLs expired. Only hashed names
+    // resolve, so this cannot read anything else under the data directory.
+    if (request.method === 'GET' && parts[1] === 'assets' && parts.length === 3) {
+      const asset = await readAsset(parts[2])
+      if (!asset) return json(response, 404, { error: 'Asset not found' })
+      response.writeHead(200, {
+        'content-type': asset.contentType,
+        // The name is a content hash, so the bytes can never change.
+        'cache-control': 'public, max-age=31536000, immutable',
+      })
+      return response.end(asset.bytes)
+    }
+
     if (request.method === 'GET' && parts[1] === 'executions' && parts.length === 3) {
       const execution = executionById(state.runs, parts[2])
       return execution ? json(response, 200, executionDto(execution)) : json(response, 404, { error: 'Execution not found' })
@@ -379,10 +454,19 @@ const server = createServer(async (request, response) => {
     if (request.method === 'POST' && parts[1] === 'nodes' && parts[2] && parts[3] === 'executions' && parts.length === 4) {
       const match = findNode(state.canvases, parts[2])
       if (!match) return json(response, 404, { error: 'Node not found' })
-      const { mode = 'downstream' } = await body(request)
+      const { mode = 'downstream', provider: requestedProvider } = await body(request)
+      if (requestedProvider && !['mock', 'tripo'].includes(requestedProvider)) {
+        return json(response, 400, { error: 'provider must be "mock" or "tripo"' })
+      }
+      if (requestedProvider === 'tripo' && !createTripoProvider) {
+        return json(response, 503, { error: 'Tripo is not configured. Set TRIPO_API_KEY and restart the API server.' })
+      }
+      // Default to Tripo whenever it is configured; the debug panel sends an
+      // explicit provider to force one side or the other.
+      const useTripo = requestedProvider ? requestedProvider === 'tripo' : Boolean(createTripoProvider)
       const pending = createExecution(state.runs, match.canvas, match.node, mode)
       await persist('runs')
-      void executeExecution(state.runs, pending.run, match.canvas, pending.executionCanvas, pending.nodes, match.node, () => persist('runs')).catch(console.error)
+      void executeExecution(state.runs, pending.run, match.canvas, pending.executionCanvas, pending.nodes, match.node, () => persist('runs'), { createProvider: useTripo ? createTripoProvider : null }).catch(console.error)
       return json(response, 202, executionDto(pending.run))
     }
 
