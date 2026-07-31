@@ -3,7 +3,7 @@ import test from 'node:test'
 import { readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createStore, migrateCanvas } from './store.js'
+import { createStore, migrateCanvas, migrateTurns } from './store.js'
 
 const canvasDirectory = path.join(path.dirname(fileURLToPath(import.meta.url)), 'data', 'canvases')
 
@@ -73,4 +73,25 @@ test('migrates legacy model options and fills new defaults once', () => {
   assert.equal(migrated.revision, 2)
   assert.equal(migrated.updatedAt, 'after')
   assert.equal(migrateCanvas(migrated), migrated)
+})
+
+test('migrates legacy turn conversation fields to session fields once', () => {
+  const turn = { id: 'turn-1', conversationId: 'conv-1', result: { reply: 'ok', conversation: { id: 'conv-1' } } }
+  const [migrated] = migrateTurns([turn])
+
+  assert.equal(migrated.sessionId, 'conv-1')
+  assert.equal('conversationId' in migrated, false)
+  assert.deepEqual(migrated.result.session, { id: 'conv-1' })
+  assert.equal('conversation' in migrated.result, false)
+  assert.equal(migrateTurns([migrated])[0], migrated)
+})
+
+test('migrates thread fields to session fields and restores a missing session id', () => {
+  const turn = { id: 'turn-1', threadId: 'thread-1', result: { reply: 'ok', thread: { id: 'thread-1' } } }
+  const [migrated] = migrateTurns([turn])
+
+  assert.equal(migrated.sessionId, 'thread-1')
+  assert.equal('threadId' in migrated, false)
+  assert.deepEqual(migrated.result.session, { id: 'thread-1' })
+  assert.equal('thread' in migrated.result, false)
 })

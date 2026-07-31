@@ -41,11 +41,11 @@ export function createCanvas(input) {
   }
 }
 
-// A readable stand-in for a canvas whose conversation row is missing, so opening
-// the canvas still succeeds. It is not persisted.
-export function emptyConversation(canvas) {
+// A readable stand-in for a canvas whose session row is missing, so opening the
+// canvas still succeeds. It is not persisted.
+export function emptySession(canvas) {
   return {
-    id: `conv-${randomUUID()}`,
+    id: `session-${randomUUID()}`,
     canvasId: canvas.id,
     createdAt: canvas.createdAt,
     updatedAt: canvas.updatedAt || canvas.createdAt,
@@ -53,17 +53,28 @@ export function emptyConversation(canvas) {
   }
 }
 
-export function createInitialConversation(canvas) {
+export function createSession(canvas) {
+  const now = new Date().toISOString()
+  return {
+    id: `session-${randomUUID()}`,
+    canvasId: canvas.id,
+    createdAt: now,
+    updatedAt: now,
+    messages: [],
+  }
+}
+
+export function createInitialSession(canvas) {
   const now = canvas.createdAt
   return {
-    id: `conv-${randomUUID()}`,
+    id: `session-${randomUUID()}`,
     canvasId: canvas.id,
     createdAt: now,
     updatedAt: now,
     messages: [{
       id: `msg-${randomUUID()}`,
       role: 'assistant',
-      content: 'This canvas was created from a canvas selection and can now evolve independently.',
+      content: 'This project is ready. Describe what you want to create or edit on its canvas.',
       createdAt: now,
     }],
   }

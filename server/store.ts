@@ -7,7 +7,7 @@ const root = path.dirname(fileURLToPath(import.meta.url))
 const dataDirectory = path.join(root, 'data')
 const seedDirectory = path.join(root, 'seed')
 const canvasDirectory = path.join(dataDirectory, 'canvases')
-const collections = ['canvases', 'conversations', 'runs', 'turns']
+const collections = ['canvases', 'sessions', 'runs', 'turns']
 const retiredNodeTypes = new Set(['save-asset'])
 
 export function migrateCanvas(canvas, now = () => new Date().toISOString()) {
@@ -43,6 +43,23 @@ export function migrateCanvas(canvas, now = () => new Date().toISOString()) {
   return migrated
 }
 
+export function migrateTurns(turns) {
+  return turns.map((turn) => {
+    if (!turn.conversationId && !turn.threadId && !turn.result?.conversation && !turn.result?.thread && (turn.sessionId || !turn.result?.session?.id)) return turn
+    const migrated = structuredClone(turn)
+    if (!migrated.sessionId) migrated.sessionId = migrated.threadId || migrated.conversationId
+    delete migrated.threadId
+    delete migrated.conversationId
+    if (migrated.result) {
+      if (!migrated.result.session) migrated.result.session = migrated.result.thread || migrated.result.conversation
+      delete migrated.result.thread
+      delete migrated.result.conversation
+    }
+    if (!migrated.sessionId && migrated.result?.session?.id) migrated.sessionId = migrated.result.session.id
+    return migrated
+  })
+}
+
 export async function createStore() {
   await mkdir(dataDirectory, { recursive: true })
 
@@ -51,7 +68,20 @@ export async function createStore() {
     try {
       await access(destination)
     } catch {
-      const seed = await readFile(path.join(seedDirectory, `${collection}.json`), 'utf8')
+      let seed
+      if (collection === 'sessions') {
+        try {
+          seed = await readFile(path.join(dataDirectory, 'threads.json'), 'utf8')
+        } catch {
+          try {
+            seed = await readFile(path.join(dataDirectory, 'conversations.json'), 'utf8')
+          } catch {
+            seed = await readFile(path.join(seedDirectory, 'sessions.json'), 'utf8')
+          }
+        }
+      } else {
+        seed = await readFile(path.join(seedDirectory, `${collection}.json`), 'utf8')
+      }
       await writeFile(destination, seed)
     }
   }
@@ -79,10 +109,23 @@ export async function createStore() {
     return queued
   }
 
+  async function reload(collection) {
+    const value = collection === 'canvases'
+      ? await readCanvasFiles()
+      : JSON.parse(await readFile(path.join(dataDirectory, `${collection}.json`), 'utf8'))
+    state[collection] = value
+    return value
+  }
+
   const canvases = state.canvases.map((canvas) => migrateCanvas(canvas))
   if (canvases.some((canvas, index) => canvas !== state.canvases[index])) {
     state.canvases = canvases
     await persist('canvases')
+  }
+  const turns = migrateTurns(state.turns)
+  if (turns.some((turn, index) => turn !== state.turns[index])) {
+    state.turns = turns
+    await persist('turns')
   }
 
   /** Deletes one canvas file. Deleting is explicit so a save can never do it. */
@@ -90,7 +133,7 @@ export async function createStore() {
     await unlink(path.join(canvasDirectory, `${canvasId}.json`)).catch(() => {})
   }
 
-  return { state, persist, removeCanvas }
+  return { state, persist, reload, removeCanvas }
 
   async function migrateCanvasFiles() {
     let files

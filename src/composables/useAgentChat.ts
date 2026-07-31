@@ -8,13 +8,13 @@ import { Attachment } from '../editor/attachment'
 
 // The copilot side of the app: the tiptap composer, the SSE agent stream, and the
 // in-flight turns (including user-selection follow-ups) attached to a canvas.
-export function useAgentChat({ activeCanvas, conversation, busy, error, runToken, toCanvas, syncCanvasSummary, flushPendingSave }) {
+export function useAgentChat({ activeCanvas, activeSession, busy, error, runToken, toCanvas, syncCanvasSummary, flushPendingSave }) {
   const composerVersion = ref(0)
   const selectedOptions = ref({})
   const continuingTurnId = ref(null)
   const stoppingTurnId = ref(null)
   let events = null
-  const messages = computed(() => conversation.value?.messages || [])
+  const messages = computed(() => activeSession.value?.messages || [])
   const runningTurnId = computed(() => messages.value.find((message) => message.role === 'assistant' && message.pending && message.turnId)?.turnId || null)
   const composer = useEditor({
     extensions: [
@@ -72,18 +72,21 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
     }
   }
 
-  async function loadConversation(canvasId) {
-    conversation.value = await request(`/api/canvases/${canvasId}/conversation`)
+  async function loadSessions(canvasId) {
+    const sessions = await request(`/api/canvases/${canvasId}/sessions`)
+    activeSession.value = sessions[0]
+      ? await request(`/api/sessions/${encodeURIComponent(sessions[0].id)}/chat-history`)
+      : null
   }
 
   async function refreshCanvas(canvasId, turnId, structureChanged) {
-    const [document, nextConversation] = await Promise.all([
+    const [document, nextSession] = await Promise.all([
       request(`/api/canvases/${canvasId}`),
-      request(`/api/canvases/${canvasId}/conversation`),
+      request(`/api/sessions/${activeSession.value.id}/chat-history`),
     ])
-    const pendingMessages = conversation.value?.messages.filter((item) => item.pending && item.turnId !== turnId) || []
+    const pendingMessages = activeSession.value?.messages.filter((item) => item.pending && item.turnId !== turnId) || []
     activeCanvas.value = document.canvas
-    conversation.value = { ...nextConversation, messages: [...nextConversation.messages, ...pendingMessages] }
+    activeSession.value = { ...nextSession, messages: [...nextSession.messages, ...pendingMessages] }
     await toCanvas(document.canvas)
     syncCanvasSummary(document.canvas)
     await nextTick()
@@ -94,10 +97,10 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
   // that has no turn id yet is the message we just sent; it adopts the id of the
   // first `turn-start` that has no bubble of its own.
   function pendingMessageFor(event) {
-    const byTurn = conversation.value?.messages.find((item) => item.turnId === event.turn_id)
+    const byTurn = activeSession.value?.messages.find((item) => item.turnId === event.turn_id)
     if (byTurn) return byTurn
     if (event.type !== 'turn-start') return null
-    const unclaimed = conversation.value?.messages.find((item) => item.pending && !item.turnId && item.role === 'assistant')
+    const unclaimed = activeSession.value?.messages.find((item) => item.pending && !item.turnId && item.role === 'assistant')
     if (unclaimed) unclaimed.turnId = event.turn_id
     return unclaimed
   }
@@ -134,7 +137,7 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
 
   // The canvas's single event channel, opened when the canvas opens and closed
   // when it closes. Nothing is replayed on reconnect: `openCanvas` re-reads the
-  // canvas, the conversation and the in-flight turns over REST instead.
+  // canvas, the session and the in-flight turns over REST instead.
   function subscribeCanvasEvents(canvasId) {
     closeCanvasEvents()
     const token = runToken.value
@@ -146,6 +149,7 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
       // reconnects on its own, so a transport failure needs nothing from us.
       if (!message.data || token !== runToken.value) return
       const event = JSON.parse(message.data)
+      if (event.session_id !== activeSession.value?.id) return
       applyAgentEvent(event)
       if (event.type === 'canvas-updated') await refreshCanvas(event.canvas_id, event.turn_id, event.structure_changed)
     }
@@ -158,12 +162,13 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
     events = null
   }
 
-  async function restoreTurns(canvasId) {
-    const turns = await request(`/api/canvases/${encodeURIComponent(canvasId)}/turns?status=queued,running,waiting_for_user`)
+  async function restoreTurns() {
+    if (!activeSession.value) return
+    const turns = await request(`/api/sessions/${encodeURIComponent(activeSession.value.id)}/turns?status=queued,running,waiting_for_user`)
     for (const turn of turns) {
-      const existing = conversation.value?.messages.some((item) => item.turnId === turn.id)
+      const existing = activeSession.value?.messages.some((item) => item.turnId === turn.id)
       if (!existing) {
-        conversation.value.messages.push(
+        activeSession.value.messages.push(
           { id: `turn-user-${turn.id}`, role: 'user', content: turn.message, turnId: turn.id, createdAt: turn.createdAt },
           { id: `turn-assistant-${turn.id}`, role: 'assistant', content: '', progress: turn.progress, turnId: turn.id, createdAt: turn.createdAt, pending: turn.status !== 'waiting_for_user', request: turn.status === 'waiting_for_user' ? turn.request : null },
         )
@@ -209,7 +214,7 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
     error.value = ''
     try {
       await request(`/api/turns/${encodeURIComponent(turnId)}/cancel`, { method: 'POST' })
-      const pending = conversation.value?.messages.find((item) => item.turnId === turnId)
+      const pending = activeSession.value?.messages.find((item) => item.turnId === turnId)
       if (pending) {
         pending.pending = false
         pending.stopped = true
@@ -225,15 +230,15 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
   async function sendMessage() {
     const message = composerMessage()
     if (!message) return
-    const previousConversation = conversation.value
+    const previousSession = activeSession.value
     const createdAt = new Date().toISOString()
     const pendingAssistantId = `pending-assistant-${Date.now()}`
     busy.value = true
     error.value = ''
     const previousComposer = composer.value?.getJSON()
     clearComposer()
-    conversation.value = {
-      ...previousConversation,
+    activeSession.value = {
+      ...previousSession,
       messages: [
         ...messages.value,
         { id: `pending-user-${Date.now()}`, role: 'user', content: message, createdAt },
@@ -242,27 +247,25 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
     }
     try {
       await flushPendingSave()
-      const canvasId = activeCanvas.value?.id
+      const sessionId = activeSession.value?.id
+      if (!sessionId) throw new Error('Open a project before sending a message')
       busy.value = false
-      // 202 with the turn; its events arrive on the canvas channel. A first
-      // message has no canvas yet, so the turn creates one and we subscribe to
-      // the id it comes back with.
-      const turn = await request(`/api/canvases/${canvasId || 'new'}/turns`, {
+      // 202 with the turn; its events arrive on the project's canvas channel.
+      const turn = await request(`/api/sessions/${sessionId}/turns`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ message }),
       })
-      const current = conversation.value?.messages.find((item) => item.id === pendingAssistantId)
+      const current = activeSession.value?.messages.find((item) => item.id === pendingAssistantId)
       if (current) current.turnId = turn.id
-      if (!canvasId) subscribeCanvasEvents(turn.canvasId)
     } catch (caught) {
-      const current = conversation.value?.messages.find((item) => item.id === pendingAssistantId)
+      const current = activeSession.value?.messages.find((item) => item.id === pendingAssistantId)
       if (current) {
         current.pending = false
         current.failed = true
         current.content = caught.message
       } else {
-        conversation.value = previousConversation
+        activeSession.value = previousSession
         composer.value?.commands.setContent(previousComposer || { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: message }] }] })
       }
       error.value = caught.message
@@ -285,7 +288,7 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
     runningTurnId,
     stoppingTurnId,
     addComposerFiles,
-    loadConversation,
+    loadSessions,
     restoreTurns,
     subscribeCanvasEvents,
     closeCanvasEvents,

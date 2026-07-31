@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createInitialConversation, createCanvas } from './canvases.js'
+import { createInitialSession, createCanvas, createSession } from './canvases.js'
 
 const node = (id, x = 0) => ({ id, type: 'prompt', name: id, config: {}, ui: { position: { x, y: 0 } } })
 
-test('creates a canvas and initial conversation with server-owned fields', () => {
+test('creates a canvas and initial session with server-owned fields', () => {
   const canvas = createCanvas({
     id: 'caller-id',
     revision: 99,
@@ -14,7 +14,7 @@ test('creates a canvas and initial conversation with server-owned fields', () =>
     nodes: [node('a'), node('b', 300)],
     edges: [{ id: 'a-b', source: { nodeId: 'a', port: 'text' }, target: { nodeId: 'b', port: 'input' } }],
   })
-  const conversation = createInitialConversation(canvas)
+  const session = createInitialSession(canvas)
 
   assert.match(canvas.id, /^canvas-/)
   assert.notEqual(canvas.id, 'caller-id')
@@ -22,8 +22,19 @@ test('creates a canvas and initial conversation with server-owned fields', () =>
   assert.equal(canvas.revision, 1)
   assert.notEqual(canvas.createdAt, '2000-01-01T00:00:00.000Z')
   assert.equal(canvas.updatedAt, canvas.createdAt)
-  assert.equal(conversation.canvasId, canvas.id)
-  assert.equal(conversation.messages.length, 1)
+  assert.equal(session.canvasId, canvas.id)
+  assert.match(session.id, /^session-/)
+  assert.equal(session.messages.length, 1)
+})
+
+test('creates an empty session for an existing canvas', () => {
+  const canvas = createCanvas({ name: 'Canvas', nodes: [], edges: [] })
+  const session = createSession(canvas)
+
+  assert.match(session.id, /^session-/)
+  assert.equal(session.canvasId, canvas.id)
+  assert.equal(session.createdAt, session.updatedAt)
+  assert.deepEqual(session.messages, [])
 })
 
 test('imports an exported canvas as a new canvas', () => {

@@ -33,7 +33,7 @@ const ModelEditor = defineAsyncComponent(() => import('./components/ModelEditor.
 // The document and canvas state every composable below works on.
 const canvases = ref([])
 const activeCanvas = ref(null)
-const conversation = ref(null)
+const activeSession = ref(null)
 const nodes = ref([])
 const edges = ref([])
 const run = ref(null)
@@ -111,7 +111,7 @@ const {
 } = useCanvasDocument({
   canvases,
   activeCanvas,
-  conversation,
+  activeSession,
   nodes,
   edges,
   run,
@@ -125,8 +125,8 @@ const {
   recordHistory,
   syncHistoryCanvas,
   fitFramesAfterRender,
-  loadConversation: (id) => loadConversation(id),
-  restoreTurns: (id) => restoreTurns(id),
+  loadSessions: (id) => loadSessions(id),
+  restoreTurns: () => restoreTurns(),
   subscribeCanvasEvents: (id) => subscribeCanvasEvents(id),
   closeCanvasEvents: () => closeCanvasEvents(),
   pasteFragment,
@@ -136,11 +136,11 @@ const {
 
 const {
   composer, composerHasContent, messages, selectedOptions, continuingTurnId, runningTurnId, stoppingTurnId, addComposerFiles,
-  loadConversation, restoreTurns, subscribeCanvasEvents, closeCanvasEvents, toggleSelectedOption,
+  loadSessions, restoreTurns, subscribeCanvasEvents, closeCanvasEvents, toggleSelectedOption,
   continueTurn, stopTurn, sendMessage,
 } = useAgentChat({
   activeCanvas,
-  conversation,
+  activeSession,
   busy,
   error,
   runToken,
@@ -608,8 +608,20 @@ useKeyboardShortcuts({
   deleteSelected,
 })
 
+async function handleProjectNavigation() {
+  const projectId = window.location.pathname.match(/^\/projects\/([^/]+)\/?$/)?.[1]
+  if (!projectId || projectId === activeCanvas.value?.id) return
+
+  try {
+    await openCanvas(projectId, { replaceHistory: true })
+  } catch (caught) {
+    error.value = caught.message
+  }
+}
+
 onMounted(async () => {
   window.addEventListener('pointerdown', closeCanvasMenu)
+  window.addEventListener('popstate', handleProjectNavigation)
   try {
     await loadCanvass()
   } catch (caught) {
@@ -619,6 +631,7 @@ onMounted(async () => {
 onUnmounted(() => {
   stopPendingSave()
   window.removeEventListener('pointerdown', closeCanvasMenu)
+  window.removeEventListener('popstate', handleProjectNavigation)
 })
 </script>
 

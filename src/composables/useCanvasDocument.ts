@@ -8,7 +8,7 @@ import { importPlacementOffset, validateImportedCanvas } from '../canvas-fragmen
 export function useCanvasDocument({
   canvases,
   activeCanvas,
-  conversation,
+  activeSession,
   nodes,
   edges,
   run,
@@ -22,7 +22,7 @@ export function useCanvasDocument({
   recordHistory,
   syncHistoryCanvas,
   fitFramesAfterRender,
-  loadConversation,
+  loadSessions,
   restoreTurns,
   subscribeCanvasEvents,
   closeCanvasEvents,
@@ -51,7 +51,7 @@ export function useCanvasDocument({
   }
 
   async function loadCanvasList() {
-    canvases.value = await request('/api/canvases')
+    canvases.value = await request('/api/projects')
   }
 
   // The switcher only shows each canvas's name, node count and revision, so a
@@ -68,11 +68,12 @@ export function useCanvasDocument({
 
   async function loadCanvass(preferredId?: string) {
     await loadCanvasList()
-    const id = preferredId || activeCanvas.value?.id || canvases.value[0]?.id
-    if (id) await openCanvas(id)
+    const projectId = window.location.pathname.match(/^\/projects\/([^/]+)\/?$/)?.[1]
+    const id = preferredId || projectId || activeCanvas.value?.id || canvases.value[0]?.id
+    if (id) await openCanvas(id, { replaceHistory: true })
   }
 
-  async function openCanvas(id) {
+  async function openCanvas(id, { replaceHistory = false } = {}) {
     resetWorkspace()
     if (activeCanvas.value && activeCanvas.value.id !== id) await flushPendingSave()
     closeCanvasEvents()
@@ -83,12 +84,15 @@ export function useCanvasDocument({
     run.value = null
     nodeRuns.value = data.nodeRuns || {}
     await toCanvas(data.canvas)
-    await loadConversation(id)
-    await restoreTurns(id)
+    await loadSessions(id)
+    await restoreTurns()
     // Subscribe after the REST reads, so the channel only has to carry what
     // happens from here on; an interrupted turn was already restored above.
     subscribeCanvasEvents(id)
     fitView({ padding: 0.18, duration: 500 })
+
+    const path = `/projects/${encodeURIComponent(id)}`
+    window.history[replaceHistory ? 'replaceState' : 'pushState']({}, '', path)
   }
 
   function scheduleSave() {
@@ -154,7 +158,7 @@ export function useCanvasDocument({
   async function duplicateCanvas(canvasId = activeCanvas.value?.id) {
     if (!canvasId) return
     try {
-      const canvas = await request(`/api/canvases/${canvasId}/duplicate`, { method: 'POST' })
+      const canvas = await request(`/api/projects/${canvasId}/duplicate`, { method: 'POST' })
       await loadCanvass(canvas.id)
     } catch (caught) {
       error.value = caught.message
@@ -171,12 +175,12 @@ export function useCanvasDocument({
         await flushPendingSave()
         closeCanvasEvents()
       }
-      await request(`/api/canvases/${canvasId}`, { method: 'DELETE' })
+      await request(`/api/projects/${canvasId}`, { method: 'DELETE' })
       await loadCanvasList()
       if (!deletingActiveCanvas) return
 
       activeCanvas.value = null
-      conversation.value = null
+      activeSession.value = null
       nodes.value = []
       edges.value = []
       run.value = null
@@ -192,7 +196,7 @@ export function useCanvasDocument({
     if (!name) return
 
     try {
-      const canvas = await request('/api/canvases', {
+      const canvas = await request('/api/projects', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -210,8 +214,13 @@ export function useCanvasDocument({
   }
 
   async function renameCanvas(name) {
-    activeCanvas.value = { ...activeCanvas.value, name }
-    await saveCanvas()
+    const project = await request(`/api/projects/${activeCanvas.value.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name }),
+    })
+    activeCanvas.value = { ...activeCanvas.value, name: project.name, updatedAt: project.updatedAt }
+    syncCanvasSummary(activeCanvas.value)
   }
 
   async function exportCanvas(canvasId) {

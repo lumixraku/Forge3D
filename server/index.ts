@@ -5,19 +5,21 @@ import { createStore } from './store.js'
 import { latestNodeRuns } from './node-state.js'
 import { executionAssets } from './run-assets.js'
 import { createExecution, executeExecution, executionById, executionDto, findNode, paginateAssets } from './executions.js'
-import { createInitialConversation, createCanvas, emptyConversation } from './canvases.js'
+import { createInitialSession, createCanvas, createSession, emptySession } from './canvases.js'
 import { runDeepSeekAgent } from './deepseek.js'
 import { cancelAgentViaService, runAgentViaService } from './agent-client.js'
 import { createTripoRunner } from './tripo-run.js'
 import { readAsset } from './tripo-assets.js'
 import { tripoNodeTypes } from './tripo-mapping.js'
+import { applyAgentCanvas, projectDto, replaceCanvasDocument } from './projects.js'
 
 const port = Number(process.env.PORT || 8787)
 // Null when TRIPO_API_KEY is unset, which keeps every node on the simulated
 // producer so the demo runs without credentials.
 const createTripoProvider = createTripoRunner()
-const { state, persist, removeCanvas } = await createStore()
+const { state, persist, reload, removeCanvas } = await createStore()
 const canvasTurnQueues = new Map()
+const activeTurnIds = new Set()
 // How many agent runs are currently streaming per canvas. A new turn
 // for a canvas with an active run is dispatched immediately (bypassing the
 // serial queue) so the agent service can steer it into the running run.
@@ -42,31 +44,14 @@ function openSse(response) {
   })
 }
 
-const canvasSubscribeWaiters = new Map()
-
 function subscribeCanvas(canvasId, response) {
   const subscribers = canvasChannels.get(canvasId) || new Set()
   subscribers.add(response)
   canvasChannels.set(canvasId, subscribers)
-  for (const resolve of canvasSubscribeWaiters.get(canvasId) || []) resolve()
-  canvasSubscribeWaiters.delete(canvasId)
   return () => {
     subscribers.delete(response)
     if (!subscribers.size) canvasChannels.delete(canvasId)
   }
-}
-
-// A turn that creates its own canvas has no subscriber yet: the client only
-// learns the canvas id from the 202. Wait for it to subscribe before running, or
-// the whole first turn would be pushed into an empty channel.
-function whenSubscribed(canvasId, timeout = 5000) {
-  if (canvasChannels.get(canvasId)?.size) return Promise.resolve()
-  return new Promise((resolve) => {
-    const waiters = canvasSubscribeWaiters.get(canvasId) || new Set()
-    waiters.add(resolve)
-    canvasSubscribeWaiters.set(canvasId, waiters)
-    setTimeout(resolve, timeout).unref()
-  })
 }
 
 function turnEvent(turn, type, fields = {}) {
@@ -74,7 +59,7 @@ function turnEvent(turn, type, fields = {}) {
   canvasEventSeqs.set(turn.canvasId, seq)
   return {
     id: `${seq}-0`,
-    data: { type, canvas_id: turn.canvasId, conversation_id: turn.conversationId, turn_id: turn.id, ...fields },
+    data: { type, canvas_id: turn.canvasId, session_id: turn.sessionId, turn_id: turn.id, ...fields },
   }
 }
 
@@ -100,12 +85,18 @@ function canvasById(id) {
   return state.canvases.find((canvas) => canvas.id === id)
 }
 
-function conversationFor(canvasId) {
-  return state.conversations.find((conversation) => conversation.canvasId === canvasId)
+function sessionById(sessionId) {
+  return state.sessions.find((session) => session.id === sessionId)
 }
 
 function turnById(id) {
   return state.turns.find((turn) => turn.id === id)
+}
+
+const readCurrent = (collection) => reload(collection)
+
+async function reloadAgentCollections() {
+  await Promise.all(['canvases', 'sessions', 'turns'].map(reload))
 }
 
 async function executeAgentTurn(turn) {
@@ -113,27 +104,32 @@ async function executeAgentTurn(turn) {
   // that is not the one which posted the turn still sees it.
   const emit = (type, fields) => broadcast(turn.canvasId, turnEvent(turn, type, fields))
   try {
-    await whenSubscribed(turn.canvasId)
-    if (turn.status === 'cancelled' || turn.status === 'cancelling') return
+    await reloadAgentCollections()
+    const startingTurn = turnById(turn.id)
+    if (!startingTurn) throw new Error('Turn was deleted before it started')
+    if (startingTurn.status === 'cancelled' || startingTurn.status === 'cancelling') return
+    Object.assign(startingTurn, turn)
+    turn = startingTurn
     turn.status = 'running'
     turn.startedAt = new Date().toISOString()
     await persist('turns')
     emit('turn-start')
     const canvas = canvasById(turn.canvasId)
     if (!canvas) throw new Error('Canvas not found')
-    const conversation = conversationFor(turn.canvasId)
+    const session = sessionById(turn.sessionId)
+    if (!session) throw new Error('Session not found')
     // Local dev defaults to the Pi agent service. Set AGENT_SERVICE_URL=direct
     // to use the built-in DeepSeek loop instead.
     const serviceUrl = process.env.AGENT_SERVICE_URL === 'direct' ? '' : (process.env.AGENT_SERVICE_URL || 'http://127.0.0.1:8788/agent')
     const runAgent = serviceUrl ? runAgentViaService : runDeepSeekAgent
-    activeRuns.set(turn.canvasId, (activeRuns.get(turn.canvasId) || 0) + 1)
-    let plan
     const controller = new AbortController()
     const cancel = async () => {
       if (serviceUrl) await cancelAgentViaService(serviceUrl, turn.id)
       controller.abort()
     }
     activeTurnCancels.set(turn.id, cancel)
+    activeRuns.set(turn.canvasId, (activeRuns.get(turn.canvasId) || 0) + 1)
+    let plan
     try {
       plan = await runAgent({
         serviceUrl,
@@ -144,10 +140,15 @@ async function executeAgentTurn(turn) {
         model: process.env.DEEPSEEK_MODEL,
         message: turn.selection ? `${turn.message}\n\nThe user selected: ${turn.selection.selected_option_ids.map((optionId) => turn.request.options.find((option) => option.id === optionId)?.label || optionId).join(', ')}. Continue the turn using this selection.` : turn.message,
         canvas,
-        history: conversation?.messages || [],
+        history: session.messages || [],
         onProgress: async (event) => {
           turn.progress.push(event)
           turn.updatedAt = new Date().toISOString()
+          await reloadAgentCollections()
+          const currentTurn = turnById(turn.id)
+          if (!currentTurn || !canvasById(turn.canvasId)) throw new Error('Project or turn was deleted while this turn was running')
+          Object.assign(currentTurn, turn)
+          turn = currentTurn
           await persist('turns')
           emit('progress', { step_id: `progress-${turn.progress.length}`, ...event })
         },
@@ -158,25 +159,25 @@ async function executeAgentTurn(turn) {
       if (remaining > 0) activeRuns.set(turn.canvasId, remaining)
       else activeRuns.delete(turn.canvasId)
     }
-    if (turn.status === 'cancelled' || turn.status === 'cancelling') return
+    await reloadAgentCollections()
+    if (!canvasById(turn.canvasId) || !sessionById(turn.sessionId) || !turnById(turn.id)) throw new Error('Project, session, or turn was deleted while this turn was running')
+    if (turnById(turn.id).status === 'cancelled' || turnById(turn.id).status === 'cancelling') return
+    if (plan.canvas && plan.canvas.id !== turn.canvasId) throw new Error('Agent returned a canvas outside this project')
     // The message was steered into a still-running run; it produces no diff of
-    // its own. Acknowledge it in the conversation and finish.
+    // its own. Acknowledge it in the session and finish.
     if (plan.steered) {
-      let steerConversation = conversationFor(turn.canvasId)
-      if (!steerConversation) {
-        steerConversation = { id: turn.conversationId, canvasId: turn.canvasId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), messages: [] }
-        state.conversations.push(steerConversation)
-      }
+      const steerSession = sessionById(turn.sessionId)
+      if (!steerSession) throw new Error('Session was deleted while this turn was running')
       const steerNow = new Date().toISOString()
       const steerReply = '🔀 Pi steering · Added your message to the running turn.'
       const steerAssistantId = `msg-${randomUUID()}`
-      steerConversation.messages.push({ id: `msg-${randomUUID()}`, role: 'user', content: turn.message, createdAt: steerNow })
-      steerConversation.messages.push({ id: steerAssistantId, role: 'assistant', content: steerReply, progress: turn.progress, createdAt: steerNow })
-      steerConversation.updatedAt = steerNow
+      steerSession.messages.push({ id: `msg-${randomUUID()}`, role: 'user', content: turn.message, createdAt: steerNow })
+      steerSession.messages.push({ id: steerAssistantId, role: 'assistant', content: steerReply, progress: turn.progress, createdAt: steerNow })
+      steerSession.updatedAt = steerNow
       turn.status = 'succeeded'
       turn.completedAt = steerNow
       turn.updatedAt = steerNow
-      await Promise.all([persist('conversations'), persist('turns')])
+      await Promise.all([persist('sessions'), persist('turns')])
       emit('text', { step_id: 'final-response', id: steerAssistantId, text: steerReply })
       emit('finish', { finish_reason: 'stop' })
       return
@@ -186,54 +187,52 @@ async function executeAgentTurn(turn) {
       delete turn.selection
       turn.request = { request_id: `request-${randomUUID()}`, ...plan.userSelectionRequest }
       const now = new Date().toISOString()
-      const conversationIndex = state.conversations.findIndex((item) => item.canvasId === turn.canvasId)
-      const nextConversation = conversationIndex < 0
-        ? { id: turn.conversationId, canvasId: turn.canvasId, messages: [], createdAt: now }
-        : structuredClone(state.conversations[conversationIndex])
-      if (!nextConversation.messages.some((message) => message.turnId === turn.id && message.role === 'user')) {
-        nextConversation.messages.push({ id: `msg-${randomUUID()}`, role: 'user', content: turn.message, turnId: turn.id, createdAt: now })
+      const sessionIndex = state.sessions.findIndex((item) => item.id === turn.sessionId)
+      if (sessionIndex < 0 || !turnById(turn.id)) throw new Error('Session or turn was deleted while this turn was running')
+      const nextSession = structuredClone(state.sessions[sessionIndex])
+      if (!nextSession.messages.some((message) => message.turnId === turn.id && message.role === 'user')) {
+        nextSession.messages.push({ id: `msg-${randomUUID()}`, role: 'user', content: turn.message, turnId: turn.id, createdAt: now })
       }
       const requestMessage = { id: `msg-${randomUUID()}`, role: 'assistant', content: '', turnId: turn.id, request: turn.request, progress: turn.progress, createdAt: now }
-      nextConversation.messages.push(requestMessage)
-      nextConversation.updatedAt = now
+      nextSession.messages.push(requestMessage)
+      nextSession.updatedAt = now
       turn.requestMessageId = requestMessage.id
       turn.updatedAt = new Date().toISOString()
-      if (conversationIndex < 0) state.conversations.push(nextConversation)
-      else state.conversations[conversationIndex] = nextConversation
-      await Promise.all([persist('conversations'), persist('turns')])
+      state.sessions[sessionIndex] = nextSession
+      await Promise.all([persist('sessions'), persist('turns')])
       emit('request_user_select', { request: turn.request })
       return
     }
-    const canvasIndex = state.canvases.findIndex((item) => item.id === plan.canvas.id)
-    if (canvasIndex < 0) state.canvases.push(plan.canvas)
-    else state.canvases[canvasIndex] = plan.canvas
+    const canvasIndex = state.canvases.findIndex((item) => item.id === turn.canvasId)
+    if (canvasIndex < 0) throw new Error('Project was deleted while this turn was running')
+    const project = state.canvases[canvasIndex]
+    state.canvases[canvasIndex] = applyAgentCanvas(project, plan.canvas)
 
-    let nextConversation = conversationFor(plan.canvas.id)
-    if (!nextConversation) {
-      nextConversation = { id: `conv-${randomUUID()}`, canvasId: plan.canvas.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), messages: [] }
-      state.conversations.push(nextConversation)
-    }
+    const nextSession = sessionById(turn.sessionId)
+    if (!nextSession || !turnById(turn.id)) throw new Error('Session or turn was deleted while this turn was running')
     const now = new Date().toISOString()
     const assistantMessageId = `msg-${randomUUID()}`
-    if (!turn.requestMessageId) nextConversation.messages.push({ id: `msg-${randomUUID()}`, role: 'user', content: turn.message, createdAt: now })
-    nextConversation.messages.push({ id: assistantMessageId, role: 'assistant', content: plan.reply, progress: turn.progress, createdAt: now })
-    nextConversation.updatedAt = now
+    if (!turn.requestMessageId) nextSession.messages.push({ id: `msg-${randomUUID()}`, role: 'user', content: turn.message, createdAt: now })
+    nextSession.messages.push({ id: assistantMessageId, role: 'assistant', content: plan.reply, progress: turn.progress, createdAt: now })
+    nextSession.updatedAt = now
     turn.status = 'succeeded'
-    turn.result = structuredClone({ ...plan, conversation: nextConversation })
+    turn.result = structuredClone({ ...plan, session: nextSession })
     turn.completedAt = new Date().toISOString()
     turn.updatedAt = turn.completedAt
-    await Promise.all([persist('canvases'), persist('conversations'), persist('turns')])
+    await Promise.all([persist('canvases'), persist('sessions'), persist('turns')])
     emit('text', { step_id: 'final-response', id: assistantMessageId, text: plan.reply })
     emit('canvas-updated', { changed_node_ids: plan.changedNodeIds, structure_changed: plan.structureChanged })
     emit('finish', { finish_reason: 'stop' })
   } catch (error) {
-    if (turn.status === 'cancelled' || turn.status === 'cancelling' || error?.name === 'AbortError') {
-      turn.status = 'cancelled'
-      turn.completedAt ||= new Date().toISOString()
-      turn.updatedAt = turn.completedAt
-      try {
-        await persist('turns')
-      } catch {}
+    await reload('turns').catch(() => {})
+    const latestTurn = turnById(turn.id)
+    if (latestTurn?.status === 'cancelled' || latestTurn?.status === 'cancelling' || error?.name === 'AbortError') {
+      if (latestTurn) {
+        latestTurn.status = 'cancelled'
+        latestTurn.completedAt ||= new Date().toISOString()
+        latestTurn.updatedAt = latestTurn.completedAt
+        await persist('turns').catch(() => {})
+      }
       return
     }
     turn.status = 'failed'
@@ -241,7 +240,12 @@ async function executeAgentTurn(turn) {
     turn.completedAt = new Date().toISOString()
     turn.updatedAt = turn.completedAt
     try {
-      await persist('turns')
+      await reloadAgentCollections()
+      const currentTurn = turnById(turn.id)
+      if (currentTurn && canvasById(turn.canvasId)) {
+        Object.assign(currentTurn, turn)
+        await persist('turns')
+      }
     } catch {
       // Keep the terminal status in memory if persistence itself fails.
     }
@@ -250,11 +254,13 @@ async function executeAgentTurn(turn) {
 }
 
 function enqueueAgentTurn(turn) {
+  activeTurnIds.add(turn.id)
   const previous = canvasTurnQueues.get(turn.canvasId) || Promise.resolve()
   const current = previous
     .catch(() => {})
     .then(() => executeAgentTurn(turn))
     .finally(() => {
+      activeTurnIds.delete(turn.id)
       if (canvasTurnQueues.get(turn.canvasId) === current) canvasTurnQueues.delete(turn.canvasId)
     })
   canvasTurnQueues.set(turn.canvasId, current)
@@ -276,17 +282,35 @@ const server = createServer(async (request, response) => {
       })
     }
 
-    if (request.method === 'GET' && parts[1] === 'canvases' && parts.length === 2) {
-      return json(response, 200, state.canvases.map(({ nodes, edges, ...canvas }) => ({ ...canvas, nodeCount: nodes.length, edgeCount: edges.length })))
+    if (request.method === 'GET' && parts[1] === 'projects' && parts.length === 2) {
+      return json(response, 200, state.canvases.map(projectDto))
     }
 
-    if (request.method === 'POST' && parts[1] === 'canvases' && parts.length === 2) {
+    if (request.method === 'POST' && parts[1] === 'projects' && parts.length === 2) {
       const canvas = createCanvas(await body(request))
-      const conversation = createInitialConversation(canvas)
+      const session = createInitialSession(canvas)
       state.canvases.push(canvas)
-      state.conversations.push(conversation)
-      await Promise.all([persist('canvases'), persist('conversations')])
-      return json(response, 201, canvas)
+      state.sessions.push(session)
+      await Promise.all([persist('canvases'), persist('sessions')])
+      return json(response, 201, projectDto(canvas))
+    }
+
+    if (request.method === 'GET' && parts[1] === 'projects' && parts.length === 3) {
+      const canvas = canvasById(parts[2])
+      if (!canvas) return json(response, 404, { error: 'Project not found' })
+      return json(response, 200, projectDto(canvas))
+    }
+
+    if (request.method === 'PATCH' && parts[1] === 'projects' && parts.length === 3) {
+      const index = state.canvases.findIndex((canvas) => canvas.id === parts[2])
+      if (index < 0) return json(response, 404, { error: 'Project not found' })
+      const input = await body(request)
+      if (typeof input.name === 'string' && !input.name.trim()) return json(response, 400, { error: 'Project name is required' })
+      if (typeof input.name === 'string') state.canvases[index].name = input.name.trim()
+      if (typeof input.description === 'string') state.canvases[index].description = input.description.trim()
+      state.canvases[index].updatedAt = new Date().toISOString()
+      await persist('canvases')
+      return json(response, 200, projectDto(state.canvases[index]))
     }
 
     if (request.method === 'GET' && parts[1] === 'canvases' && parts.length === 3) {
@@ -295,32 +319,46 @@ const server = createServer(async (request, response) => {
       return json(response, 200, { canvas, nodeRuns: latestNodeRuns(canvas, state.runs) })
     }
 
-    // The Agent conversation is its own resource; it is not part of the canvas document.
-    if (request.method === 'GET' && parts[1] === 'canvases' && parts[2] && parts[3] === 'conversation' && parts.length === 4) {
+    if (request.method === 'GET' && parts[1] === 'canvases' && parts[2] && parts[3] === 'sessions' && parts.length === 4) {
       const canvas = canvasById(parts[2])
       if (!canvas) return json(response, 404, { error: 'Canvas not found' })
-      // Every canvas is created with a conversation; an empty one keeps a canvas
-      // whose row is missing loadable instead of failing the whole canvas open.
-      return json(response, 200, conversationFor(canvas.id) || emptyConversation(canvas))
+      const sessions = state.sessions.filter((session) => session.canvasId === canvas.id)
+      return json(response, 200, sessions.length ? sessions : [emptySession(canvas)])
+    }
+
+    if (request.method === 'POST' && parts[1] === 'canvases' && parts[2] && parts[3] === 'sessions' && parts.length === 4) {
+      const canvas = canvasById(parts[2])
+      if (!canvas) return json(response, 404, { error: 'Canvas not found' })
+      const session = createSession(canvas)
+      state.sessions.push(session)
+      await persist('sessions')
+      return json(response, 201, session)
+    }
+
+    if (request.method === 'GET' && parts[1] === 'sessions' && parts[2] && parts[3] === 'chat-history' && parts.length === 4) {
+      const session = sessionById(parts[2])
+      return session ? json(response, 200, session) : json(response, 404, { error: 'Session not found' })
     }
 
     if (request.method === 'PUT' && parts[1] === 'canvases' && parts.length === 3) {
       const index = state.canvases.findIndex((canvas) => canvas.id === parts[2])
       if (index < 0) return json(response, 404, { error: 'Canvas not found' })
       const input = await body(request)
-      state.canvases[index] = { ...input, id: parts[2], updatedAt: new Date().toISOString() }
+      const project = state.canvases[index]
+      state.canvases[index] = replaceCanvasDocument(project, input, parts[2], new Date().toISOString())
       await persist('canvases')
       return json(response, 200, state.canvases[index])
     }
 
-    if (request.method === 'DELETE' && parts[1] === 'canvases' && parts.length === 3) {
+    if (request.method === 'DELETE' && parts[1] === 'projects' && parts.length === 3) {
       const index = state.canvases.findIndex((canvas) => canvas.id === parts[2])
-      if (index < 0) return json(response, 404, { error: 'Canvas not found' })
+      if (index < 0) return json(response, 404, { error: 'Project not found' })
       state.canvases.splice(index, 1)
-      state.conversations = state.conversations.filter((conversation) => conversation.canvasId !== parts[2])
+      state.sessions = state.sessions.filter((session) => session.canvasId !== parts[2])
       state.runs = state.runs.filter((run) => run.canvasId !== parts[2])
+      state.turns = state.turns.filter((turn) => turn.canvasId !== parts[2])
       await removeCanvas(parts[2])
-      await Promise.all([persist('canvases'), persist('conversations'), persist('runs')])
+      await Promise.all([persist('canvases'), persist('sessions'), persist('runs'), persist('turns')])
       return json(response, 204, null)
     }
 
@@ -343,15 +381,14 @@ const server = createServer(async (request, response) => {
       return
     }
 
-    // Turns in progress for a canvas. The conversation holds the messages that
-    // already landed; this holds the ones still running, so a reload can pick
-    // an interrupted turn back up.
-    if (request.method === 'GET' && parts[1] === 'canvases' && parts[2] && parts[3] === 'turns' && parts.length === 4) {
-      const canvas = canvasById(parts[2])
-      if (!canvas) return json(response, 404, { error: 'Canvas not found' })
+    if (request.method === 'GET' && parts[1] === 'sessions' && parts[2] && parts[3] === 'turns' && parts.length === 4) {
+      const session = sessionById(parts[2])
+      if (!session) return json(response, 404, { error: 'Session not found' })
       const url = new URL(request.url, `http://${request.headers.host}`)
       const statuses = new Set((url.searchParams.get('status') || '').split(',').filter(Boolean))
-      const turns = state.turns.filter((turn) => turn.canvasId === canvas.id && (!statuses.size || statuses.has(turn.status)))
+      const turns = state.turns.filter((turn) => turn.sessionId === session.id
+        && (!statuses.size || statuses.has(turn.status))
+        && (turn.status === 'waiting_for_user' || !['queued', 'running'].includes(turn.status) || activeTurnIds.has(turn.id)))
       return json(response, 200, turns)
     }
 
@@ -371,34 +408,37 @@ const server = createServer(async (request, response) => {
       if (!Array.isArray(selectedOptionIds) || selectedOptionIds.some((optionId) => typeof optionId !== 'string') || new Set(selectedOptionIds).size !== selectedOptionIds.length || selectedOptionIds.length < turn.request.min || selectedOptionIds.length > turn.request.max || selectedOptionIds.some((optionId) => !turn.request.options.some((option) => option.id === optionId))) {
         return json(response, 400, { error: 'Selected options are invalid' })
       }
-      turn.selection = { request_id: turn.request.request_id, selected_option_ids: selectedOptionIds }
-      const conversation = state.conversations.find((item) => item.canvasId === turn.canvasId)
-      const requestMessage = conversation?.messages.find((message) => message.id === turn.requestMessageId)
+      await reloadAgentCollections()
+      const currentTurn = turnById(parts[2])
+      const session = currentTurn && sessionById(currentTurn.sessionId)
+      if (!currentTurn || !session || !canvasById(currentTurn.canvasId)) return json(response, 404, { error: 'Turn not found' })
+      currentTurn.selection = { request_id: currentTurn.request.request_id, selected_option_ids: selectedOptionIds }
+      const requestMessage = session.messages.find((message) => message.id === currentTurn.requestMessageId)
       const selectedLabels = selectedOptionIds.map((optionId) => turn.request.options.find((option) => option.id === optionId).label)
-      if (conversation && requestMessage) {
-        requestMessage.selection = turn.selection
-        conversation.messages.push({ id: `msg-${randomUUID()}`, role: 'user', content: selectedLabels.join(', '), turnId: turn.id, selection: turn.selection, createdAt: new Date().toISOString() })
-        conversation.updatedAt = new Date().toISOString()
+      if (requestMessage) {
+        requestMessage.selection = currentTurn.selection
+        session.messages.push({ id: `msg-${randomUUID()}`, role: 'user', content: selectedLabels.join(', '), turnId: currentTurn.id, selection: currentTurn.selection, createdAt: new Date().toISOString() })
+        session.updatedAt = new Date().toISOString()
       }
-      turn.status = 'queued'
-      turn.updatedAt = new Date().toISOString()
-      await Promise.all([persist('conversations'), persist('turns')])
-      void enqueueAgentTurn(turn)
-      return json(response, 202, turn)
+      currentTurn.status = 'queued'
+      currentTurn.updatedAt = new Date().toISOString()
+      await Promise.all([persist('sessions'), persist('turns')])
+      void enqueueAgentTurn(currentTurn)
+      return json(response, 202, currentTurn)
     }
 
     if (request.method === 'POST' && parts[1] === 'turns' && parts[3] === 'cancel' && parts.length === 4) {
+      await reload('turns')
       const turn = turnById(parts[2])
-      if (!turn) return json(response, 404, { error: 'Turn not found' })
+      if (!turn || !canvasById(turn.canvasId)) return json(response, 404, { error: 'Turn not found' })
       if (['succeeded', 'failed', 'cancelled'].includes(turn.status)) return json(response, 200, turn)
-      const previousStatus = turn.status
       turn.status = 'cancelling'
       turn.updatedAt = new Date().toISOString()
       await persist('turns')
       try {
         await activeTurnCancels.get(turn.id)?.()
       } catch (error) {
-        turn.status = previousStatus
+        turn.status = 'running'
         turn.updatedAt = new Date().toISOString()
         await persist('turns')
         throw error
@@ -411,9 +451,7 @@ const server = createServer(async (request, response) => {
       return json(response, 200, turn)
     }
 
-    // Start a turn. `canvasId` may be `new`, which creates the canvas this turn
-    // will build, so the first message does not need a canvas up front.
-    if (request.method === 'POST' && parts[1] === 'canvases' && parts[2] && parts[3] === 'turns' && parts.length === 4) {
+    if (request.method === 'POST' && parts[1] === 'sessions' && parts[2] && parts[3] === 'turns' && parts.length === 4) {
       const input = await body(request)
       if (typeof input.message !== 'string' || !input.message.trim()) return json(response, 400, { error: 'message is required' })
       if (!process.env.DEEPSEEK_API_KEY) {
@@ -421,22 +459,18 @@ const server = createServer(async (request, response) => {
         error.statusCode = 503
         throw error
       }
-      const isNew = parts[2] === 'new'
-      const canvas = isNew ? createCanvas({ name: 'New canvas', nodes: [], edges: [] }) : canvasById(parts[2])
+      const session = sessionById(parts[2])
+      if (!session) return json(response, 404, { error: 'Session not found' })
+      const canvas = canvasById(session.canvasId)
       if (!canvas) {
         const error = new Error('Canvas not found')
         error.statusCode = 404
         throw error
       }
-      if (isNew) {
-        state.canvases.push(canvas)
-        state.conversations.push(createInitialConversation(canvas))
-      }
       const now = new Date().toISOString()
-      const conversation = conversationFor(canvas.id)
       const turn = {
         id: `turn-${randomUUID()}`,
-        conversationId: conversation?.id || `conv-${randomUUID()}`,
+        sessionId: session.id,
         canvasId: canvas.id,
         message: input.message,
         status: 'queued',
@@ -445,24 +479,28 @@ const server = createServer(async (request, response) => {
         updatedAt: now,
       }
       state.turns.push(turn)
-      await Promise.all([persist('canvases'), persist('conversations'), persist('turns')])
+      await persist('turns')
       // A run for this canvas is already streaming -> dispatch now (bypassing
       // the serial queue) so the agent service steers this message into it.
       // Otherwise queue it as the canvas's next run.
-      const dispatch = (activeRuns.get(canvas.id) || 0) > 0 ? executeAgentTurn : enqueueAgentTurn
-      void dispatch(turn)
+      if ((activeRuns.get(canvas.id) || 0) > 0) {
+        activeTurnIds.add(turn.id)
+        void executeAgentTurn(turn).finally(() => activeTurnIds.delete(turn.id))
+      } else {
+        void enqueueAgentTurn(turn)
+      }
       return json(response, 202, turn)
     }
 
-    if (request.method === 'POST' && parts[1] === 'canvases' && parts[3] === 'duplicate') {
+    if (request.method === 'POST' && parts[1] === 'projects' && parts[3] === 'duplicate' && parts.length === 4) {
       const source = canvasById(parts[2])
-      if (!source) return json(response, 404, { error: 'Canvas not found' })
+      if (!source) return json(response, 404, { error: 'Project not found' })
       const now = new Date().toISOString()
       const canvas = { ...structuredClone(source), id: `canvas-${randomUUID()}`, name: `${source.name} Copy`, revision: 1, createdAt: now, updatedAt: now }
       state.canvases.push(canvas)
-      state.conversations.push({ id: `conv-${randomUUID()}`, canvasId: canvas.id, createdAt: now, updatedAt: now, messages: [{ id: `msg-${randomUUID()}`, role: 'assistant', content: 'This canvas was duplicated and can now evolve independently.', createdAt: now }] })
-      await Promise.all([persist('canvases'), persist('conversations')])
-      return json(response, 201, canvas)
+      state.sessions.push({ id: `session-${randomUUID()}`, canvasId: canvas.id, createdAt: now, updatedAt: now, messages: [{ id: `msg-${randomUUID()}`, role: 'assistant', content: 'This canvas was duplicated and can now evolve independently.', createdAt: now }] })
+      await Promise.all([persist('canvases'), persist('sessions')])
+      return json(response, 201, projectDto(canvas))
     }
 
     if (request.method === 'GET' && parts[1] === 'canvases' && parts[2] && parts[3] === 'assets' && parts.length === 4) {

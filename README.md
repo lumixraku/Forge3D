@@ -17,7 +17,7 @@ Forge3D combines two editing modes over the same authoritative canvas document:
 1. **Conversational editing**: the Canvas Copilot inspects, builds, and updates the graph through validated tools.
 2. **Direct manipulation**: the user adds, connects, moves, groups, configures, copies, runs, imports, and exports nodes on the canvas.
 
-The important architectural boundary is that Vue Flow is a renderer and interaction surface, not the persisted data model. The server owns a framework-neutral canvas JSON document containing domain nodes, semantic edges, viewport state, revision metadata, conversation history, Agent turns, and execution runs.
+The important architectural boundary is that Vue Flow is a renderer and interaction surface, not the persisted data model. The server owns a framework-neutral canvas JSON document containing domain nodes, semantic edges, viewport state, revision metadata, Session history, Agent turns, and execution runs.
 
 ## Current Product Surface
 
@@ -41,7 +41,7 @@ Double-click the current canvas name to rename it. `Enter` saves, `Escape` cance
 
 ### Canvas Copilot
 
-The left panel is a Tiptap-powered chat composer and conversation history:
+The left panel is a Tiptap-powered chat composer and Session history:
 
 - User messages are labeled `YOU`; assistant messages are labeled `FORGE`.
 - `Cmd+Enter` on macOS or `Ctrl+Enter` elsewhere sends a message.
@@ -132,7 +132,7 @@ Creating a canvas asks for a name with `window.prompt` and defaults to:
 
 Import removes external `id`, `revision`, `createdAt`, and `updatedAt` fields, then creates a new canvas rather than overwriting the current one. Export downloads pretty-printed JSON as `<canvas-name>.canvas.json`.
 
-Duplication deep-copies nodes, edges, and viewport, resets the revision to 1, names the copy `<original> Copy`, and creates a separate conversation.
+Duplication deep-copies nodes, edges, and viewport, resets the revision to 1, names the copy `<original> Copy`, and creates a separate Session.
 
 ### Autosave
 
@@ -631,11 +631,11 @@ The current editor is a visualization demo, not a persistent mesh-editing backen
 
 The persisted edge shape remains semantic and does not persist Vue Flow's complete internal edge object.
 
-### Conversation
+### Session
 
 ```json
 {
-  "id": "conv-example",
+  "id": "session-example",
   "canvasId": "canvas-example",
   "createdAt": "2026-07-27T10:00:00.000Z",
   "updatedAt": "2026-07-27T10:05:00.000Z",
@@ -657,7 +657,7 @@ Turns persist queued, active, waiting, successful, and failed Agent turns. Impor
 ```json
 {
   "id": "turn-example",
-  "conversationId": "conv-example",
+  "sessionId": "session-example",
   "canvasId": "canvas-example",
   "message": "Add retopology and export",
   "status": "waiting_for_user",
@@ -730,8 +730,8 @@ The Node API then runs the custom DeepSeek tool-call loop in-process. Cloudflare
 
 The two paths are intentionally similar but not identical:
 
-- Direct DeepSeek uses up to the latest 20 conversation messages.
-- The current Pi Agent Service request does not forward conversation history; it receives the current request and canvas.
+- Direct DeepSeek uses up to the latest 20 Session messages.
+- The current Pi Agent Service request does not forward Session history; it receives the current request and canvas.
 - Direct mode defaults to `deepseek-v4-flash` when no model is supplied by its caller.
 - Agent Service mode defaults to `deepseek-chat`.
 - Pi progress labels are prefixed with `Pi ·`.
@@ -896,7 +896,7 @@ Connection: keep-alive
 Starting a turn is a separate plain request that returns `202` with the turn; its events arrive on the channel:
 
 ```http
-POST /api/canvases/canvas-example/turns
+POST /api/sessions/session-example/turns
 Content-Type: application/json
 
 {
@@ -908,7 +908,7 @@ Every SSE frame has a transport event name, a JSON business payload, and a trans
 
 ```text
 event: message
-data: {"type":"progress","canvas_id":"canvas-example","conversation_id":"conv-example","turn_id":"turn-example","step_id":"progress-1","label":"Building canvas","status":"running"}
+data: {"type":"progress","canvas_id":"canvas-example","session_id":"session-example","turn_id":"turn-example","step_id":"progress-1","label":"Building canvas","status":"running"}
 id: 2-0
 
 ```
@@ -916,16 +916,16 @@ id: 2-0
 - Normal business events use `event: message`.
 - Failures use `event: error`.
 - The business event type is always `data.type`.
-- Every payload contains `canvas_id`, `conversation_id` and `turn_id`. A client matches an event to a chat bubble by `turn_id`.
+- Every payload contains `canvas_id`, `session_id` and `turn_id`. A client filters by `session_id` and matches a chat bubble by `turn_id`.
 - SSE `id:` is `<seq>-0`, where `seq` counts events per canvas. It is not the same as a chat message's JSON `id`.
 - Comment lines (`: subscribed` on open, `: keepalive` every 15s) carry no event and are ignored.
 - Final assistant text is sent as one complete event, not token deltas.
-- Nothing is buffered or replayed: `Last-Event-ID` has no effect. A client that reconnects re-reads state with `GET /api/canvases/:id`, `GET /api/canvases/:id/conversation` and `GET /api/canvases/:id/turns`, which is what opening a canvas already does.
+- Nothing is buffered or replayed: `Last-Event-ID` has no effect. A client that reconnects re-reads state with `GET /api/canvases/:id`, `GET /api/canvases/:id/sessions`, `GET /api/sessions/:sessionId/chat-history`, and `GET /api/sessions/:sessionId/turns`, which is what opening a canvas already does.
 - Because the channel belongs to the canvas and not to one request, a second client watching the same canvas sees the same events.
 
 ### Business Events
 
-Only two user actions produce events: sending a message (`POST /api/canvases/:id/turns`)
+Only two user actions produce events: sending a message (`POST /api/sessions/:id/turns`)
 and submitting a choice the Agent asked for (`POST /api/turns/:id/continue`). Both return
 `202`; everything after that arrives on the channel.
 
@@ -934,7 +934,7 @@ and submitting a choice the Agent asked for (`POST /api/turns/:id/continue`). Bo
 | `turn-start` | The user pressed Enter to send a message, or submitted a choice for a paused turn. | Accepted the turn and moved it from `queued` to `running`. | Bind the server turn ID to the optimistic assistant message. A turn that asked a question emits this twice — once per user action — with the same `turn_id`. | — |
 | `progress` | Same action; the user does nothing more. These frames are the Agent working. | Reported one step (reading canvas structure, building the node chain, inspecting or updating parameters). | Append safe visible Agent activity. | `step_id`, `label`, `status` |
 | `request_user_select` | The user's message was underspecified, so the Agent asks back. | Persisted the options and parked the turn in `waiting_for_user` without a `finish`. | Stop pending state and render a choice card; submitting it resumes the turn with a new `turn-start`. | `request` |
-| `text` | Nothing — this is the Agent answering the user's message. | Wrote the reply into the conversation, then emitted this. | Replace pending text with the complete assistant reply. | `step_id`, `id`, `text` |
+| `text` | Nothing — this is the Agent answering the user's message. | Wrote the reply into the Session, then emitted this. | Replace pending text with the complete assistant reply. | `step_id`, `id`, `text` |
 | `canvas-updated` | The user's message asked for canvas changes and the Agent made them. | Persisted the new canvas, then emitted this. | Fetch authoritative canvas state; auto-layout if structure changed. | `changed_node_ids`, `structure_changed` |
 | `finish` | Nothing. | Closed the turn successfully; last frame for that `turn_id`. | End pending state. | `finish_reason: "stop"` |
 | `error` | Nothing — any step above can fail into this. | Marked the turn `failed` and emitted the one `event: error` frame. | Mark the turn failed and show the message; the user can send again. | `error` |
@@ -979,7 +979,7 @@ Content-Type: application/json
 }
 ```
 
-The server validates turn state, request ID, unique options, allowed option IDs, and min/max selection count. It persists the answer, adds a user conversation message containing selected labels, returns the turn to `queued`, and starts a fresh Agent call using the original request plus the selection. Like starting a turn, this returns `202`; the resumed turn's events continue on the canvas channel.
+The server validates turn state, request ID, unique options, allowed option IDs, and min/max selection count. It persists the answer, adds a user Session message containing selected labels, returns the turn to `queued`, and starts a fresh Agent call using the original request plus the selection. Like starting a turn, this returns `202`; the resumed turn's events continue on the canvas channel.
 
 Submitting the exact same request ID and ordered selection again is idempotent. A conflicting second answer returns `409`.
 
@@ -1030,20 +1030,22 @@ The `/agent` endpoint currently has no authentication and receives the DeepSeek 
 
 ## HTTP API
 
-### Canvass
+### Projects And Canvases
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/canvases` | List summaries with `nodeCount` and `edgeCount`. |
-| `POST` | `/api/canvases` | Validate and create a canvas and initial conversation. |
+| `GET` | `/api/projects` | List project summaries with `nodeCount` and `edgeCount`. |
+| `POST` | `/api/projects` | Create a project, its one canvas, and one initial Session. |
+| `GET` | `/api/projects/:id` | Return project metadata and canvas counts. |
+| `PATCH` | `/api/projects/:id` | Update project metadata. |
+| `DELETE` | `/api/projects/:id` | Delete the project and all associated canvas state. |
+| `POST` | `/api/projects/:id/duplicate` | Deep-copy the project and its canvas into revision 1. |
 | `GET` | `/api/canvases/:id` | Return the canvas and its latest compatible node-run state. |
-| `PUT` | `/api/canvases/:id` | Replace the persisted canvas and update `updatedAt`. |
-| `DELETE` | `/api/canvases/:id` | Delete canvas and associated state. |
-| `POST` | `/api/canvases/:id/duplicate` | Deep-copy a canvas into revision 1. |
+| `PUT` | `/api/canvases/:id` | Replace canvas graph data and update `updatedAt`. |
 
-Creation requires a non-empty name, unique node IDs, finite node positions, valid edge objects, and edges whose endpoint nodes exist inside the canvas. The server creates `schemaVersion`, ID, timestamps, revision, and a default viewport if absent.
+Each project owns exactly one canvas and uses the same public ID as that canvas. Creation requires a non-empty name, unique node IDs, finite node positions, valid edge objects, and edges whose endpoint nodes exist inside the canvas. The server creates `schemaVersion`, ID, timestamps, revision, a default viewport if absent, and one persistent Agent Session.
 
-`PUT` is a whole-document replacement rather than a validated PATCH. The path ID and `updatedAt` are forced by the server, but most other fields are trusted. Clients should send the complete valid canvas document.
+`PUT` is a whole-document replacement rather than a validated PATCH. The path ID, project-owned `name`, `description`, and `createdAt`, and a new `updatedAt` are forced by the server; most graph fields are trusted. Clients should send the complete valid canvas document and use `PATCH /api/projects/:id` for project metadata.
 
 ### Executions
 
@@ -1133,18 +1135,20 @@ them. Filter with `?kind=reference|image|model`, `?producerNodeId=`,
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/canvases/:canvasId/events` | Subscribe to the canvas's SSE event channel. |
-| `POST` | `/api/canvases/:canvasId/turns` | Start an Agent turn; returns `202` JSON. Pass `new` as `:canvasId` to create the canvas with the turn. |
-| `GET` | `/api/canvases/:canvasId/conversation` | Return the canvas conversation and its full message history. |
-| `GET` | `/api/canvases/:canvasId/turns` | List the canvas's turns, filtered by comma-separated `status`. |
+| `GET` | `/api/canvases/:canvasId/sessions` | List the canvas's Sessions. |
+| `POST` | `/api/canvases/:canvasId/sessions` | Create and persist an empty Session; returns `201` JSON. |
+| `GET` | `/api/sessions/:sessionId/chat-history` | Return the Session's complete chat history. |
+| `POST` | `/api/sessions/:sessionId/turns` | Start an Agent turn in a Session; returns `202` JSON. |
+| `GET` | `/api/sessions/:sessionId/turns` | List the Session's turns, filtered by comma-separated `status`. |
 | `POST` | `/api/turns/:id/continue` | Validate a selection and resume a waiting turn. |
 
-Posting a turn to `/api/canvases/new/turns` creates an empty `New canvas` first. A missing API key returns `503`; no mock reply is generated.
+Create the project first with `POST /api/projects`, load its default Session, then post turns to the Session ID. A missing API key returns `503`; no mock reply is generated.
 
-The conversation is its own resource rather than a field on the canvas document,
-so the canvas and its history are fetched independently. Opening a canvas issues
-both requests; only the conversation request is repeated when the Agent appends
-messages. An unknown canvas returns `404`; a canvas whose conversation row is
-missing returns an empty conversation so the canvas still opens.
+Sessions are resources rather than fields on the canvas document, so the canvas
+and its history are fetched independently. Opening a canvas lists its Sessions,
+selects the first/default Session, and reads that Session's messages. Project
+creation and duplication each create exactly one default Session.
+Additional Sessions can be created with `POST /api/canvases/:canvasId/sessions`.
 
 ## Persistence
 
@@ -1152,7 +1156,7 @@ The application persists four collections:
 
 ```text
 canvases
-conversations
+sessions
 runs
 turns
 ```
@@ -1163,7 +1167,7 @@ The Node server stores runtime state in `server/data/`:
 
 ```text
 server/data/canvases/<canvas-id>.json
-server/data/conversations.json
+server/data/sessions.json
 server/data/runs.json
 server/data/turns.json
 ```
@@ -1498,7 +1502,7 @@ An independent implementation should preserve these invariants:
 - The rendered port model does not enforce image/text/model compatibility.
 - Conceptual multi-input and multi-output nodes render universal handles.
 - `PUT /api/canvases/:id` trusts most of the submitted document and should be treated as full replacement.
-- Pi Agent Service currently does not receive persisted conversation history.
+- Pi Agent Service currently does not receive persisted Session history.
 - Agent Service has no authentication and transports the API key in its private request body.
 - Worker concurrency and steering are not fully equivalent to the local Node API.
 - D1 stores each collection as one JSON value; it is simple but not suitable for large-scale concurrent workloads.

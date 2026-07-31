@@ -130,7 +130,7 @@ export function useCanvasSelection({ nodes, edges, activeCanvas, error, schedule
       edges: selection.edges,
     }
     try {
-      const canvas = await request('/api/canvases', {
+      const canvas = await request('/api/projects', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
