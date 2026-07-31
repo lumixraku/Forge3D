@@ -12,6 +12,8 @@ const props = defineProps<{
   error: string
   composerHasContent: boolean
   continuingTurnId: string | null
+  runningTurnId: string | null
+  stoppingTurnId: string | null
   selectedOptions: Record<string, string[]>
 }>()
 const emit = defineEmits<{
@@ -19,6 +21,7 @@ const emit = defineEmits<{
   'attach-files': [files: File[]]
   'toggle-option': [payload: { message: any; optionId: string }]
   'continue-turn': [message: any]
+  'stop-turn': [turnId: string]
 }>()
 const fileInput = ref<HTMLInputElement | null>(null)
 
@@ -48,7 +51,7 @@ function addFiles(event) {
       <article v-for="message in messages" :key="message.id" class="message" :class="[message.role, { pending: message.pending }]">
         <span>{{ message.role === 'assistant' ? 'FORGE' : 'YOU' }}</span>
         <template v-if="message.role === 'assistant'">
-          <div v-if="message.pending" class="thinking-progress"><b>Thinking</b><span>{{ message.progress.at(-1)?.label || 'Preparing canvas agent' }}</span></div>
+          <div v-if="message.pending" class="thinking-progress"><b>{{ stoppingTurnId === message.turnId ? 'Stopping' : 'Thinking' }}</b><span>{{ message.progress.at(-1)?.label || 'Preparing canvas agent' }}</span></div>
           <details v-else-if="message.progress?.length" class="thought-process"><summary>Thought process <small>Tool activity</small></summary><span v-for="(event, index) in message.progress" :key="`${event.label}-${index}`">{{ event.label }}</span></details>
           <div v-if="message.content" class="message-content" v-html="renderAssistantMarkdown(message.content)" />
           <section v-if="message.request" class="user-selection">
@@ -68,7 +71,7 @@ function addFiles(event) {
     <form class="composer" @submit.prevent="emit('send')">
       <EditorContent :editor="editor" />
       <input ref="fileInput" class="file-input" type="file" multiple @change="addFiles" />
-      <div class="composer-actions"><button class="composer-attach-button" type="button" title="Attach files" @click="fileInput.click()">Attach</button><span>ENTER TO SEND · SHIFT+ENTER FOR NEWLINE</span><button :disabled="busy || !composerHasContent">Send ↗</button></div>
+      <div class="composer-actions"><button class="composer-attach-button" type="button" title="Attach files" @click="fileInput.click()">Attach</button><span>ENTER TO SEND · SHIFT+ENTER FOR NEWLINE</span><div class="composer-run-actions"><button v-if="runningTurnId" class="composer-stop-button" type="button" :disabled="Boolean(stoppingTurnId)" @click="emit('stop-turn', runningTurnId)">{{ stoppingTurnId ? 'Stopping…' : 'Stop' }}</button><button :disabled="busy || !composerHasContent">Send ↗</button></div></div>
     </form>
   </section>
 </template>

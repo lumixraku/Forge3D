@@ -4,11 +4,12 @@
 // streams, so it runs in both Node and the Cloudflare Workers runtime.
 
 export async function runAgentViaService(opts: any) {
-  const { serviceUrl, apiKey, baseUrl, model, message, canvas, onProgress = async () => {} } = opts
+  const { serviceUrl, turnId, apiKey, baseUrl, model, message, canvas, signal, onProgress = async () => {} } = opts
   const response = await fetch(serviceUrl, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ apiKey, baseUrl, model, message, canvas }),
+    body: JSON.stringify({ turnId, apiKey, baseUrl, model, message, canvas }),
+    signal,
   })
   if (!response.ok || !response.body) {
     const text = await response.text().catch(() => '')
@@ -20,6 +21,7 @@ export async function runAgentViaService(opts: any) {
   let buffer = ''
   let plan: any
   let steered = false
+  let cancelled = false
   let serviceError: string | undefined
 
   const handleLine = async (line: string) => {
@@ -29,6 +31,7 @@ export async function runAgentViaService(opts: any) {
     if (message.type === 'progress') await onProgress(message.event)
     else if (message.type === 'result') plan = message.plan
     else if (message.type === 'steered') steered = true
+    else if (message.type === 'cancelled') cancelled = true
     else if (message.type === 'error') serviceError = message.error
   }
 
@@ -45,8 +48,22 @@ export async function runAgentViaService(opts: any) {
   await handleLine(buffer)
 
   if (serviceError) throw new Error(serviceError)
+  if (cancelled) {
+    const error = new Error('Agent run cancelled')
+    error.name = 'AbortError'
+    throw error
+  }
   // The message was injected into an already-running run; no plan of its own.
   if (steered) return { steered: true }
   if (!plan) throw new Error('Agent service returned no result')
   return plan
+}
+
+export async function cancelAgentViaService(serviceUrl: string, turnId: string) {
+  const response = await fetch(new URL('cancel', serviceUrl.endsWith('/') ? serviceUrl : `${serviceUrl}/`), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ turnId }),
+  })
+  if (!response.ok) throw new Error('Agent service could not stop the run')
 }

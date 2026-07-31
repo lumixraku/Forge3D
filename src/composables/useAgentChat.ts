@@ -12,8 +12,10 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
   const composerVersion = ref(0)
   const selectedOptions = ref({})
   const continuingTurnId = ref(null)
+  const stoppingTurnId = ref(null)
   let events = null
   const messages = computed(() => conversation.value?.messages || [])
+  const runningTurnId = computed(() => messages.value.find((message) => message.role === 'assistant' && message.pending && message.turnId)?.turnId || null)
   const composer = useEditor({
     extensions: [
       StarterKit,
@@ -120,7 +122,14 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
       }
       error.value = event.error || 'Agent turn failed'
     }
-    if (event.type === 'finish' && pending) pending.pending = false
+    if (event.type === 'finish' && pending) {
+      pending.pending = false
+      if (event.finish_reason === 'cancelled') {
+        pending.stopped = true
+        pending.content = 'Stopped'
+      }
+      if (stoppingTurnId.value === event.turn_id) stoppingTurnId.value = null
+    }
   }
 
   // The canvas's single event channel, opened when the canvas opens and closed
@@ -194,6 +203,25 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
     }
   }
 
+  async function stopTurn(turnId) {
+    if (!turnId || stoppingTurnId.value) return
+    stoppingTurnId.value = turnId
+    error.value = ''
+    try {
+      await request(`/api/turns/${encodeURIComponent(turnId)}/cancel`, { method: 'POST' })
+      const pending = conversation.value?.messages.find((item) => item.turnId === turnId)
+      if (pending) {
+        pending.pending = false
+        pending.stopped = true
+        pending.content = 'Stopped'
+      }
+    } catch (caught) {
+      error.value = caught.message
+    } finally {
+      stoppingTurnId.value = null
+    }
+  }
+
   async function sendMessage() {
     const message = composerMessage()
     if (!message) return
@@ -254,6 +282,8 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
     messages,
     selectedOptions,
     continuingTurnId,
+    runningTurnId,
+    stoppingTurnId,
     addComposerFiles,
     loadConversation,
     restoreTurns,
@@ -261,6 +291,7 @@ export function useAgentChat({ activeCanvas, conversation, busy, error, runToken
     closeCanvasEvents,
     toggleSelectedOption,
     continueTurn,
+    stopTurn,
     sendMessage,
   }
 }

@@ -3,10 +3,11 @@ import { executionAssets } from './server/run-assets.js'
 import { createExecution, executeExecution, executionById, executionDto, findNode, paginateAssets } from './server/executions.js'
 import { createInitialConversation, createCanvas, emptyConversation } from './server/canvases.js'
 import { runDeepSeekAgent } from './server/deepseek.js'
-import { runAgentViaService } from './server/agent-client.js'
+import { cancelAgentViaService, runAgentViaService } from './server/agent-client.js'
 
 const collections = ['canvases', 'conversations', 'runs', 'turns']
 const terminalStatuses = new Set(['succeeded', 'failed'])
+const activeTurnControllers = new Map()
 
 function id() {
   return crypto.randomUUID()
@@ -96,6 +97,9 @@ async function executeAgentTurn(env, state, turn) {
   // that is not the one which posted the turn still sees it.
   const emit = (type, fields) => broadcast(turn.canvasId, turnEvent(turn, type, fields))
   try {
+    state.turns = await readCollection(env, 'turns')
+    turn = turnById(state, turn.id)
+    if (!turn || turn.status === 'cancelled' || turn.status === 'cancelling') return
     turn.status = 'running'
     turn.startedAt = new Date().toISOString()
     await writeCollections(env, state, ['turns'])
@@ -104,8 +108,14 @@ async function executeAgentTurn(env, state, turn) {
     if (!canvas) throw new Error('Canvas not found')
     const conversation = conversationFor(state, turn.canvasId)
     const runAgent = env.AGENT_SERVICE_URL ? runAgentViaService : runDeepSeekAgent
-    const plan = await runAgent({
-      serviceUrl: env.AGENT_SERVICE_URL,
+    const controller = new AbortController()
+    activeTurnControllers.set(turn.id, controller)
+    let plan
+    try {
+      plan = await runAgent({
+        serviceUrl: env.AGENT_SERVICE_URL,
+        turnId: turn.id,
+        signal: controller.signal,
       apiKey: env.DEEPSEEK_API_KEY,
       baseUrl: env.DEEPSEEK_BASE_URL,
       model: env.DEEPSEEK_MODEL,
@@ -118,7 +128,13 @@ async function executeAgentTurn(env, state, turn) {
         await writeCollections(env, state, ['turns'])
         await emit('progress', { step_id: `progress-${turn.progress.length}`, ...event })
       },
-    })
+      })
+    } finally {
+      if (activeTurnControllers.get(turn.id) === controller) activeTurnControllers.delete(turn.id)
+    }
+    state.turns = await readCollection(env, 'turns')
+    turn = turnById(state, turn.id)
+    if (!turn || turn.status === 'cancelled' || turn.status === 'cancelling') return
     if (plan.userSelectionRequest) {
       turn.status = 'waiting_for_user'
       delete turn.selection
@@ -164,6 +180,17 @@ async function executeAgentTurn(env, state, turn) {
     await emit('canvas-updated', { changed_node_ids: plan.changedNodeIds, structure_changed: plan.structureChanged })
     await emit('finish', { finish_reason: 'stop' })
   } catch (error) {
+    state.turns = await readCollection(env, 'turns').catch(() => state.turns)
+    const latestTurn = turnById(state, turn.id)
+    if (latestTurn?.status === 'cancelled' || latestTurn?.status === 'cancelling' || error?.name === 'AbortError') {
+      if (latestTurn) {
+        latestTurn.status = 'cancelled'
+        latestTurn.completedAt ||= new Date().toISOString()
+        latestTurn.updatedAt = latestTurn.completedAt
+        await writeCollections(env, state, ['turns']).catch(() => {})
+      }
+      return
+    }
     turn.status = 'failed'
     turn.error = error.message
     turn.completedAt = new Date().toISOString()
@@ -294,6 +321,30 @@ async function route(request, env, ctx) {
     await writeCollections(env, state, ['conversations', 'turns'])
     ctx.waitUntil(executeAgentTurn(env, state, turn))
     return response(turn, 202)
+  }
+  if (request.method === 'POST' && parts[1] === 'turns' && parts[3] === 'cancel' && parts.length === 4) {
+    const turn = turnById(state, parts[2])
+    if (!turn) return response({ error: 'Turn not found' }, 404)
+    if (['succeeded', 'failed', 'cancelled'].includes(turn.status)) return response(turn)
+    const previousStatus = turn.status
+    turn.status = 'cancelling'
+    turn.updatedAt = new Date().toISOString()
+    await writeCollections(env, state, ['turns'])
+    try {
+      if (env.AGENT_SERVICE_URL) await cancelAgentViaService(env.AGENT_SERVICE_URL, turn.id)
+      activeTurnControllers.get(turn.id)?.abort()
+    } catch (error) {
+      turn.status = previousStatus
+      turn.updatedAt = new Date().toISOString()
+      await writeCollections(env, state, ['turns'])
+      throw error
+    }
+    turn.status = 'cancelled'
+    turn.completedAt = new Date().toISOString()
+    turn.updatedAt = turn.completedAt
+    await writeCollections(env, state, ['turns'])
+    await broadcast(turn.canvasId, turnEvent(turn, 'finish', { finish_reason: 'cancelled' }))
+    return response(turn)
   }
   // Start a turn. `canvasId` may be `new`, which creates the canvas this turn
   // will build, so the first message does not need a canvas up front.

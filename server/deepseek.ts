@@ -62,7 +62,7 @@ function parseArguments(call) {
   }
 }
 
-export async function runDeepSeekAgent({ apiKey, message, canvas, history = [], fetchImpl = fetch, baseUrl = 'https://api.deepseek.com', model = 'deepseek-v4-flash', maxRounds = 5, onProgress = () => {} }) {
+export async function runDeepSeekAgent({ apiKey, message, canvas, history = [], fetchImpl = fetch, baseUrl = 'https://api.deepseek.com', model = 'deepseek-v4-flash', maxRounds = 5, signal, onProgress = () => {} }) {
   if (!apiKey) throw new DeepSeekError('DeepSeek is not configured.', 503)
   baseUrl ||= 'https://api.deepseek.com'
   model ||= 'deepseek-v4-flash'
@@ -83,9 +83,10 @@ export async function runDeepSeekAgent({ apiKey, message, canvas, history = [], 
         method: 'POST',
         headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
         body: JSON.stringify({ model, messages, tools, tool_choice: 'auto', stream: false }),
-        signal: AbortSignal.timeout(30000),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000),
       })
-    } catch {
+    } catch (error) {
+      if (signal?.aborted) throw error
       throw new DeepSeekError('The DeepSeek service is unavailable.', 503)
     }
     if (!response.ok) throw new DeepSeekError(`DeepSeek request failed with status ${response.status}.`, response.status === 429 ? 503 : 502)

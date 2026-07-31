@@ -7,7 +7,7 @@ import { executionAssets } from './run-assets.js'
 import { createExecution, executeExecution, executionById, executionDto, findNode, paginateAssets } from './executions.js'
 import { createInitialConversation, createCanvas, emptyConversation } from './canvases.js'
 import { runDeepSeekAgent } from './deepseek.js'
-import { runAgentViaService } from './agent-client.js'
+import { cancelAgentViaService, runAgentViaService } from './agent-client.js'
 import { createTripoRunner } from './tripo-run.js'
 import { readAsset } from './tripo-assets.js'
 import { tripoNodeTypes } from './tripo-mapping.js'
@@ -22,6 +22,7 @@ const canvasTurnQueues = new Map()
 // for a canvas with an active run is dispatched immediately (bypassing the
 // serial queue) so the agent service can steer it into the running run.
 const activeRuns = new Map()
+const activeTurnCancels = new Map()
 // One SSE channel per canvas: a client subscribes when it opens the canvas and
 // every event the server pushes for that canvas is multiplexed onto it. Nothing
 // is buffered or replayed - a client that reconnects re-reads state over REST.
@@ -113,6 +114,7 @@ async function executeAgentTurn(turn) {
   const emit = (type, fields) => broadcast(turn.canvasId, turnEvent(turn, type, fields))
   try {
     await whenSubscribed(turn.canvasId)
+    if (turn.status === 'cancelled' || turn.status === 'cancelling') return
     turn.status = 'running'
     turn.startedAt = new Date().toISOString()
     await persist('turns')
@@ -126,9 +128,17 @@ async function executeAgentTurn(turn) {
     const runAgent = serviceUrl ? runAgentViaService : runDeepSeekAgent
     activeRuns.set(turn.canvasId, (activeRuns.get(turn.canvasId) || 0) + 1)
     let plan
+    const controller = new AbortController()
+    const cancel = async () => {
+      if (serviceUrl) await cancelAgentViaService(serviceUrl, turn.id)
+      controller.abort()
+    }
+    activeTurnCancels.set(turn.id, cancel)
     try {
       plan = await runAgent({
         serviceUrl,
+        turnId: turn.id,
+        signal: controller.signal,
         apiKey: process.env.DEEPSEEK_API_KEY,
         baseUrl: process.env.DEEPSEEK_BASE_URL,
         model: process.env.DEEPSEEK_MODEL,
@@ -143,10 +153,12 @@ async function executeAgentTurn(turn) {
         },
       })
     } finally {
+      if (activeTurnCancels.get(turn.id) === cancel) activeTurnCancels.delete(turn.id)
       const remaining = (activeRuns.get(turn.canvasId) || 1) - 1
       if (remaining > 0) activeRuns.set(turn.canvasId, remaining)
       else activeRuns.delete(turn.canvasId)
     }
+    if (turn.status === 'cancelled' || turn.status === 'cancelling') return
     // The message was steered into a still-running run; it produces no diff of
     // its own. Acknowledge it in the conversation and finish.
     if (plan.steered) {
@@ -215,6 +227,15 @@ async function executeAgentTurn(turn) {
     emit('canvas-updated', { changed_node_ids: plan.changedNodeIds, structure_changed: plan.structureChanged })
     emit('finish', { finish_reason: 'stop' })
   } catch (error) {
+    if (turn.status === 'cancelled' || turn.status === 'cancelling' || error?.name === 'AbortError') {
+      turn.status = 'cancelled'
+      turn.completedAt ||= new Date().toISOString()
+      turn.updatedAt = turn.completedAt
+      try {
+        await persist('turns')
+      } catch {}
+      return
+    }
     turn.status = 'failed'
     turn.error = error.message
     turn.completedAt = new Date().toISOString()
@@ -364,6 +385,30 @@ const server = createServer(async (request, response) => {
       await Promise.all([persist('conversations'), persist('turns')])
       void enqueueAgentTurn(turn)
       return json(response, 202, turn)
+    }
+
+    if (request.method === 'POST' && parts[1] === 'turns' && parts[3] === 'cancel' && parts.length === 4) {
+      const turn = turnById(parts[2])
+      if (!turn) return json(response, 404, { error: 'Turn not found' })
+      if (['succeeded', 'failed', 'cancelled'].includes(turn.status)) return json(response, 200, turn)
+      const previousStatus = turn.status
+      turn.status = 'cancelling'
+      turn.updatedAt = new Date().toISOString()
+      await persist('turns')
+      try {
+        await activeTurnCancels.get(turn.id)?.()
+      } catch (error) {
+        turn.status = previousStatus
+        turn.updatedAt = new Date().toISOString()
+        await persist('turns')
+        throw error
+      }
+      turn.status = 'cancelled'
+      turn.completedAt = new Date().toISOString()
+      turn.updatedAt = turn.completedAt
+      await persist('turns')
+      broadcast(turn.canvasId, turnEvent(turn, 'finish', { finish_reason: 'cancelled' }))
+      return json(response, 200, turn)
     }
 
     // Start a turn. `canvasId` may be `new`, which creates the canvas this turn

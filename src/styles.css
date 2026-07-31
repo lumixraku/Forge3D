@@ -379,8 +379,10 @@
 .composer-editor p.is-editor-empty:first-child::before { float: left; height: 0; color: var(--text-muted); content: 'Describe a 3D canvas or ask for a change…'; pointer-events: none; }
 .composer-actions { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; margin-top: 8px; }
 .composer-actions > span { color: var(--text-muted); font: 500 8px var(--font-mono); }
+.composer-run-actions { display: flex; align-items: center; gap: 6px; }
 .composer button { padding: 7px 10px; border: 0; border-radius: 7px; background: var(--acid); color: var(--text-inverse); font: 600 9px var(--font-mono); transition: filter .15s ease, box-shadow .15s ease; }
 .composer .composer-attach-button { border: 1px solid var(--line-strong); background: transparent; color: var(--text-secondary); }
+.composer .composer-stop-button { border: 1px solid color-mix(in srgb, var(--status-failed) 55%, var(--line-strong)); background: transparent; color: var(--status-failed); }
 .composer .composer-attach-button:hover { border-color: var(--acid); color: var(--acid); }
 .composer button:hover:not(:disabled) { filter: brightness(1.08); }
 .composer button:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px color-mix(in srgb, var(--acid) 50%, transparent); }

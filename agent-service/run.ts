@@ -61,6 +61,7 @@ const toolSchema = (name: string) => Type.Unsafe(canvasToolDefinition(name)?.par
 export interface LiveRun {
   agent: any
   steer: (text: string) => void
+  abort: () => void
   done: Promise<AgentPlan>
 }
 
@@ -207,6 +208,7 @@ export function startPiAgent(opts: RunOptions): LiveRun {
 
   let reply = ''
   let runError: string | undefined
+  let cancelled = false
   agent.subscribe((event: any) => {
     if (event.type === 'message_end' && event.message?.role === 'assistant') {
       const text = (event.message.content || []).filter((part: any) => part.type === 'text').map((part: any) => part.text).join('')
@@ -223,15 +225,25 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     agent.steer({ role: 'user', content: [{ type: 'text', text }], timestamp: Date.now() })
   }
 
+  const abort = () => {
+    cancelled = true
+    agent.abort()
+  }
+
   const done = (async (): Promise<AgentPlan> => {
     await opts.onProgress?.({ label: 'Pi · Reviewing your request', status: 'running' })
     try {
       await agent.prompt(opts.message)
     } catch (error: any) {
       // request_user_select aborts the run on purpose; any other rejection is real.
-      if (!session.userSelectionRequest) runError = runError || error?.message || 'Agent run failed'
+      if (!session.userSelectionRequest && !cancelled) runError = runError || error?.message || 'Agent run failed'
     }
 
+    if (cancelled) {
+      const error = new Error('Agent run cancelled')
+      error.name = 'AbortError'
+      throw error
+    }
     if (runError && !session.userSelectionRequest) throw new Error(runError)
 
     const changedNodeIds = [...new Set(session.changes.map((change) => change.nodeId))]
@@ -248,7 +260,7 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     }
   })()
 
-  return { agent, steer, done }
+  return { agent, steer, abort, done }
 }
 
 // Convenience wrapper for callers that do not need to steer: start and await.
