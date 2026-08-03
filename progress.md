@@ -258,6 +258,24 @@ so the refactor could be shown to preserve behaviour, then fixed separately.
 - `npx wrangler deploy --dry-run`: bundles at 100.23 KiB after `executions.ts`
   began importing the schema.
 
+## Fixed: Duplicate Object Keys (2026-08-03, branch `main`)
+
+`npx wrangler deploy` reported two `duplicate-object-key` warnings in the asset
+literal in `server/run-assets.ts`: `canvasId` and `canvasRevision` each appeared
+twice, on consecutive lines, with identical values. Pre-existing, and harmless at
+runtime — last-wins with the same value on both sides — so removing the repeats
+provably changes nothing. Confirmed these were the only two such warnings in the
+Worker bundle rather than fixing only the reported pair.
+
+### Verification
+
+- `npx wrangler deploy --dry-run`: no warnings, bundles at 100.15 KiB.
+- `npm test`: 182 pass, 0 fail. `npm run typecheck`: clean.
+
+### Remaining issues
+
+- None for this change.
+
 ## Next Steps
 
 1. Continue browser QA for future canvas interaction changes.

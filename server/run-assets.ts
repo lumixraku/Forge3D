@@ -44,8 +44,6 @@ export function collectRunAssets(runs, canvasId, canvas = null) {
         runId: run.id,
         executionId: run.id,
         canvasId: run.canvasId,
-        canvasId: run.canvasId,
-        canvasRevision: run.canvasRevision,
         canvasRevision: run.canvasRevision,
         entryNodeId: run.entryNodeId || Object.keys(run.nodeRuns || {})[0],
         nodeId,
