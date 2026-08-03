@@ -518,10 +518,14 @@ correct. Fixed by swapping the two directions.
   - `ac786ce fix: reconnect the custom domain and recover the renamed data`
 - `.codegraph/` is ignored as local generated project metadata.
 - `server/data/canvases/` is not tracked, so a lost canvas cannot be recovered.
-- A backup of all six D1 collections taken before the migration lives under
-  `scratchpad/d1-backup/` in the session temp directory (`workflows.json` 62 KB,
-  `tasks.json` 158 KB, plus `sessions`, `conversations`, `runs`, `fragments`).
-  **On `/tmp`, so it will be cleaned up** — move it if it needs to survive.
+- A backup of all six D1 collections, taken before the canvas migration, lives at
+  `~/backups/forge3d-d1/2026-08-03-pre-canvas-migration/` (`workflows.json` 11
+  records, `tasks.json` 20, `sessions` 11, `conversations` 11, `runs` 2,
+  `fragments` 0, plus a `README.md` explaining the restore path). Verified by
+  SHA-256 against the originals and by parsing each file. Deliberately outside
+  the repo — it is production data, not source. The migration seeds the new
+  collections and leaves the legacy rows in place, so this copy is redundant, but
+  D1 `9b7fb975` is the only home for these canvases.
 
 ## Services
 
