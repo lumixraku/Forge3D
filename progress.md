@@ -437,6 +437,62 @@ and migration issues above.
   DevToolsActivePort`), so this rests on the bundle check and the type/build
   pass, not on a rendered page.
 
+## Draggable Debug Ball With Corner Snapping (2026-08-03, branch `main`)
+
+The debug ball was pinned to `right: 18px; bottom: 120px` and could cover canvas
+content with no way to move it. It now drags and snaps to whichever of the four
+corners it is released nearest, defaulting to bottom-left.
+
+### Changes
+
+- `DebugPanel.vue` tracks a `corner` ref persisted to
+  `localStorage['forge3d.debugBallCorner']`, following the same guarded
+  read/write as `useDebugSettings`, so a blocked store falls back to the default
+  instead of throwing.
+- Position moves from static CSS to a computed inline style: pointer coordinates
+  while dragging, corner offsets while docked. All four edges are always emitted
+  as `left/right/top/bottom` — Vue merges style objects rather than replacing
+  them, so returning only `left`/`top` mid-drag would leave the docked
+  `right`/`bottom` in place and pin the ball to two opposite edges at once.
+- Drag uses pointer events on `window`, so the gesture survives the pointer
+  leaving the 52px ball. Movement under 4px stays a click, so an unsteady press
+  still opens the panel; `dragging` is cleared in a `requestAnimationFrame` after
+  `pointerup` so the trailing click does not toggle the panel.
+- Drag position is clamped to the viewport, so the ball cannot be dropped past an
+  edge and stranded.
+- The panel opens toward the middle of the screen via `flex-direction` on the
+  dock, keyed off the docked corner.
+
+### Verification
+
+Exercised in the browser through Chrome DevTools against the dev server, not
+inferred from the CSS:
+
+- Default with no stored value is bottom-left (`left: 18px`, `bottom: 18px`).
+- Dragging to each corner snaps the ball to exactly 18px from both its edges and
+  persists the right value (`top-right`, `bottom-right`, `top-left`,
+  `bottom-left`).
+- Dragging to `(-500, -500)` clamps to `(18, 18)`.
+- A click with no movement still toggles the panel; a drag does not.
+- With the panel open in all four corners: the ball stays pinned to its corner,
+  the panel is fully within the viewport, and it grows inward.
+- `npm run typecheck` clean, `npm run build` succeeds, `npm test` 186 pass.
+
+### Bug found by measuring rather than reading
+
+The first implementation had `flex-direction` inverted. The panel precedes the
+ball in the DOM, so `column-reverse` put the ball *above* a bottom-docked panel:
+opening the panel made the ball jump off its corner from y=701 to y=389. Only
+visible by measuring both rectangles with the panel open — the CSS read as
+correct. Fixed by swapping the two directions.
+
+### Remaining issues
+
+- The corner is not re-clamped on window resize. Because position is expressed as
+  corner offsets rather than absolute coordinates, the ball stays correctly
+  docked at any viewport size; only an in-progress drag would be affected, which
+  cannot span a resize.
+
 ## Next Steps
 
 1. Continue browser QA for future canvas interaction changes.

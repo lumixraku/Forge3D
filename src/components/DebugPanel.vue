@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue'
 import type { RunProvider } from '../composables/useDebugSettings'
 
 const props = defineProps<{
@@ -10,10 +11,113 @@ const props = defineProps<{
   error: string
 }>()
 const emit = defineEmits<{ 'update:open': [boolean]; 'set-provider': [RunProvider | null] }>()
+
+type Corner = 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right'
+
+const CORNERS: Corner[] = ['bottom-left', 'bottom-right', 'top-left', 'top-right']
+const STORAGE_KEY = 'forge3d.debugBallCorner'
+const MARGIN = 18
+const BALL = 52
+// Below this the gesture is a click, above it a drag, so a slightly unsteady
+// press still opens the panel.
+const DRAG_THRESHOLD = 4
+
+function storedCorner(): Corner {
+  try {
+    const value = localStorage.getItem(STORAGE_KEY)
+    return CORNERS.includes(value as Corner) ? (value as Corner) : 'bottom-left'
+  } catch {
+    // Private browsing or a blocked store; the default corner is fine.
+    return 'bottom-left'
+  }
+}
+
+const corner = ref<Corner>(storedCorner())
+// Non-null only while dragging: the ball's top-left in viewport coordinates.
+const dragAt = ref<{ x: number; y: number } | null>(null)
+const dragging = ref(false)
+
+// While dragging the ball follows the pointer; otherwise it sits in its corner.
+// The panel opens away from the edges the ball is pinned to, so it stays on
+// screen in all four corners.
+// All four edges are always set, because Vue merges style objects rather than
+// replacing them: returning only `left`/`top` while dragging would leave the
+// docked `right`/`bottom` in place and pin the ball to two opposite edges.
+const dockStyle = computed(() => {
+  if (dragAt.value) {
+    return { left: `${dragAt.value.x}px`, top: `${dragAt.value.y}px`, right: 'auto', bottom: 'auto' }
+  }
+  const [edgeY, edgeX] = corner.value.split('-')
+  return {
+    left: edgeX === 'left' ? `${MARGIN}px` : 'auto',
+    right: edgeX === 'right' ? `${MARGIN}px` : 'auto',
+    top: edgeY === 'top' ? `${MARGIN}px` : 'auto',
+    bottom: edgeY === 'bottom' ? `${MARGIN}px` : 'auto',
+  }
+})
+
+const atTop = computed(() => corner.value.startsWith('top'))
+const atLeft = computed(() => corner.value.endsWith('left'))
+
+function nearestCorner(x: number, y: number): Corner {
+  const vertical = y + BALL / 2 < window.innerHeight / 2 ? 'top' : 'bottom'
+  const horizontal = x + BALL / 2 < window.innerWidth / 2 ? 'left' : 'right'
+  return `${vertical}-${horizontal}` as Corner
+}
+
+function onPointerDown(event: PointerEvent) {
+  // Only a primary press drags; let anything else fall through to the click.
+  if (event.button !== 0) return
+  const ball = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  const grabX = event.clientX - ball.left
+  const grabY = event.clientY - ball.top
+  const startX = event.clientX
+  const startY = event.clientY
+  let moved = false
+
+  const onMove = (move: PointerEvent) => {
+    if (!moved && Math.hypot(move.clientX - startX, move.clientY - startY) < DRAG_THRESHOLD) return
+    moved = true
+    dragging.value = true
+    // Clamped so the ball cannot be dropped past an edge and stranded.
+    dragAt.value = {
+      x: Math.min(Math.max(move.clientX - grabX, MARGIN), window.innerWidth - BALL - MARGIN),
+      y: Math.min(Math.max(move.clientY - grabY, MARGIN), window.innerHeight - BALL - MARGIN),
+    }
+  }
+
+  const onUp = () => {
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+    window.removeEventListener('pointercancel', onUp)
+    if (dragAt.value) setCorner(nearestCorner(dragAt.value.x, dragAt.value.y))
+    dragAt.value = null
+    // Cleared after the click handler runs, so a drag does not toggle the panel.
+    requestAnimationFrame(() => { dragging.value = false })
+  }
+
+  window.addEventListener('pointermove', onMove)
+  window.addEventListener('pointerup', onUp)
+  window.addEventListener('pointercancel', onUp)
+}
+
+function setCorner(next: Corner) {
+  corner.value = next
+  try {
+    localStorage.setItem(STORAGE_KEY, next)
+  } catch {
+    // Not remembering the corner does not stop it applying now.
+  }
+}
+
+function onBallClick() {
+  if (dragging.value) return
+  emit('update:open', !props.open)
+}
 </script>
 
 <template>
-  <div class="debug-dock">
+  <div class="debug-dock" :class="{ 'at-top': atTop, 'at-left': atLeft, dragging }" :style="dockStyle">
     <aside v-if="props.open" class="debug-panel bg-bg-card border border-line-strong" role="dialog" aria-label="Debug settings">
       <header>
         <span>DEBUG</span>
@@ -77,8 +181,9 @@ const emit = defineEmits<{ 'update:open': [boolean]; 'set-provider': [RunProvide
       class="debug-ball"
       :class="[props.activeProvider, { open: props.open }]"
       :aria-expanded="props.open"
-      :aria-label="`Debug settings · running on ${props.activeProvider === 'tripo' ? 'Tripo API' : 'Mock'}`"
-      @click="emit('update:open', !props.open)"
+      :aria-label="`Debug settings · running on ${props.activeProvider === 'tripo' ? 'Tripo API' : 'Mock'} · drag to move`"
+      @pointerdown="onPointerDown"
+      @click="onBallClick"
     >
       <i />
       <span>{{ props.activeProvider === 'tripo' ? 'API' : 'MOCK' }}</span>
@@ -87,18 +192,26 @@ const emit = defineEmits<{ 'update:open': [boolean]; 'set-provider': [RunProvide
 </template>
 
 <style scoped>
+/* Position comes from the inline style: a corner while docked, pointer
+   coordinates while dragging. The panel precedes the ball in the DOM, so
+   `column` puts the ball last (nearest a bottom edge) and `column-reverse` puts
+   it first (nearest a top edge). Either way the ball stays pinned to its corner
+   and the panel grows toward the middle of the screen, instead of the ball
+   jumping when the panel opens. */
 .debug-dock {
   position: fixed;
-  right: 18px;
-  bottom: 120px;
   z-index: 60;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: 10px;
   pointer-events: none;
 }
+.debug-dock.at-top { flex-direction: column-reverse; }
+.debug-dock:not(.at-left) { align-items: flex-end; }
 .debug-dock > * { pointer-events: auto; }
+.debug-dock.dragging { transition: none; }
+.debug-dock.dragging .debug-ball { cursor: grabbing; transform: none; }
 
 .debug-ball {
   display: flex;
