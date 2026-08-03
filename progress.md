@@ -534,6 +534,53 @@ confirmed back at 11 with no leftovers.
   `AGENT_SERVICE_URL` is read by `worker.ts` but is unset in production, which is
   the existing behaviour and not new.
 
+## Why Tripo Cannot Run On Cloudflare (2026-08-03, investigation, no code change)
+
+The debug panel reports **"Tripo API — No API key"** on
+`https://forge3d.lumixraku.org`. This is not a missing secret. `worker.ts:77`
+hardcodes `createTripoProvider: null` and `readAsset: null`, so
+`/api/capabilities` returns `tripo: false` and the frontend greys the option out.
+**Setting `TRIPO_API_KEY` as a Worker secret would change nothing** — that code
+path never reads it. The behaviour is deliberate and the comment above it says so.
+
+### The two real blockers
+
+**No filesystem.** Tripo output URLs expire about five minutes after a task
+succeeds, so `server/tripo-assets.ts` writes every artifact to
+`server/data/assets/` using `node:fs` (`mkdir`/`writeFile`/`rename`) and serves it
+back through `/api/assets/`. Reference images are read from `public/` the same
+way (`tripo-provider.ts:74`). Neither existing binding substitutes:
+
+| Binding | What it is | Why it cannot hold Tripo output |
+| --- | --- | --- |
+| `DB` (D1) | SQLite for canvas/session/run JSON | Structured data. Multi-MB `.glb` blobs would hit row-size limits and be scanned on every list read. |
+| `ASSETS` | Static assets from `./dist-cloudflare` | **Read-only**, fixed at deploy time. Serves the frontend bundle. |
+
+This needs R2. R2 has never been configured (`git log -S r2_buckets` across all
+refs is empty) and is **not enabled on the account**: `wrangler r2 bucket list`
+returns `code: 10042, Please enable R2 through the Cloudflare Dashboard`. That is
+a dashboard step, not something the CLI can do.
+
+**Runtime length.** The verified 3D chain took **11m28s**, driven by a polling
+loop at `tripo.ts:137` waiting on task completion. That exceeds a Worker request,
+and `ctx.waitUntil` does not cover it either.
+
+### What a fix would take
+
+Two independent steps, in this order:
+
+1. **Storage** — enable R2, add the binding, rewrite `tripo-assets.ts` off
+   `node:fs`, point `/api/assets/` at R2, and stop reading reference images from
+   `public/`. Independently verifiable (upload then read back) and does not touch
+   the execution chain.
+2. **Long-task scheduling** — move the polling loop out of the request lifecycle
+   into Durable Objects or Queues. Touches the core of how runs execute.
+
+Not started: step 1 is blocked on the account-level R2 step, and both are a
+larger change than the question implied. Tripo runs today on the local Node
+server (`npm run dev`), which is verified end to end — see the shark run above,
+five nodes green, 80 credits.
+
 ## Next Steps
 
 1. Continue browser QA for future canvas interaction changes.
