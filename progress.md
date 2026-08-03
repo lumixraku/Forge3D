@@ -471,9 +471,17 @@ and migration issues above.
 
 - Frontend: `http://localhost:5175`
 - Backend: `http://127.0.0.1:8787`
-- Production: `https://forge3d.lumixraku.org` — worker `forge3d-canvas-studio`,
-  D1 `forge3d` (`9b7fb975-...`). The domain is declared in `wrangler.toml`, so
-  `npm run cf:deploy` reaches it. `.workers.dev` is disabled.
+- **Production is `https://forge3d.lumixraku.org` — this is the deploy target.**
+  Worker `forge3d-canvas-studio`, D1 `forge3d` (`9b7fb975-...`). Deploy with
+  `npm run cf:deploy` and verify against this domain only. Its last line prints
+  `forge3d.lumixraku.org (custom domain)`; if it prints a `.workers.dev` URL
+  instead, the `[[routes]]` block is missing and the deploy went nowhere useful.
+  Never verify a fix against a `.workers.dev` URL — the user is on the custom
+  domain and will see no change.
+- `.workers.dev` is disabled: `workers_dev` is not declared, and once
+  `[[routes]]` exists wrangler disables it by default (with no route it would be
+  enabled by default, which is why pre-`ac786ce` deploys landed there). Add
+  `workers_dev = true` only if a staging URL is explicitly wanted.
 - The retired worker `forge3d-workflow-studio` still exists in the account, bound
   to the same D1. It served the custom domain until 2026-08-03 and its own last
   deployment is `7f072d1f` at 2026-08-03T07:49 UTC — that version is current
