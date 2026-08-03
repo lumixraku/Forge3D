@@ -493,6 +493,47 @@ correct. Fixed by swapping the two directions.
   docked at any viewport size; only an in-progress drag would be affected, which
   cannot span a resize.
 
+## Fixed: The Rename Left The API Key Behind Too (2026-08-03, branch `main`)
+
+`DEEPSEEK_API_KEY` appeared to have vanished after the domain moved to
+`forge3d-canvas-studio`. It had not been deleted — it was never set on that
+worker. Secrets are stored per worker, not in `wrangler.toml` (correctly, since
+they are credentials), so the worker created by the `263b56e` rename started
+with none. `wrangler secret list` returned `[]` for `forge3d-canvas-studio` and
+`[{ DEEPSEEK_API_KEY }]` for `forge3d-workflow-studio`.
+
+This stayed invisible while the domain still pointed at the old worker, which
+had the key. Moving the domain exposed it. The third consequence of the same
+one-line rename, after the stranded domain and the unmigrated collections.
+
+### Changes
+
+- Set `DEEPSEEK_API_KEY` on `forge3d-canvas-studio`, piped from `.env` into
+  `wrangler secret put` so the value never entered a command line or any output.
+
+### Verification
+
+Not just "the secret is registered" — the agent path was exercised end to end
+against the live domain. A temporary canvas was created, `POST
+/api/sessions/:id/turns` accepted `say hi`, and `chat-history` came back with a
+real DeepSeek reply ("Hi there! 👋 I'm ready to help you build on your 3D
+production canvas"). The temporary canvas was then deleted and the list
+confirmed back at 11 with no leftovers.
+
+### Note
+
+`DELETE` for a canvas is `/api/projects/:id` (`api-core.ts:365`), not
+`/api/canvases/:id` — the latter 404s. Worth knowing when cleaning up test data.
+
+### Remaining issues
+
+- The retired worker `forge3d-workflow-studio` still holds its own copy of the
+  secret. Harmless (it serves no domain), but it is a live credential on an
+  unused worker; deleting that worker would remove it.
+- No other secrets were ever set on either worker, so nothing else is missing.
+  `AGENT_SERVICE_URL` is read by `worker.ts` but is unset in production, which is
+  the existing behaviour and not new.
+
 ## Next Steps
 
 1. Continue browser QA for future canvas interaction changes.
