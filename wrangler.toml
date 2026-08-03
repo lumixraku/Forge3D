@@ -2,6 +2,12 @@ name = "forge3d-canvas-studio"
 main = "worker.ts"
 compatibility_date = "2026-07-21"
 
+# The custom domain lives with the worker so a rename cannot silently strand it
+# again: 263b56e renamed the worker and left this domain on the old one.
+[[routes]]
+pattern = "forge3d.lumixraku.org"
+custom_domain = true
+
 [assets]
 directory = "./dist-cloudflare"
 binding = "ASSETS"

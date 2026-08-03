@@ -3,7 +3,7 @@ import test from 'node:test'
 import { readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createStore, migrateCanvas, migrateTurns } from './store.js'
+import { createStore, migrateCanvas, migrateCanvasRefs, migrateTurns } from './store.js'
 
 const canvasDirectory = path.join(path.dirname(fileURLToPath(import.meta.url)), 'data', 'canvases')
 
@@ -73,6 +73,38 @@ test('migrates legacy model options and fills new defaults once', () => {
   assert.equal(migrated.revision, 2)
   assert.equal(migrated.updatedAt, 'after')
   assert.equal(migrateCanvas(migrated), migrated)
+})
+
+test('migrates legacy workflowId references to canvasId once', () => {
+  const session = { id: 'session-1', workflowId: 'wf-1', messages: [] }
+  const [migrated] = migrateCanvasRefs([session])
+
+  assert.equal(migrated.canvasId, 'wf-1')
+  assert.equal('workflowId' in migrated, false)
+  assert.equal(migrateCanvasRefs([migrated])[0], migrated)
+})
+
+test('migrates workflowRevision alongside workflowId on a run', () => {
+  const run = { id: 'run-1', workflowId: 'wf-1', workflowRevision: 3, status: 'succeeded' }
+  const [migrated] = migrateCanvasRefs([run])
+
+  assert.equal(migrated.canvasId, 'wf-1')
+  assert.equal(migrated.canvasRevision, 3)
+  assert.equal('workflowId' in migrated, false)
+  assert.equal('workflowRevision' in migrated, false)
+})
+
+test('leaves an already migrated record untouched by identity', () => {
+  const run = { id: 'run-1', canvasId: 'canvas-1', canvasRevision: 2 }
+  assert.equal(migrateCanvasRefs([run])[0], run)
+})
+
+test('keeps an existing canvasId when a stale workflowId is also present', () => {
+  const run = { id: 'run-1', canvasId: 'canvas-1', workflowId: 'wf-stale' }
+  const [migrated] = migrateCanvasRefs([run])
+
+  assert.equal(migrated.canvasId, 'canvas-1')
+  assert.equal('workflowId' in migrated, false)
 })
 
 test('migrates legacy turn conversation fields to session fields once', () => {

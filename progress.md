@@ -276,6 +276,113 @@ Worker bundle rather than fixing only the reported pair.
 
 - None for this change.
 
+## Fixed: The Custom Domain Was Stranded On The Old Worker (2026-08-03, branch `main`)
+
+`https://forge3d.lumixraku.org/` still served the pre-rename app, five days after
+the code had moved on. `263b56e refactor: rename` (2026-07-30 13:58) changed one
+line in `wrangler.toml`:
+
+```diff
+-name = "forge3d-workflow-studio"
++name = "forge3d-canvas-studio"
+```
+
+`name` is the worker's identity on Cloudflare, so this did not rename anything —
+it started deploying to a **second** worker. The custom domain stayed bound to
+`forge3d-workflow-studio`, whose last deployment was 2026-07-29 08:16 UTC. Every
+deployment after the rename, including two of mine, went to a worker nobody was
+looking at.
+
+Diagnosed by fingerprinting both hosts rather than by reading config: the domain
+served `index-Bhbv__Az.js` plus a `rolldown-runtime-*.js` chunk this build does
+not emit, and `/api/workflows` returned the exact `wf-51ac6d5f-...` record from
+the user's screenshot while `/api/projects` 404'd. The old worker name served
+byte-identical responses, which is what confirmed it.
+
+### Changes
+
+- `wrangler.toml` declares the custom domain via `[[routes]]` with
+  `custom_domain = true`, so the domain travels with the worker and a future
+  rename cannot silently strand it again.
+- Worker name kept as `forge3d-canvas-studio`; the domain was moved to it rather
+  than reverting the name, since `workflow` is gone from the product vocabulary.
+
+### Note
+
+`workers_dev` is not declared, so this deployment disabled the `.workers.dev`
+URL. Only the custom domain serves the app now.
+
+## Fixed: The Rename Shipped No Data Migration (2026-08-03, branch `main`)
+
+The same rename renamed the D1 collections — `workflows` -> `canvases`,
+`tasks` -> `turns` — and rewrote `migrations/0001_initial.sql`, but shipped no
+migration for data already written. The deployed database therefore held 11
+canvases under `workflows` and 20 turns under `tasks`, while the new code read
+`canvases`/`turns` and found nothing. `migrations/` is now an empty, untracked
+directory. Pointing the domain at the new worker made the app render empty.
+
+Verified against a full backup of all six collections before changing anything.
+The record shape needed no conversion: the old `workflows` rows already carried
+`schemaVersion, id, name, description, revision, createdAt, updatedAt, nodes,
+edges, viewport`, and nodes already carried `id, type, name, config, ui`. Only
+the collection names and the `workflowId`/`workflowRevision` foreign keys
+differed.
+
+### Changes
+
+- Added `migrateCanvasRefs` to `server/migrations.ts`: renames `workflowId` ->
+  `canvasId` and `workflowRevision` -> `canvasRevision`, returning each record
+  by identity when there is nothing to do, matching `migrateTurns`. An existing
+  `canvasId` wins over a stale `workflowId`.
+- `worker.ts` `loadState` seeds `canvases` from `workflows` and `turns` from
+  `tasks` when the new collection is absent, then applies `migrateCanvasRefs` to
+  `sessions`, `runs` and `turns`. The legacy rows are read-only and left in
+  place as a backup.
+- `server/store.ts` re-exports `migrateCanvasRefs` alongside `migrateTurns`.
+
+### Verification
+
+- 4 new tests in `server/store.test.ts` covering the rename, the revision field,
+  identity on an already-migrated record, and the stale-`workflowId` conflict.
+- `npm test`: 186 pass, 0 fail (was 182). `npm run typecheck`: clean.
+- Post-deploy, `GET /api/projects` on the custom domain returns all 11 canvases
+  with node counts intact (19 for `游戏人物高模2`, 18 for `游戏室内场景`).
+
+## Fixed: The First Canvas Could Never Be Created (2026-08-03, branch `main`)
+
+With an empty canvas list the app rendered a blank page with no way out. Found
+by looking at the UI rather than the data, after mistakenly treating an empty
+screen as purely a data problem.
+
+`TopBar.vue` wrapped the canvas switcher **and the `New` button** in
+`v-if="activeCanvas"`. `useCanvasDocument.ts:72` leaves `activeCanvas` null when
+the list is empty, because `id` resolves to `undefined` and `openCanvas` never
+runs. No canvas meant no `New` button meant no way to create one — a deadlock
+that made every fresh database permanently unusable, independent of the domain
+and migration issues above.
+
+### Changes
+
+- `TopBar.vue` renders the switcher group and `New` in a `v-if="!activeCanvas"`
+  branch as well, with a "No canvases yet" note inside the empty switcher panel.
+  `Import JSON` is reachable there too, so an exported canvas can be restored
+  into an empty database.
+
+### Verification
+
+- `npm run typecheck`: clean. `npm run build`: succeeds. `npm test`: 186 pass.
+- The deployed bundle `index-CHK81izb.js` contains the new branch, confirmed by
+  requesting it directly through the custom domain.
+
+### Remaining issues
+
+- The empty-state branch duplicates the switcher markup rather than hoisting it
+  out of the `v-if`. Deliberate: hoisting means restructuring the populated
+  branch too, and this needed to ship as a small, verifiable change.
+- Not verified in a browser. Chrome MCP could not attach (`Could not find
+  DevToolsActivePort`), so this rests on the bundle check and the type/build
+  pass, not on a rendered page.
+
 ## Next Steps
 
 1. Continue browser QA for future canvas interaction changes.

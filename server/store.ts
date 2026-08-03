@@ -2,11 +2,11 @@ import { access, mkdir, readdir, readFile, rename, unlink, writeFile } from 'nod
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { normalizeNodeConfig } from '../src/canvas-schema.js'
-import { migrateTurns } from './migrations.js'
+import { migrateCanvasRefs, migrateTurns } from './migrations.js'
 
 // Re-exported so the store stays the single entry point for migrations even
-// though migrateTurns has to live in a Node-free module for the Worker.
-export { migrateTurns }
+// though they have to live in a Node-free module for the Worker.
+export { migrateCanvasRefs, migrateTurns }
 
 const root = path.dirname(fileURLToPath(import.meta.url))
 const seedDirectory = path.join(root, 'seed')

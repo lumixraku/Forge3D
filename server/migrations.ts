@@ -7,6 +7,25 @@
  * itself is missing. Returns each turn unchanged when there is nothing to do, so
  * callers can detect "no migration needed" by identity.
  */
+/**
+ * Renames the `workflowId` / `workflowRevision` fields left behind by the
+ * workflow -> canvas rename (263b56e), which renamed the collections but
+ * shipped no data migration, so the deployed rows still carry the old names.
+ * Returns each record unchanged when there is nothing to do, so callers can
+ * detect "no migration needed" by identity.
+ */
+export function migrateCanvasRefs(records) {
+  return records.map((record) => {
+    if (record.workflowId === undefined && record.workflowRevision === undefined) return record
+    const migrated = structuredClone(record)
+    if (migrated.canvasId === undefined && migrated.workflowId !== undefined) migrated.canvasId = migrated.workflowId
+    if (migrated.canvasRevision === undefined && migrated.workflowRevision !== undefined) migrated.canvasRevision = migrated.workflowRevision
+    delete migrated.workflowId
+    delete migrated.workflowRevision
+    return migrated
+  })
+}
+
 export function migrateTurns(turns) {
   return turns.map((turn) => {
     if (!turn.conversationId && !turn.threadId && !turn.result?.conversation && !turn.result?.thread && (turn.sessionId || !turn.result?.session?.id)) return turn

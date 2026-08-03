@@ -6,7 +6,7 @@
 // Tripo and the local asset store are Node-only, so they are passed as null and
 // the shared core reports them as unavailable instead of failing on execution.
 
-import { migrateTurns } from './server/migrations.js'
+import { migrateCanvasRefs, migrateTurns } from './server/migrations.js'
 import { createApi } from './server/api-core.js'
 
 const collections = ['canvases', 'sessions', 'runs', 'turns']
@@ -25,13 +25,28 @@ async function writeCollections(env, state, names = collections) {
   await env.DB.batch(statements)
 }
 
+// The workflow -> canvas rename (263b56e) renamed these collections but shipped
+// no data migration, so a database written before it still holds the rows under
+// the old names. Read-only: the old row is left in place as a backup.
+const renamedCollections = [['canvases', 'workflows'], ['turns', 'tasks']]
+
 async function loadState(env) {
-  const [values, hasSessions, hasThreads] = await Promise.all([
+  const [values, hasSessions, hasThreads, present] = await Promise.all([
     Promise.all(collections.map((name) => readCollection(env, name))),
     collectionExists(env, 'sessions'),
     collectionExists(env, 'threads'),
+    Promise.all(renamedCollections.map(([name]) => collectionExists(env, name))),
   ])
   const state = Object.fromEntries(collections.map((name, index) => [name, values[index]]))
+  const seeded = []
+  for (const [index, [name, legacyName]] of renamedCollections.entries()) {
+    if (present[index]) continue
+    const legacy = await readCollection(env, legacyName)
+    if (!legacy.length) continue
+    state[name] = legacy
+    seeded.push(name)
+  }
+  if (seeded.length) await writeCollections(env, state, seeded)
   if (!hasSessions) {
     const legacy = hasThreads ? await readCollection(env, 'threads') : await readCollection(env, 'conversations')
     if (legacy.length) {
@@ -39,6 +54,14 @@ async function loadState(env) {
       await writeCollections(env, state, ['sessions'])
     }
   }
+  // Rows that point at a canvas still carry `workflowId` from the same rename.
+  const rewritten = ['sessions', 'runs', 'turns'].filter((name) => {
+    const migrated = migrateCanvasRefs(state[name])
+    if (!migrated.some((record, index) => record !== state[name][index])) return false
+    state[name] = migrated
+    return true
+  })
+  if (rewritten.length) await writeCollections(env, state, rewritten)
   const migratedTurns = migrateTurns(state.turns)
   if (migratedTurns.some((turn, index) => turn !== state.turns[index])) {
     state.turns = migratedTurns

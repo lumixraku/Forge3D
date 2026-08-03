@@ -84,7 +84,34 @@ onUnmounted(() => window.removeEventListener('pointerdown', dismissSwitcher, tru
       <span class="brand-mark grid place-items-center w-[35px] h-[35px] rounded-[10px] bg-acid text-text-inverse font-mono font-semibold text-xs transition-all duration-150 hover:scale-105 hover:shadow-[0_0_0_3px] hover:shadow-acid/20">F3</span>
       <div><strong class="block font-mono font-semibold text-sm tracking-[-0.03em]">Forge3D</strong><small class="block mt-[2px] text-text-muted text-[11px]">Conversational canvas studio</small></div>
     </div>
-    <div v-if="activeCanvas" class="canvas-title min-w-0 px-6" @pointerdown.stop>
+    <!-- No canvas yet: the switcher and New still have to be reachable, or the
+         first canvas can never be created. -->
+    <div v-if="!activeCanvas" class="canvas-title min-w-0 px-6" @pointerdown.stop>
+      <span class="label-mono">NO CANVAS</span>
+      <div class="canvas-title-bar">
+        <div ref="switcherAnchor" class="canvas-switcher-anchor">
+          <div class="canvas-button-group" :class="{ open: switcherOpen }">
+            <button type="button" class="wbg-label" :aria-expanded="switcherOpen" @click="emit('update:switcherOpen', !switcherOpen)">
+              <span>Canvass</span>
+              <svg class="chevron-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            </button>
+            <button type="button" class="wbg-new" :disabled="busy" @click="emit('create-canvas')">New</button>
+          </div>
+          <div v-if="switcherOpen" class="canvas-switcher-panel">
+            <div class="canvas-switcher-head"><span>CANVASS · {{ canvases.length }}</span></div>
+            <div class="canvas-switcher-list">
+              <button v-for="canvas in canvases" :key="canvas.id" class="canvas-list-item" @click="emit('open-canvas', canvas.id)" @contextmenu="emit('canvas-context-menu', { event: $event, canvas })">
+                <span>{{ canvas.name }}</span><small>{{ canvas.nodeCount }} nodes · v{{ canvas.revision }}</small>
+              </button>
+              <p v-if="!canvases.length" class="canvas-switcher-note">No canvases yet. Press New to create one.</p>
+            </div>
+          </div>
+        </div>
+        <button class="wbg-import" :class="{ dragging: importDragging }" type="button" :disabled="busy" @click="importInput.click()" @dragover="onImportDragOver" @dragleave="importDragging = false" @drop="onImportDrop">{{ importDragging ? 'Drop JSON' : 'Import JSON' }}</button>
+        <input ref="importInput" class="file-input" type="file" accept="application/json,.json" @change="importCanvas" />
+      </div>
+    </div>
+    <div v-else class="canvas-title min-w-0 px-6" @pointerdown.stop>
       <span class="label-mono">{{ workspaceMode === 'canvas' ? 'CANVAS' : 'MODEL EDITOR' }} / {{ activeCanvas.revision.toString().padStart(2, '0') }}</span>
       <input v-if="renaming" ref="nameInput" v-model="nameDraft" class="canvas-title-input" type="text" @keydown.enter.prevent="commitRename" @keydown.esc.prevent="cancelRename" @blur="commitRename" />
       <template v-else-if="workspaceMode === 'canvas'">
