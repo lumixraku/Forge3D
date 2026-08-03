@@ -2,11 +2,15 @@ import { access, mkdir, readdir, readFile, rename, unlink, writeFile } from 'nod
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { normalizeNodeConfig } from '../src/canvas-schema.js'
+import { migrateTurns } from './migrations.js'
+
+// Re-exported so the store stays the single entry point for migrations even
+// though migrateTurns has to live in a Node-free module for the Worker.
+export { migrateTurns }
 
 const root = path.dirname(fileURLToPath(import.meta.url))
-const dataDirectory = path.join(root, 'data')
 const seedDirectory = path.join(root, 'seed')
-const canvasDirectory = path.join(dataDirectory, 'canvases')
+export const defaultDataDirectory = path.join(root, 'data')
 const collections = ['canvases', 'sessions', 'runs', 'turns']
 const retiredNodeTypes = new Set(['save-asset'])
 
@@ -43,24 +47,8 @@ export function migrateCanvas(canvas, now = () => new Date().toISOString()) {
   return migrated
 }
 
-export function migrateTurns(turns) {
-  return turns.map((turn) => {
-    if (!turn.conversationId && !turn.threadId && !turn.result?.conversation && !turn.result?.thread && (turn.sessionId || !turn.result?.session?.id)) return turn
-    const migrated = structuredClone(turn)
-    if (!migrated.sessionId) migrated.sessionId = migrated.threadId || migrated.conversationId
-    delete migrated.threadId
-    delete migrated.conversationId
-    if (migrated.result) {
-      if (!migrated.result.session) migrated.result.session = migrated.result.thread || migrated.result.conversation
-      delete migrated.result.thread
-      delete migrated.result.conversation
-    }
-    if (!migrated.sessionId && migrated.result?.session?.id) migrated.sessionId = migrated.result.session.id
-    return migrated
-  })
-}
-
-export async function createStore() {
+export async function createStore({ dataDirectory = defaultDataDirectory } = {}) {
+  const canvasDirectory = path.join(dataDirectory, 'canvases')
   await mkdir(dataDirectory, { recursive: true })
 
   for (const collection of collections.filter((name) => name !== 'canvases')) {
