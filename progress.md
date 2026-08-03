@@ -127,6 +127,137 @@ deleted each other's canvases; three were lost during this work and could not be
 recovered, as `server/data/canvases/` is not tracked by git. Saves now only
 write, and deletion goes through an explicit `removeCanvas`.
 
+## Shared API Core (2026-08-03, branch `main`)
+
+`server/index.ts` and `worker.ts` were two hand-maintained implementations of the
+same HTTP API. The duplication had already produced real divergence, and the
+duplicated layer was the one part of the backend with no test coverage at all —
+all 15 existing test files imported leaf modules, none exercised either entry
+point. The two facts were the same cause: the route table and turn execution were
+welded to their runtime, so they could not be tested and could only be kept in
+sync by hand.
+
+### Changes
+
+- Added `server/api-core.ts`: the entire route table plus `executeAgentTurn`,
+  once, speaking Web-standard `Request`/`Response`. Reaches the outside world
+  only through injected ports — `store`, `config`, `waitUntil`.
+- Rewrote `server/index.ts` (577 → 106 lines) as the Node binding: http server,
+  an `IncomingMessage`/`ServerResponse` bridge that streams SSE bodies chunk by
+  chunk, the file-backed store, Tripo, local assets.
+- Rewrote `worker.ts` (490 → 92 lines) as the Cloudflare binding: D1-backed
+  store, legacy collection migration, static assets.
+- Added `server/migrations.ts` for `migrateTurns`, which was duplicated in
+  `server/store.ts` and `worker.ts`. It is pure but lived in a module importing
+  `node:fs`, which the Worker cannot load; `store.ts` re-exports it.
+- `createStore` now accepts `{ dataDirectory }`, and `server/index.ts` honours
+  `FORGE3D_DATA_DIR` and `PORT=0`, so tests can spawn it against a temp dir.
+
+### Divergences resolved
+
+- `POST /api/turns/:id/continue` lacked the post-reload state recheck that
+  `worker.ts` had, and built its labels from the stale pre-reload `turn` with
+  `.find(...).label` and no optional chaining — a 500 where a 409 was correct.
+  Both are fixed in the shared core and covered by tests.
+- The Worker had no Tripo, no `/api/capabilities`, no `/api/assets`, no serial
+  turn queue and no steering. These are now shared code, disabled through
+  `config` rather than absent, so `/api/capabilities` reports `tripo: false`
+  instead of 404ing at the frontend, which requests it unconditionally.
+
+### Verification
+
+- `npm test`: 182 pass, 0 fail (was 158 before this work; +24 new).
+- `npm run typecheck`: clean.
+- `npx wrangler deploy --dry-run`: bundles, 100.00 KiB, bindings resolve.
+- New `server/api.characterization.test.ts` spawns the real server against a temp
+  data directory and covers the endpoint surface. It was written and confirmed
+  green against unmodified product code first, so it pins existing behaviour
+  rather than intent, then re-run green after the refactor.
+
+### Remaining issues
+
+- SSE broadcast remains per-process, so on Workers a second client served by a
+  different isolate does not receive events. Pre-existing and unchanged; the
+  shared core makes it one documented limitation instead of two hidden ones.
+  A real fix needs Durable Objects.
+- The Worker still has no automated coverage of its own. The shared core is
+  covered through the Node binding, and `wrangler --dry-run` only proves it
+  bundles.
+
+## Node Capabilities From Schema (2026-08-03, branch `main`)
+
+Several places hardcoded lists of node types that the node schema already
+described. Verified by comparison before changing anything: the 11 types in
+`App.vue`'s `modelTypes` matched the schema's `modelEditor: true` set exactly
+(zero difference in either direction), and the 4 types excluded by `run-plan.ts`
+matched the non-`executable` set exactly.
+
+### Changes
+
+- Added `isExecutableNodeType()` and `hasModelEditor()` to `src/canvas-schema.ts`,
+  reading the `executable` and `modelEditor` flags that were already declared on
+  every schema entry but never read.
+- Replaced the hardcoded lists in `src/run-plan.ts:16`, `src/App.vue:307`
+  (`modelTypes`) and `src/App.vue:173-174` (`sectionEntryNodeId`).
+- Replaced the same denylist where it appeared **twice more** in
+  `server/mock-runs.ts` (`executionNodes`, `downstreamCanvas`). The server and
+  frontend were maintaining separate copies of one rule, so they could have
+  disagreed about which nodes run.
+- Removed dead code: `nodeRole()` in `canvas-schema.ts` (exported, zero call
+  sites, and the last remaining copy of the same list) and the unused
+  `structureChanged` parameter on `refreshCanvas` in `useAgentChat.ts`.
+  `readCurrent` in `server/index.ts` disappeared with the rewrite above.
+
+### Behaviour change worth noting
+
+The old filters were denylists, so an **unknown** node type counted as
+executable; the schema helper is an allowlist, so it does not. Confirmed by
+direct check rather than assumed. This is the safer direction — an unknown type
+has no runner and would fail anyway — and it now applies identically on both
+sides instead of only where each list happened to be maintained.
+
+### Verification
+
+- `npm test`: 182 pass, 0 fail.
+- `npm run typecheck`: clean.
+- `npm run build`: succeeds.
+- `npx wrangler deploy --dry-run`: still bundles after `mock-runs.ts` began
+  importing the schema (it is in the Worker's module graph).
+
+### Remaining issues
+
+- None for this change. The `planner.ts:171/181` type lists were deliberately
+  left alone: they are default chain templates describing pipeline order, not
+  capability rules.
+
+## Fixed: Running A Node That Carries No Work (2026-08-03, branch `main`)
+
+A pre-existing crash found by the characterization tests above, not introduced by
+the refactor. `POST /api/nodes/:id/executions` with a frame or an input/output-only
+node as the entry point answered **500**: `downstreamCanvas` returns `null` for
+such a node (`server/mock-runs.ts`) and `createExecution` passed that `null`
+straight into `executionNodes`, which dereferenced `.nodes`. In `node` mode it
+did not crash but produced an empty, pointless run.
+
+Unreachable from the UI, which filters those types out before running, so this
+only affected direct API use. It was pinned as an explicit `KNOWN BUG` test first
+so the refactor could be shown to preserve behaviour, then fixed separately.
+
+### Changes
+
+- `createExecution` now rejects a non-executable entry node with a 400 and a
+  message naming the node, before either mode branches. Placed there rather than
+  in the route so both runtimes and both modes are covered by one check.
+- The pinned test now asserts the fix (400 for both `downstream` and `node`)
+  instead of the crash.
+
+### Verification
+
+- `npm test`: 182 pass, 0 fail.
+- `npm run typecheck`: clean. `npm run build`: succeeds.
+- `npx wrangler deploy --dry-run`: bundles at 100.23 KiB after `executions.ts`
+  began importing the schema.
+
 ## Next Steps
 
 1. Continue browser QA for future canvas interaction changes.

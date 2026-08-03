@@ -1,3 +1,4 @@
+import { isExecutableNodeType } from '../src/canvas-schema.js'
 import { downstreamCanvas, executeNode, executionNodes } from './mock-runs.js'
 import { randomUUID } from './ids.js'
 import { recordNodeExecution } from './run-log.js'
@@ -56,6 +57,14 @@ export function paginateAssets(assets, url) {
 export function createExecution(runs, canvas, entryNode, mode = 'downstream') {
   if (!['node', 'downstream'].includes(mode)) {
     const error = new Error('Invalid execution mode')
+    error.statusCode = 400
+    throw error
+  }
+  // Frames and the input/output-only types carry no work, so they cannot be the
+  // entry point. Without this, downstreamCanvas returns null and the pruning
+  // below fails on it; a single-node run would produce an empty plan instead.
+  if (!isExecutableNodeType(entryNode.type)) {
+    const error = new Error(`${entryNode.name || entryNode.type} cannot be run on its own`)
     error.statusCode = 400
     throw error
   }

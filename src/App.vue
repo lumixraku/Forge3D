@@ -26,7 +26,7 @@ import { useCanvasDocument } from './composables/useCanvasDocument'
 import { useCanvasRun } from './composables/useCanvasRun'
 import { useDebugSettings } from './composables/useDebugSettings'
 import { edgeDefaults, nodePresentation } from './canvas-graph'
-import { canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeCategories, nodeDefaults, nodeDefinition, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
+import { canConnectPorts, compatibleNodeTypes, hasModelEditor, isExecutableNodeType, nodeCatalog, nodeCategories, nodeDefaults, nodeDefinition, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
 
 const ModelEditor = defineAsyncComponent(() => import('./components/ModelEditor.vue'))
 
@@ -166,12 +166,14 @@ const { isRunning, runDetails, runSummary, runCanvas, cancelRun } = useCanvasRun
   provider: selectedProvider,
 })
 
+// A section runs from its first executable child that nothing inside the section
+// feeds, falling back to the first executable child when they are all fed.
 function sectionEntryNodeId(frameId) {
   const children = nodes.value.filter((node) => node.parentNode === frameId)
   const childIds = new Set(children.map((node) => node.id))
-  return children.find((node) => !edges.value.some((edge) => childIds.has(edge.source) && edge.target === node.id)
-    && !['reference-image', 'prompt', 'generated-image'].includes(node.data?.canvasType))?.id
-    || children.find((node) => !['reference-image', 'prompt', 'generated-image'].includes(node.data?.canvasType))?.id
+  const executable = children.filter((node) => isExecutableNodeType(node.data?.canvasType))
+  return executable.find((node) => !edges.value.some((edge) => childIds.has(edge.source) && edge.target === node.id))?.id
+    || executable[0]?.id
 }
 
 function runSection(frameId) {
@@ -304,8 +306,7 @@ function updateNodeName(id, name) {
 function openModelEditor(id) {
   if (!id) return
   const node = nodes.value.find((candidate) => candidate.id === id)
-  const modelTypes = ['model-preview', 'texture', 'retopology', 'generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'bake', 'rigging', 'segments', 'export-model']
-  if (!node || !modelTypes.includes(node.data.canvasType) || nodeRuns.value[id]?.status !== 'succeeded') return
+  if (!node || !hasModelEditor(node.data.canvasType) || nodeRuns.value[id]?.status !== 'succeeded') return
   modelEditorNodeId.value = node.id
   workspaceMode.value = 'model-editor'
   nextTick(() => window.scrollTo({ top: 0 }))

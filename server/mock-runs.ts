@@ -1,5 +1,7 @@
 // The single input handle is untyped, so inbound media is read from what each
 // upstream node produces rather than from a named target port.
+import { isExecutableNodeType } from '../src/canvas-schema.js'
+
 const modelProducingTypes = new Set(['generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'bake', 'texture', 'rigging', 'segments', 'model-preview'])
 
 function inboundSources(node, canvas) {
@@ -90,7 +92,7 @@ export function nodeOutput(node, canvas) {
 }
 
 export function executionNodes(canvas) {
-  const executableNodes = canvas.nodes.filter((node) => !['frame', 'reference-image', 'prompt', 'generated-image'].includes(node.type))
+  const executableNodes = canvas.nodes.filter((node) => isExecutableNodeType(node.type))
   const nodesById = new Map(executableNodes.map((node) => [node.id, node]))
   const outgoing = new Map(executableNodes.map((node) => [node.id, []]))
   const indegree = new Map(executableNodes.map((node) => [node.id, 0]))
@@ -120,7 +122,7 @@ export function executionNodes(canvas) {
 }
 
 export function downstreamCanvas(canvas, startNodeId) {
-  const executableNodes = canvas.nodes.filter((node) => !['frame', 'reference-image', 'prompt', 'generated-image'].includes(node.type))
+  const executableNodes = canvas.nodes.filter((node) => isExecutableNodeType(node.type))
   const nodeIds = new Set(executableNodes.map((node) => node.id))
   if (!nodeIds.has(startNodeId)) return null
 

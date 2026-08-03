@@ -79,7 +79,7 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
       : null
   }
 
-  async function refreshCanvas(canvasId, turnId, structureChanged) {
+  async function refreshCanvas(canvasId, turnId) {
     const [document, nextSession] = await Promise.all([
       request(`/api/canvases/${canvasId}`),
       request(`/api/sessions/${activeSession.value.id}/chat-history`),
@@ -151,7 +151,7 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
       const event = JSON.parse(message.data)
       if (event.session_id !== activeSession.value?.id) return
       applyAgentEvent(event)
-      if (event.type === 'canvas-updated') await refreshCanvas(event.canvas_id, event.turn_id, event.structure_changed)
+      if (event.type === 'canvas-updated') await refreshCanvas(event.canvas_id, event.turn_id)
     }
     source.addEventListener('message', handle)
     source.addEventListener('error', handle)

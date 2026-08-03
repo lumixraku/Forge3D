@@ -1,5 +1,8 @@
 // Input nodes and frames provide data or layout; only processing and export
-// nodes enter the execution plan.
+// nodes enter the execution plan. Which is which comes from the node schema's
+// `executable` flag rather than a list repeated here.
+import { isExecutableNodeType } from './canvas-schema'
+
 interface PlanNode {
   id: string
   type?: string
@@ -13,7 +16,7 @@ interface PlanEdge {
 }
 
 export function executionOrder(nodes: PlanNode[], edges: PlanEdge[]) {
-  const executable = nodes.filter((node) => !['frame', 'reference-image', 'prompt', 'generated-image'].includes(node.data?.canvasType || node.type || ''))
+  const executable = nodes.filter((node) => isExecutableNodeType(node.data?.canvasType || node.type || ''))
   const byId = new Map(executable.map((node) => [node.id, node]))
   const outgoing = new Map(executable.map((node) => [node.id, [] as string[]]))
   const indegree = new Map(executable.map((node) => [node.id, 0]))

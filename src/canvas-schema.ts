@@ -58,15 +58,6 @@ export interface CanvasNodeSchema {
   effects?: NodeEffect[]
 }
 
-export type CanvasNodeRole = 'input' | 'execution' | 'output' | 'section'
-
-export function nodeRole(type: string): CanvasNodeRole {
-  if (type === 'frame') return 'section'
-  if (['reference-image', 'prompt'].includes(type)) return 'input'
-  if (['generated-image', 'export-model'].includes(type)) return 'output'
-  return 'execution'
-}
-
 const options = (entries: Array<[string | number, string]>): ParameterOption[] => entries.map(([value, label]) => ({ value, label }))
 const imageModels = options([
   ['gemini_3.1_flash_image_preview', 'Nano Banana 2'], ['gemini_2.5_flash_image_preview', 'Nano Banana'],
@@ -125,6 +116,19 @@ export function nodeSchema(type: string) {
 
 export function nodeDefaults(type: string) {
   return structuredClone(nodeSchema(type)?.defaults || {})
+}
+
+/**
+ * Whether a run includes this node type. Frames and the input/output-only types
+ * carry no work of their own, so they are planned around rather than executed.
+ */
+export function isExecutableNodeType(type: string) {
+  return Boolean(nodeSchema(type)?.executable)
+}
+
+/** Whether this node type's result can be opened in the Model Editor. */
+export function hasModelEditor(type: string) {
+  return Boolean(nodeSchema(type)?.modelEditor)
 }
 
 export function normalizeNodeConfig(type: string, config: Record<string, unknown> = {}) {
