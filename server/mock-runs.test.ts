@@ -28,7 +28,7 @@ test('executes one node and returns its runtime preview output', async () => {
 
 test('derives execution order from canvas edges', () => {
   const reversed = { ...canvas, nodes: [...canvas.nodes].reverse() }
-  assert.deepEqual(executionNodes(reversed).map((node) => node.id), ['prompt', 'model'])
+  assert.deepEqual(executionNodes(reversed).map((node) => node.id), ['model'])
 })
 
 test('treats four view connections as one execution dependency', () => {
@@ -107,7 +107,7 @@ test('executes every node of the seeded production pipeline', async () => {
   const [seedCanvas] = JSON.parse(await readFile(new URL('./seed/canvases.json', import.meta.url), 'utf8'))
   const order = executionNodes(seedCanvas)
 
-  assert.deepEqual(order.map((node) => node.id), ['prompt', 'text-to-3d', 'retopology', 'texture', 'preview'])
+  assert.deepEqual(order.map((node) => node.id), ['text-to-3d', 'retopology', 'texture', 'preview'])
   const results = []
   for (const node of order) results.push(await executeNode(node, seedCanvas, immediate))
   assert.ok(results.every((result) => result.status === 'succeeded'))

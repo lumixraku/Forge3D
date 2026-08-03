@@ -4,8 +4,8 @@ import { NodeResizeControl, type ControlPosition } from '@vue-flow/node-resizer'
 
 interface FrameData { label: string; description?: string }
 
-const props = withDefaults(defineProps<{ id: string; data: FrameData; selected?: boolean; zoom?: number }>(), { selected: false, zoom: 1 })
-const emit = defineEmits<{ 'update-name': [name: string]; 'resize-start': []; 'resize-end': [] }>()
+const props = withDefaults(defineProps<{ id: string; data: FrameData; selected?: boolean; zoom?: number; running?: boolean }>(), { selected: false, zoom: 1, running: false })
+const emit = defineEmits<{ 'update-name': [name: string]; 'resize-start': []; 'resize-end': []; 'run': []; 'stop-run': [] }>()
 const editingName = ref(false)
 const draftName = ref('')
 const nameInput = ref<HTMLInputElement | null>(null)
@@ -46,6 +46,8 @@ function cancelNameEdit() {
       <span class="frame-icon">S</span>
       <input v-if="editingName" ref="nameInput" v-model="draftName" class="frame-name-input nodrag nopan" aria-label="Section name" @click.stop @dblclick.stop @pointerdown.stop @keydown.enter.prevent="saveName" @keydown.esc.prevent="cancelNameEdit" @blur="saveName" />
       <strong v-else title="Double-click to rename" @dblclick.stop="startNameEdit">{{ data.label }}</strong>
+      <button v-if="running" type="button" class="frame-stop nodrag nopan" @click.stop="emit('stop-run')">Stop</button>
+      <button v-else type="button" class="frame-run nodrag nopan" @click.stop="emit('run')">Run</button>
     </header>
     <p v-if="data.description">{{ data.description }}</p>
   </section>

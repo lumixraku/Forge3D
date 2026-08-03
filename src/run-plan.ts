@@ -1,9 +1,10 @@
-// The client drives execution one node per request, so it needs the order the
-// server used to derive. Frames are layout only and never execute.
+// Input nodes and frames provide data or layout; only processing and export
+// nodes enter the execution plan.
 interface PlanNode {
   id: string
   type?: string
   parentNode?: string
+  data?: { canvasType?: string }
 }
 
 interface PlanEdge {
@@ -12,7 +13,7 @@ interface PlanEdge {
 }
 
 export function executionOrder(nodes: PlanNode[], edges: PlanEdge[]) {
-  const executable = nodes.filter((node) => node.type !== 'frame')
+  const executable = nodes.filter((node) => !['frame', 'reference-image', 'prompt', 'generated-image'].includes(node.data?.canvasType || node.type || ''))
   const byId = new Map(executable.map((node) => [node.id, node]))
   const outgoing = new Map(executable.map((node) => [node.id, [] as string[]]))
   const indegree = new Map(executable.map((node) => [node.id, 0]))

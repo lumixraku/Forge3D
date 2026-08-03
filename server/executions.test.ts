@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createExecution, executeExecution, executionDto, findNode, paginateAssets } from './executions.js'
+import { cancelExecution, createExecution, executeExecution, executionDto, findNode, paginateAssets } from './executions.js'
 
 const canvas = {
   id: 'canvas-1',
@@ -36,6 +36,18 @@ test('execution dto exposes the canvas that produced the execution', () => {
   const run = { id: 'exec-1', canvasId: 'canvas-1', canvasRevision: 1, entryNodeId: 'entry', status: 'succeeded', createdAt: 'a', completedAt: 'a', nodeRuns: { entry: {} } }
 
   assert.equal(executionDto(run).canvasId, 'canvas-1')
+})
+
+test('stopping an execution lets its current step finish and skips later steps', async () => {
+  const runs = []
+  const pending = createExecution(runs, canvas, canvas.nodes[0], 'downstream')
+  const execution = await executeExecution(runs, pending.run, canvas, pending.executionCanvas, pending.nodes, canvas.nodes[0], async () => {
+    if (pending.run.nodeRuns.entry.status === 'running') cancelExecution(pending.run)
+  })
+
+  assert.equal(execution.status, 'cancelled')
+  assert.equal(execution.nodeExecutions.entry.status, 'succeeded')
+  assert.equal(execution.nodeExecutions.model.status, 'skipped')
 })
 
 test('rejects ambiguous node ids across canvases', () => {

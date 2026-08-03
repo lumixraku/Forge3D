@@ -36,6 +36,13 @@ export function executionDto(run) {
   }
 }
 
+export function cancelExecution(run) {
+  if (!run || ['succeeded', 'failed', 'cancelled'].includes(run.status)) return run
+  run.cancelRequested = true
+  run.status = 'cancelling'
+  return run
+}
+
 export function paginateAssets(assets, url) {
   const requested = Number(url.searchParams.get('limit') || 50)
   const limit = Number.isInteger(requested) ? Math.min(200, Math.max(1, requested)) : 50
@@ -66,6 +73,7 @@ export function createExecution(runs, canvas, entryNode, mode = 'downstream') {
     entryNodeName: entryNode.name || entryNode.type,
     mode,
     status: 'queued',
+    cancelRequested: false,
     createdAt: timestamp,
     completedAt: null,
     nodeRuns: Object.fromEntries(nodes.map((node) => [node.id, { status: 'queued', nodeType: node.type, nodeName: node.name || node.type, durationMs: null, output: null, error: null }])),
@@ -98,6 +106,7 @@ export async function executeExecution(runs, run, canvas, executionCanvas, nodes
   // or mesh would be invisible to it.
   const provider = createProvider ? createProvider({ context, run, onUpdate, canvas }) : null
   for (const node of nodes) {
+    if (run.cancelRequested) break
     run.nodeRuns[node.id].status = 'running'
     await onUpdate()
     try {
@@ -124,6 +133,7 @@ export async function executeExecution(runs, run, canvas, executionCanvas, nodes
   for (const nodeRun of Object.values(run.nodeRuns)) {
     if (nodeRun.status === 'queued') nodeRun.status = 'skipped'
   }
+  if (run.cancelRequested) run.status = 'cancelled'
   run.completedAt = new Date().toISOString()
   await onUpdate()
   return executionDto(run)

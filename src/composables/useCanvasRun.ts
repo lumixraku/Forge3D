@@ -1,4 +1,4 @@
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { request } from '../api'
 import { planNodes } from '../run-plan'
 import { formatDuration, summarizeRun } from '../run-summary'
@@ -8,8 +8,54 @@ import { formatDuration, summarizeRun } from '../run-summary'
 // whichever backend the run is actually using.
 const POLL_INTERVAL_MS = { mock: 250, tripo: 1500 }
 
+type ExecutionMode = 'node' | 'downstream'
+type ExecutionStatus = 'queued' | 'running' | 'cancelling' | 'cancelled' | 'succeeded' | 'failed'
+type NodeExecutionStatus = ExecutionStatus | 'skipped' | 'waiting_review'
+
+interface ExecutionOutput {
+  outputs?: { downloadUrl?: string; filename?: string; format?: string }[]
+  downloadUrl?: string
+  filename?: string
+  format?: string
+  previews?: string[]
+}
+
+interface NodeExecution {
+  status: NodeExecutionStatus
+  durationMs: number | null
+  output: ExecutionOutput | null
+  error: string | null
+}
+
+interface ExecutionDto {
+  id: string
+  entryNodeId: string | null
+  mode: ExecutionMode
+  status: ExecutionStatus
+  nodeExecutions: Record<string, NodeExecution>
+}
+
+interface CanvasRun {
+  id: string | null
+  entryNodeId: string | null
+  mode: ExecutionMode
+  status: ExecutionStatus
+  nodeRuns: Record<string, NodeExecution>
+}
+
+function toCanvasRun(execution: ExecutionDto): CanvasRun {
+  return {
+    id: execution.id,
+    entryNodeId: execution.entryNodeId,
+    mode: execution.mode,
+    status: execution.status,
+    nodeRuns: execution.nodeExecutions,
+  }
+}
+
 export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, busy, error, runToken, saveCanvas, materializeRunBatch, provider = { value: null } }) {
-  const isRunning = computed(() => run.value?.status === 'running')
+  const cancelRequested = ref(false)
+  const isRunning = computed(() => ['running', 'cancelling'].includes(run.value?.status))
   const runDetails = computed(() => summarizeRun(run.value, nodes.value))
   const runSummary = computed(() => {
     if (!run.value) return 'Ready to run'
@@ -17,7 +63,7 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, busy, 
     const completed = steps.filter((nodeRun) => ['succeeded', 'failed'].includes(nodeRun.status)).length
     const totalDurationMs = steps.reduce((total, nodeRun) => total + (nodeRun.durationMs || 0), 0)
     const duration = totalDurationMs ? ` · ${formatDuration(totalDurationMs)}` : ''
-    return run.value.status === 'running' ? `Running · ${completed}/${steps.length} steps${duration}` : `${steps.length} steps · ${run.value.status}${duration}`
+    return ['running', 'cancelling'].includes(run.value.status) ? `Running · ${completed}/${steps.length} steps${duration}` : `${steps.length} steps · ${run.value.status}${duration}`
   })
 
   function downloadExport(nodeRun) {
@@ -36,9 +82,10 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, busy, 
     }
   }
 
-  async function runCanvas(targetNodeId?: string, scope = 'node') {
+  async function runCanvas(targetNodeId?: string, scope: ExecutionMode = 'node') {
     if (!activeCanvas.value || !targetNodeId || busy.value || isRunning.value) return
     busy.value = true
+    cancelRequested.value = false
     error.value = ''
     const pollToken = ++runToken.value
     try {
@@ -47,8 +94,8 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, busy, 
       if (!plan.length) return
 
       // Queue the whole plan up front so the canvas shows what is pending.
-      const planned = Object.fromEntries(plan.map((node, index) => [node.id, { status: index === 0 ? 'running' : 'queued', durationMs: null, output: null, error: null }]))
-      run.value = { id: null, status: 'running', nodeRuns: planned }
+      const planned: Record<string, NodeExecution> = Object.fromEntries(plan.map((node, index) => [node.id, { status: index === 0 ? 'running' : 'queued', durationMs: null, output: null, error: null }]))
+      run.value = { id: null, entryNodeId: targetNodeId, mode: scope, status: 'running', nodeRuns: planned }
       nodeRuns.value = targetNodeId ? { ...nodeRuns.value, ...planned } : planned
       busy.value = false
 
@@ -61,15 +108,16 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, busy, 
           // Omitted entirely when no override is set, so the server keeps deciding.
           ...(provider.value ? { provider: provider.value } : {}),
         }),
-      })
+      }) as ExecutionDto
       if (runToken.value !== pollToken || activeCanvas.value?.id !== canvasId) return
       const pollInterval = POLL_INTERVAL_MS[provider.value === 'mock' ? 'mock' : 'tripo']
-      run.value = { id: execution.id, status: execution.status, nodeRuns: execution.nodeExecutions }
-      while (['queued', 'running'].includes(run.value.status) && runToken.value === pollToken) {
+      run.value = toCanvasRun(execution)
+      if (cancelRequested.value) await cancelRun()
+      while (['queued', 'running', 'cancelling'].includes(run.value.status) && runToken.value === pollToken) {
         await new Promise((resolve) => setTimeout(resolve, pollInterval))
-        const current = await request(`/api/executions/${execution.id}`)
+        const current = await request(`/api/executions/${execution.id}`) as ExecutionDto
         if (runToken.value !== pollToken || activeCanvas.value?.id !== canvasId) return
-        run.value = { id: current.id, status: current.status, nodeRuns: current.nodeExecutions }
+        run.value = toCanvasRun(current)
         nodeRuns.value = { ...nodeRuns.value, ...current.nodeExecutions }
       }
       for (const node of plan) {
@@ -94,5 +142,19 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, busy, 
     }
   }
 
-  return { isRunning, runDetails, runSummary, runCanvas }
+  async function cancelRun() {
+    if (!isRunning.value) return
+    cancelRequested.value = true
+    if (!run.value?.id) return
+    error.value = ''
+    try {
+      const cancelled = await request(`/api/executions/${run.value.id}/cancel`, { method: 'POST' }) as ExecutionDto
+      run.value = toCanvasRun(cancelled)
+      nodeRuns.value = { ...nodeRuns.value, ...cancelled.nodeExecutions }
+    } catch (caught) {
+      error.value = caught.message
+    }
+  }
+
+  return { isRunning, runDetails, runSummary, runCanvas, cancelRun }
 }

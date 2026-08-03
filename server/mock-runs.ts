@@ -90,7 +90,7 @@ export function nodeOutput(node, canvas) {
 }
 
 export function executionNodes(canvas) {
-  const executableNodes = canvas.nodes.filter((node) => node.type !== 'frame')
+  const executableNodes = canvas.nodes.filter((node) => !['frame', 'reference-image', 'prompt', 'generated-image'].includes(node.type))
   const nodesById = new Map(executableNodes.map((node) => [node.id, node]))
   const outgoing = new Map(executableNodes.map((node) => [node.id, []]))
   const indegree = new Map(executableNodes.map((node) => [node.id, 0]))
@@ -120,7 +120,7 @@ export function executionNodes(canvas) {
 }
 
 export function downstreamCanvas(canvas, startNodeId) {
-  const executableNodes = canvas.nodes.filter((node) => node.type !== 'frame')
+  const executableNodes = canvas.nodes.filter((node) => !['frame', 'reference-image', 'prompt', 'generated-image'].includes(node.type))
   const nodeIds = new Set(executableNodes.map((node) => node.id))
   if (!nodeIds.has(startNodeId)) return null
 

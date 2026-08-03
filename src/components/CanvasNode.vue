@@ -11,15 +11,16 @@ import type { NodeDefinition, NodeParameter, NodePort } from '../canvas-nodes'
 type NodeConfig = Record<string, unknown> & { preview?: string; previews?: string[]; viewPreviews?: Record<string, string>; exportTargets?: string[]; modelFormat?: string; approved?: boolean }
 interface CanvasNodeData { label: string; status?: string; canvasType: string; config: NodeConfig; inputPorts?: NodePort[]; outputPorts?: NodePort[] }
 
-const props = withDefaults(defineProps<{ id: string; data: CanvasNodeData; selected?: boolean; nodeRun?: NodeRun | null; runId?: string | null; inboundType?: string | null; inboundImage?: string | null; nodeCatalog?: NodeDefinition[]; viewportDismissVersion?: number }>(), { selected: false, nodeRun: null, runId: null, inboundType: null, inboundImage: null, nodeCatalog: () => [], viewportDismissVersion: 0 })
+const props = withDefaults(defineProps<{ id: string; data: CanvasNodeData; selected?: boolean; nodeRun?: NodeRun | null; runId?: string | null; runEntryNodeId?: string | null; runMode?: string | null; runStatus?: string | null; inboundType?: string | null; inboundImage?: string | null; nodeCatalog?: NodeDefinition[]; viewportDismissVersion?: number }>(), { selected: false, nodeRun: null, runId: null, runEntryNodeId: null, runMode: null, runStatus: null, inboundType: null, inboundImage: null, nodeCatalog: () => [], viewportDismissVersion: 0 })
 const emit = defineEmits<{
   'update-config': [config: NodeConfig]
   'update-name': [name: string]
   'open-model-editor': []
   'preview-image': [preview: { src: string; alt: string }]
   'add-next': [payload: unknown]
-  'run-canvas': []
+  'run-canvas': [id: string]
   'run-downstream': [id: string]
+  'stop-run': []
 }>()
 const nextMenuOpen = ref(false)
 const parametersOpen = ref(false)
@@ -36,7 +37,14 @@ const schema = computed(() => nodeSchema(props.data.canvasType))
 const isExecutableNode = computed(() => Boolean(schema.value?.executable))
 const visibleParameters = computed(() => (schema.value?.parameters || []).filter((parameter) => conditionsMatch(parameter.visibleWhen, props.data.config)))
 const hasEditor = computed(() => visibleParameters.value.length > 0)
-const showResult = computed(() => !isExecutableNode.value || runtimeStatus.value === 'succeeded')
+const showResult = computed(() => !isExecutableNode.value || Boolean(
+  runtimePreview.value || runtimePreviews.value.length || Object.keys(runtimeViewPreviews.value).length,
+))
+const isExecuting = computed(() => ['queued', 'running', 'cancelling'].includes(runtimeStatus.value || ''))
+const isActiveEntry = computed(() => props.runEntryNodeId === props.id
+  && ['queued', 'running', 'cancelling'].includes(props.runStatus || ''))
+const stopsNodeRun = computed(() => isActiveEntry.value && props.runMode === 'node')
+const stopsDownstreamRun = computed(() => isActiveEntry.value && props.runMode === 'downstream')
 // Only a real backend reports progress; a simulated node finishes too fast to
 // have any.
 const runProgress = computed(() => (typeof props.nodeRun?.progress === 'number' ? props.nodeRun.progress : null))
@@ -159,7 +167,7 @@ function loadMockImage(file: File) {
 </script>
 
 <template>
-  <article class="canvas-node" :class="[`tone-${data.tone}`, `is-${runtimeStatus}`, { selected, 'dense-ports': densePorts }]">
+  <article class="canvas-node" :class="[`tone-${data.tone}`, `is-${runtimeStatus}`, { selected, 'is-executing': isExecuting, 'dense-ports': densePorts }]">
     <div class="node-external-title">
       <span class="node-icon">{{ data.kind.slice(0, 1) }}</span>
       <input v-if="editingName" ref="nameInput" v-model="draftName" class="node-name-input nodrag nopan" aria-label="Node name" @click.stop @dblclick.stop @pointerdown.stop @keydown.enter.prevent="saveName" @keydown.esc.prevent="cancelNameEdit" @blur="saveName" />
@@ -176,21 +184,25 @@ function loadMockImage(file: File) {
         <img :src="image" :alt="`Generated concept ${index + 1}`" />
       </button>
       <span class="output-badge">{{ runtimePreviews.length }} {{ data.canvasType === 'image-decomposition' ? 'assets' : 'candidates' }}</span>
+      <div v-if="isExecuting" class="node-output-loading" role="status"><span class="node-run-indicator" /><strong>{{ runtimeStatus === 'queued' ? 'Queued' : runtimeStatus === 'cancelling' ? 'Stopping' : 'Generating' }}</strong></div>
     </div>
     <div v-else-if="data.canvasType === 'generate-multiview-images' && showResult" class="node-output image-grid" aria-label="Generated multi-view images">
       <button v-for="view in viewPorts" :key="view" type="button" class="image-candidate nodrag nopan" :aria-label="`Preview ${view} view`" @click.stop="emit('preview-image', { src: runtimeViewPreviews[view], alt: `${view} view` })">
         <img :src="runtimeViewPreviews[view]" :alt="`${view} view`" />
       </button>
+      <div v-if="isExecuting" class="node-output-loading" role="status"><span class="node-run-indicator" /><strong>{{ runtimeStatus === 'queued' ? 'Queued' : runtimeStatus === 'cancelling' ? 'Stopping' : 'Generating' }}</strong></div>
     </div>
     <button v-else-if="['reference-image', 'generated-image', 'generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'bake', 'texture', 'rigging', 'segments', 'model-preview'].includes(data.canvasType) && showResult" type="button" class="node-output nodrag nopan" :class="{ 'model-output': !['reference-image', 'generated-image'].includes(data.canvasType) }" :aria-label="['reference-image', 'generated-image'].includes(data.canvasType) ? `Preview ${data.label} image` : `Open ${data.label} in Model Editor`" @click.stop="['reference-image', 'generated-image'].includes(data.canvasType) ? emit('preview-image', { src: runtimePreview, alt: `${data.label} result` }) : emit('open-model-editor')">
       <img :src="runtimePreview" :alt="`${data.label} result`" />
       <div v-if="!['reference-image', 'generated-image', 'image-decomposition'].includes(data.canvasType)" class="model-orbit"><span /><span /><span /></div>
        <span class="output-badge">{{ data.canvasType === 'reference-image' ? 'Input image' : data.canvasType === 'generated-image' ? 'Generated view' : data.canvasType === 'retopology' ? `${Number(data.config.faceLimit).toLocaleString()} faces` : data.canvasType === 'texture' ? `${data.config.textureQuality}` : data.canvasType === 'rigging' ? 'Rigged' : data.canvasType === 'segments' ? `Segments · ${data.config.detailLevel}` : data.canvasType === 'smart-mesh' ? 'Smart mesh' : data.canvasType === 'bake' ? 'Baked' : '3D result' }}</span>
+      <span v-if="isExecuting" class="node-output-loading" role="status"><span class="node-run-indicator" /><strong>{{ runtimeStatus === 'queued' ? 'Queued' : runtimeStatus === 'cancelling' ? 'Stopping' : 'Generating' }}</strong></span>
     </button>
     <button v-else-if="data.canvasType === 'export-model' && showResult" type="button" class="node-output model-output nodrag nopan" :aria-label="`Open ${data.label} in Model Editor`" @click.stop="emit('open-model-editor')">
       <img :src="runtimePreview" :alt="`${data.label} asset`" />
       <div class="model-orbit"><span /><span /><span /></div>
         <span class="output-badge">{{ nodeRun?.output?.format || exportFormat }}</span>
+      <span v-if="isExecuting" class="node-output-loading" role="status"><span class="node-run-indicator" /><strong>{{ runtimeStatus === 'queued' ? 'Queued' : runtimeStatus === 'cancelling' ? 'Stopping' : 'Exporting' }}</strong></span>
     </button>
     <div v-else-if="data.canvasType === 'review'" class="node-review-state" :class="runtimeStatus">
       <strong>{{ data.config.approved ? 'Approved' : runtimeStatus === 'waiting_review' ? 'Awaiting approval' : 'Checkpoint' }}</strong>
@@ -224,14 +236,13 @@ function loadMockImage(file: File) {
     </div>
 
     <div v-if="data.canvasType === 'export-model'" class="node-run-actions nodrag" :class="{ single: !exportDownloads.length }">
-      <button type="button" class="generate-node" :disabled="['queued', 'running'].includes(runtimeStatus)" @click.stop="emit('run-canvas', props.id)">{{ ['queued', 'running'].includes(runtimeStatus) ? 'Preparing…' : 'Export' }}</button>
+      <button type="button" :class="stopsNodeRun ? 'stop-run' : 'generate-node'" :disabled="isActiveEntry && !stopsNodeRun" @click.stop="stopsNodeRun ? emit('stop-run') : emit('run-canvas', props.id)">{{ stopsNodeRun ? 'Stop' : ['queued', 'running'].includes(runtimeStatus) ? 'Preparing…' : 'Export' }}</button>
       <a v-for="download in exportDownloads" :key="download.downloadUrl" class="run-downstream download-export" :href="download.downloadUrl" :download="download.filename" @click.stop>Download {{ download.filename }}</a>
     </div>
     <div v-else-if="isExecutableNode" class="node-run-actions nodrag">
-      <button type="button" class="generate-node" :disabled="['queued', 'running'].includes(runtimeStatus)" @click.stop="emit('run-canvas', props.id)">{{ actionLabel }}</button>
-      <button type="button" class="run-downstream" :disabled="['queued', 'running'].includes(runtimeStatus)" @click.stop="emit('run-downstream', props.id)">Run downstream</button>
+      <button type="button" :class="stopsNodeRun ? 'stop-run' : 'generate-node'" :disabled="isActiveEntry && !stopsNodeRun" @click.stop="stopsNodeRun ? emit('stop-run') : emit('run-canvas', props.id)">{{ stopsNodeRun ? 'Stop' : actionLabel }}</button>
+      <button type="button" :class="stopsDownstreamRun ? 'stop-run' : 'run-downstream'" :disabled="isActiveEntry && !stopsDownstreamRun" @click.stop="stopsDownstreamRun ? emit('stop-run') : emit('run-downstream', props.id)">{{ stopsDownstreamRun ? 'Stop' : 'Run downstream' }}</button>
     </div>
-    <button v-if="['generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'bake', 'texture', 'rigging', 'segments', 'model-preview'].includes(data.canvasType) && showResult" type="button" class="open-model-editor nodrag" @click.stop="emit('open-model-editor')"><span>Open in Model Editor</span><b>↗</b></button>
     <section v-if="nodeRun" class="node-run-details nodrag">
       <button type="button" :aria-expanded="runDetailsOpen" @click.stop="runDetailsOpen = !runDetailsOpen"><span>Run details</span><b :class="{ open: runDetailsOpen }"><svg class="chevron-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></b></button>
       <div v-if="runDetailsOpen" class="node-run-detail-content">

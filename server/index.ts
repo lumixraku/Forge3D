@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { createStore } from './store.js'
 import { latestNodeRuns } from './node-state.js'
 import { executionAssets } from './run-assets.js'
-import { createExecution, executeExecution, executionById, executionDto, findNode, paginateAssets } from './executions.js'
+import { cancelExecution, createExecution, executeExecution, executionById, executionDto, findNode, paginateAssets } from './executions.js'
 import { createInitialSession, createCanvas, createSession, emptySession } from './canvases.js'
 import { runDeepSeekAgent } from './deepseek.js'
 import { cancelAgentViaService, runAgentViaService } from './agent-client.js'
@@ -532,6 +532,14 @@ const server = createServer(async (request, response) => {
     if (request.method === 'GET' && parts[1] === 'executions' && parts.length === 3) {
       const execution = executionById(state.runs, parts[2])
       return execution ? json(response, 200, executionDto(execution)) : json(response, 404, { error: 'Execution not found' })
+    }
+
+    if (request.method === 'POST' && parts[1] === 'executions' && parts[2] && parts[3] === 'cancel' && parts.length === 4) {
+      const execution = executionById(state.runs, parts[2])
+      if (!execution) return json(response, 404, { error: 'Execution not found' })
+      cancelExecution(execution)
+      await persist('runs')
+      return json(response, 202, executionDto(execution))
     }
 
     if (request.method === 'POST' && parts[1] === 'nodes' && parts[2] && parts[3] === 'executions' && parts.length === 4) {

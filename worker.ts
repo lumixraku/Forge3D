@@ -1,6 +1,6 @@
 import { latestNodeRuns } from './server/node-state.js'
 import { executionAssets } from './server/run-assets.js'
-import { createExecution, executeExecution, executionById, executionDto, findNode, paginateAssets } from './server/executions.js'
+import { cancelExecution, createExecution, executeExecution, executionById, executionDto, findNode, paginateAssets } from './server/executions.js'
 import { createInitialSession, createCanvas, createSession, emptySession } from './server/canvases.js'
 import { runDeepSeekAgent } from './server/deepseek.js'
 import { cancelAgentViaService, runAgentViaService } from './server/agent-client.js'
@@ -459,6 +459,13 @@ async function route(request, env, ctx) {
   if (request.method === 'GET' && parts[1] === 'executions' && parts.length === 3) {
     const execution = executionById(state.runs, parts[2])
     return execution ? response(executionDto(execution)) : response({ error: 'Execution not found' }, 404)
+  }
+  if (request.method === 'POST' && parts[1] === 'executions' && parts[2] && parts[3] === 'cancel' && parts.length === 4) {
+    const execution = executionById(state.runs, parts[2])
+    if (!execution) return response({ error: 'Execution not found' }, 404)
+    cancelExecution(execution)
+    await writeCollections(env, state, ['runs'])
+    return response(executionDto(execution), 202)
   }
   if (request.method === 'POST' && parts[1] === 'nodes' && parts[2] && parts[3] === 'executions' && parts.length === 4) {
     const match = findNode(state.canvases, parts[2])
