@@ -307,10 +307,64 @@ byte-identical responses, which is what confirmed it.
 - Worker name kept as `forge3d-canvas-studio`; the domain was moved to it rather
   than reverting the name, since `workflow` is gone from the product vocabulary.
 
+### What was actually misconfigured on Cloudflare
+
+Nothing was misconfigured *in* Cloudflare. Cloudflare did exactly what it was
+told. The bug was that `wrangler.toml` never recorded which worker owned the
+domain, so the binding lived only in Cloudflare's own state:
+
+- `wrangler.toml` declared `name` and nothing else about routing — no
+  `[[routes]]`, no `workers_dev`. The custom domain existed **only** as a
+  dashboard-side binding on `forge3d-workflow-studio`.
+- `name` is the worker's primary key. Editing it does not rename the worker; the
+  next `wrangler deploy` creates a second, empty worker under the new name. The
+  old worker keeps running, keeps its routes, and keeps serving the domain.
+- So after `263b56e` the account held two workers. `wrangler deploy` updated
+  `forge3d-canvas-studio`; the domain kept pointing at `forge3d-workflow-studio`,
+  frozen at its 2026-07-29 08:16 UTC deployment.
+- Wrangler printed no warning. It reports the URL it deployed to
+  (`...workers.dev`), never the URL that used to be served, so the output looked
+  successful every time.
+
+Both workers were bound to the same D1 (`database_id = 9b7fb975-...`), which is
+why the old deployment kept accumulating writes the whole time — `workflows` had
+an `updated_at` **later** than the new worker's first deployment, which is what
+proved the old one was still live and in use.
+
+### Why probing did not catch it sooner
+
+Two dead ends worth not repeating:
+
+- `wrangler deployments list` shows `Source: Upload` and
+  `Message: "Automatic deployment on upload."` with no git metadata, so **the
+  deployed commit is not recoverable from Cloudflare**. Version IDs are UUIDs
+  with no commit association. Comparing built asset hashes against the local
+  `dist-cloudflare/index.html` is the only reliable version check.
+- Guessing the hostname wasted time: the `.workers.dev` subdomain is
+  `forge3d.workers.dev`, not `<account>.workers.dev`, and local DNS resolved the
+  guess to `208.43.170.231` (not a Cloudflare IP) with TLS failing through the
+  proxy. `wrangler deploy` prints the true URL on its last line — read that
+  instead of constructing one. Public internet from this machine needs
+  `HTTPS_PROXY=http://127.0.0.1:7897`; `npm run cf:deploy` unsets it on purpose.
+
+### Two wrong turns taken while fixing this
+
+Recorded because both were avoidable and cost a deploy each:
+
+- Reverting `name` to `forge3d-workflow-studio` and deploying. That does reach
+  the domain, but it reintroduces the retired `workflow` vocabulary. The correct
+  direction was to move the domain to the canvas-named worker, which is what
+  shipped.
+- Treating the blank page as purely a data problem. The missing `New` button was
+  an independent UI deadlock (see below) with no relation to the migration; it
+  would have made any empty database unusable even with the domain and data both
+  correct. Read the UI before concluding an empty screen means empty data.
+
 ### Note
 
 `workers_dev` is not declared, so this deployment disabled the `.workers.dev`
-URL. Only the custom domain serves the app now.
+URL. Only the custom domain serves the app now. Set `workers_dev = true` if the
+`.workers.dev` URL is wanted back as a staging target.
 
 ## Fixed: The Rename Shipped No Data Migration (2026-08-03, branch `main`)
 
@@ -404,14 +458,28 @@ and migration issues above.
 ## Git State
 
 - Current branch: `main`
-- Latest feature commit pushed:
-  - `3cd85e1 feat: run the 3D main chain against the real Tripo API`
+- Latest commit pushed:
+  - `ac786ce fix: reconnect the custom domain and recover the renamed data`
 - `.codegraph/` is ignored as local generated project metadata.
 - `server/data/canvases/` is not tracked, so a lost canvas cannot be recovered.
+- A backup of all six D1 collections taken before the migration lives under
+  `scratchpad/d1-backup/` in the session temp directory (`workflows.json` 62 KB,
+  `tasks.json` 158 KB, plus `sessions`, `conversations`, `runs`, `fragments`).
+  **On `/tmp`, so it will be cleaned up** — move it if it needs to survive.
 
 ## Services
 
 - Frontend: `http://localhost:5175`
 - Backend: `http://127.0.0.1:8787`
+- Production: `https://forge3d.lumixraku.org` — worker `forge3d-canvas-studio`,
+  D1 `forge3d` (`9b7fb975-...`). The domain is declared in `wrangler.toml`, so
+  `npm run cf:deploy` reaches it. `.workers.dev` is disabled.
+- The retired worker `forge3d-workflow-studio` still exists in the account, bound
+  to the same D1. It served the custom domain until 2026-08-03 and its own last
+  deployment is `7f072d1f` at 2026-08-03T07:49 UTC — that version is current
+  code, pushed there during the wrong turn described above, not the stale
+  pre-rename build. It now serves no domain (`.workers.dev` disabled, so its
+  hostname 404s). Deleting it would be safe but has not been done; it shares the
+  D1, so deleting the worker would not touch any data.
 - `TRIPO_API_KEY` and `TRIPO_BASE_URL` live in `.env`; without them the runner
   falls back to the simulation and the debug ball's Tripo option is disabled.
