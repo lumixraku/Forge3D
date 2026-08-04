@@ -1,5 +1,8 @@
 # API Reference
 
+> This is the HTTP API reference. See the [project reference](project-reference.md)
+> for product and architecture context.
+
 本文档以当前代码实现为准，记录仓库提供的 HTTP API。主实现位于 `server/index.ts`；Cloudflare Worker 实现位于 `worker.ts`；内部 Pi Agent 服务位于 `agent-service/server.ts`。
 
 ## 实现范围
@@ -413,8 +416,8 @@ Cache-Control: public, max-age=31536000, immutable
 
 仓库原有文档已经记录大部分 API：
 
-- `README.md:1031-1147`：HTTP API 主列表、执行、资产和 turns。
-- `README.md:879-1029`：SSE 协议与内部 Agent Service。
+- `docs/project-reference.md`：HTTP API 主列表、执行、资产、SSE 和内部 Agent Service。
+- 本文档：各路由的完整请求、响应和实现差异。
 - `docs/agent-sse-data-design.md`：应用 SSE 数据设计。
 - `docs/canvas-tool-calls.md`：Agent canvas tool calls，不是独立 HTTP API 契约。
 - `docs/meshy-agent-sse-protocol.md`：外部 Meshy 协议调研，不是本 repo 的服务端 API。

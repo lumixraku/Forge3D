@@ -1,5 +1,8 @@
 # Progress
 
+> This file is the required repository progress log. Documentation entry points
+> are in the root `README.md` and this `docs/` directory.
+
 ## Current Goal
 
 Run the 3D main chain against the real Tripo API, keeping the simulated path
@@ -639,3 +642,18 @@ five nodes green, 80 credits.
   D1, so deleting the worker would not touch any data.
 - `TRIPO_API_KEY` and `TRIPO_BASE_URL` live in `.env`; without them the runner
   falls back to the simulation and the debug ball's Tripo option is disabled.
+
+## Documentation Restructure (2026-08-04, branch `main`)
+
+- Added `todo.md` with the Tripo OpenAPI `task_id` operation-history and durable
+  asset-recovery work items.
+- Moved the detailed project reference from the root `README.md` to
+  `docs/project-reference.md`.
+- Moved `api.md` to `docs/api.md` and added cross-links from the root README and
+  detailed references.
+- Kept only the entry-point README in the repository root; documentation files
+  remain under `docs/`.
+- Verification: checked the Markdown inventory, updated relative image/link
+  paths, and confirmed the working tree contains the intended documentation
+  changes. Tests were not run because this change only reorganizes Markdown.
+- Remaining issues: None.
