@@ -72,7 +72,7 @@ before(async () => {
       canvasId: 'canvas-fixture',
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
-      // The bubble the parked turn below is waiting on. The selection is only
+      // The bubble the request turn below is waiting on. The selection is only
       // echoed into the session when this message exists.
       messages: [
         { id: 'msg-request', role: 'assistant', content: '', turnId: 'turn-waiting', createdAt: '2026-01-01T00:00:00.000Z' },
@@ -80,7 +80,7 @@ before(async () => {
     },
   ]))
   await writeFile(path.join(dataDirectory, 'runs.json'), '[]')
-  // A turn parked on a user selection, so the continue endpoint can be exercised
+  // A running turn with a user selection request, so the continue endpoint can be exercised
   // without driving a real agent.
   await writeFile(path.join(dataDirectory, 'turns.json'), JSON.stringify([
     {
@@ -88,7 +88,7 @@ before(async () => {
       sessionId: 'session-fixture',
       canvasId: 'canvas-fixture',
       message: 'pick a style',
-      status: 'waiting_for_user',
+      status: 'running',
       progress: [],
       requestMessageId: 'msg-request',
       request: {
@@ -323,15 +323,15 @@ test('a turn requires a non-empty message, checked before the session exists', a
 })
 
 test('listing turns filters by status and hides ones no longer in flight', async () => {
-  // A turn parked on a user selection is always listed: the client needs it to
+  // A turn with a selection request is listed even if no worker is active: the client needs it to
   // rebuild the pending bubble after a reload.
   const { status, body } = await api('/api/sessions/session-fixture/turns')
   assert.equal(status, 200)
   assert.deepEqual(body.map((turn) => turn.id), ['turn-waiting'])
 
-  const filtered = await api('/api/sessions/session-fixture/turns?status=waiting_for_user')
+  const filtered = await api('/api/sessions/session-fixture/turns?status=running')
   assert.deepEqual(filtered.body.map((turn) => turn.id), ['turn-waiting'])
-  // A status the parked turn does not have filters it back out.
+  // A status the running turn does not have filters it back out.
   assert.deepEqual((await api('/api/sessions/session-fixture/turns?status=succeeded')).body, [])
   assert.equal((await api('/api/sessions/missing/turns')).status, 404)
 })

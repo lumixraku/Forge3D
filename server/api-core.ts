@@ -218,8 +218,10 @@ export function createApi({ createContext }) {
         else activeRuns.delete(turn.canvasId)
       }
       await reloadAgentCollections()
-      if (!canvasById(turn.canvasId) || !sessionById(turn.sessionId) || !turnById(turn.id)) throw new Error('Project, session, or turn was deleted while this turn was running')
-      if (turnById(turn.id).status === 'cancelled' || turnById(turn.id).status === 'cancelling') return
+      const currentTurn = turnById(turn.id)
+      if (!canvasById(turn.canvasId) || !sessionById(turn.sessionId) || !currentTurn) throw new Error('Project, session, or turn was deleted while this turn was running')
+      if (currentTurn.status === 'cancelled' || currentTurn.status === 'cancelling') return
+      turn = currentTurn
       if (plan.canvas && plan.canvas.id !== turn.canvasId) throw new Error('Agent returned a canvas outside this project')
       // The message was steered into a still-running run; it produces no diff of
       // its own. Acknowledge it in the session and finish.
@@ -244,7 +246,6 @@ export function createApi({ createContext }) {
         return
       }
       if (plan.userSelectionRequest) {
-        turn.status = 'waiting_for_user'
         delete turn.selection
         turn.request = { request_id: `request-${randomUUID()}`, ...plan.userSelectionRequest }
         const now = new Date().toISOString()
@@ -525,7 +526,8 @@ export function createApi({ createContext }) {
       const statuses = new Set((url.searchParams.get('status') || '').split(',').filter(Boolean))
       return json(state.turns.filter((turn) => turn.sessionId === session.id
         && (!statuses.size || statuses.has(turn.status))
-        && (turn.status === 'waiting_for_user' || !['queued', 'running'].includes(turn.status) || activeTurnIds.has(turn.id))))
+        && (!['succeeded', 'failed', 'cancelled', 'cancelling'].includes(turn.status))
+        && (activeTurnIds.has(turn.id) || turn.request)))
     }
 
     if (method === 'POST' && parts[1] === 'sessions' && parts[2] && parts[3] === 'turns' && parts.length === 4) {
@@ -570,6 +572,17 @@ export function createApi({ createContext }) {
       const turn = turnById(parts[2])
       if (!turn) return json({ error: 'Turn not found' }, 404)
       const input = await parseJson(request)
+      // The conversation message is the durable user-facing record. If a crash
+      // persisted that message but not the turn's copy, use it to resume rather
+      // than making the user start the conversation over.
+      if (!turn.request) {
+        const session = sessionById(turn.sessionId)
+        const requestMessage = session?.messages.find((message) => message.turnId === turn.id && message.request && !message.selection)
+        if (requestMessage) {
+          turn.request = structuredClone(requestMessage.request)
+          turn.requestMessageId = requestMessage.id
+        }
+      }
       const selectedOptionIds = input.selected_option_ids
       const existingSelection = turn.selection
       if (existingSelection) {
@@ -578,7 +591,7 @@ export function createApi({ createContext }) {
         }
         return json({ error: 'This selection was already submitted' }, 409)
       }
-      if (turn.status !== 'waiting_for_user' || !turn.request || input.request_id !== turn.request.request_id) return json({ error: 'Turn is not waiting for this selection' }, 409)
+      if (!turn.request || input.request_id !== turn.request.request_id || ['succeeded', 'failed', 'cancelled', 'cancelling'].includes(turn.status)) return json({ error: 'Turn is not waiting for this selection' }, 409)
       if (!Array.isArray(selectedOptionIds) || selectedOptionIds.some((optionId) => typeof optionId !== 'string') || new Set(selectedOptionIds).size !== selectedOptionIds.length || selectedOptionIds.length < turn.request.min || selectedOptionIds.length > turn.request.max || selectedOptionIds.some((optionId) => !turn.request.options.some((option) => option.id === optionId))) {
         return json({ error: 'Selected options are invalid' }, 400)
       }
@@ -588,7 +601,7 @@ export function createApi({ createContext }) {
       if (!currentTurn || !session || !canvasById(currentTurn.canvasId)) return json({ error: 'Turn not found' }, 404)
       // Re-checked after the reload: the turn on disk may have moved on since the
       // validation above, and its request may no longer be the one answered here.
-      if (currentTurn.status !== 'waiting_for_user' || !currentTurn.request || input.request_id !== currentTurn.request.request_id) return json({ error: 'Turn is not waiting for this selection' }, 409)
+      if (!currentTurn.request || input.request_id !== currentTurn.request.request_id || ['succeeded', 'failed', 'cancelled', 'cancelling'].includes(currentTurn.status)) return json({ error: 'Turn is not waiting for this selection' }, 409)
       currentTurn.selection = { request_id: currentTurn.request.request_id, selected_option_ids: selectedOptionIds }
       const trace = state.agentTraces.find((item) => item.turnId === currentTurn.id)
       if (trace) appendAgentTrace(trace, 'user_selection_received', currentTurn.selection)

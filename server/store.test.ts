@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createStore, migrateCanvas, migrateCanvasRefs, migrateTurns } from './store.js'
@@ -10,6 +11,24 @@ const canvasDirectory = path.join(path.dirname(fileURLToPath(import.meta.url)), 
 function canvasFixture(id) {
   return { schemaVersion: '1.0', id, name: id, description: '', revision: 1, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } }
 }
+
+test('does not infer turn state from session messages', async () => {
+  const dataDirectory = await mkdtemp(path.join(tmpdir(), 'forge3d-store-'))
+  await mkdir(path.join(dataDirectory, 'canvases'), { recursive: true })
+  await writeFile(path.join(dataDirectory, 'sessions.json'), JSON.stringify([{
+    id: 'session-1',
+    messages: [{ id: 'message-1', turnId: 'turn-1', request: { request_id: 'request-1' }, createdAt: '2026-08-04T00:00:00.000Z' }],
+  }]))
+  await writeFile(path.join(dataDirectory, 'runs.json'), '[]')
+  await writeFile(path.join(dataDirectory, 'turns.json'), JSON.stringify([{ id: 'turn-1', status: 'running', updatedAt: 'before' }]))
+
+  try {
+    const store = await createStore({ dataDirectory })
+    assert.deepEqual(store.state.turns, [{ id: 'turn-1', status: 'running', updatedAt: 'before' }])
+  } finally {
+    await rm(dataDirectory, { recursive: true, force: true })
+  }
+})
 
 test('migrates split nodes to segments once', () => {
   const canvas = {

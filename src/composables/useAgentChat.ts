@@ -164,13 +164,13 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
 
   async function restoreTurns() {
     if (!activeSession.value) return
-    const turns = await request(`/api/sessions/${encodeURIComponent(activeSession.value.id)}/turns?status=queued,running,waiting_for_user`)
+    const turns = await request(`/api/sessions/${encodeURIComponent(activeSession.value.id)}/turns`)
     for (const turn of turns) {
       const existing = activeSession.value?.messages.some((item) => item.turnId === turn.id)
       if (!existing) {
         activeSession.value.messages.push(
           { id: `turn-user-${turn.id}`, role: 'user', content: turn.message, turnId: turn.id, createdAt: turn.createdAt },
-          { id: `turn-assistant-${turn.id}`, role: 'assistant', content: '', progress: turn.progress, turnId: turn.id, createdAt: turn.createdAt, pending: turn.status !== 'waiting_for_user', request: turn.status === 'waiting_for_user' ? turn.request : null },
+          { id: `turn-assistant-${turn.id}`, role: 'assistant', content: '', progress: turn.progress, turnId: turn.id, createdAt: turn.createdAt, pending: !turn.request, request: turn.request || null },
         )
       }
     }
