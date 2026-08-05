@@ -33,3 +33,9 @@ export function createTripoRunner(env = process.env) {
     }
   }
 }
+
+export function createTripoTaskReader(env = process.env) {
+  if (!isTripoConfigured(env)) return null
+  const client = createTripoClient({ apiKey: env.TRIPO_API_KEY, baseUrl: env.TRIPO_BASE_URL })
+  return (taskId) => client.getTask(taskId)
+}

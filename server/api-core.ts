@@ -655,6 +655,18 @@ export function createApi({ createContext }) {
       return execution ? json(executionDto(execution)) : json({ error: 'Execution not found' }, 404)
     }
 
+    if (method === 'GET' && parts[1] === 'tripo' && parts[2] === 'tasks' && parts[3] && parts[4] === 'download' && parts.length === 5) {
+      if (!config.getTripoTask) return json({ error: 'Tripo is not configured.' }, 503)
+      const taskId = parts[3]
+      const ownsTask = state.runs.some((run) => Object.values(run.nodeRuns || {}).some((nodeRun) => nodeRun.tripoTaskId === taskId || nodeRun.output?.tripoTaskId === taskId))
+      if (!ownsTask) return json({ error: 'Tripo task not found' }, 404)
+      const task = await config.getTripoTask(taskId)
+      const downloadUrl = task?.output?.model_url
+      return downloadUrl
+        ? new Response(null, { status: 302, headers: { location: downloadUrl, 'cache-control': 'no-store' } })
+        : json({ error: 'Tripo task has no downloadable model' }, 404)
+    }
+
     if (method === 'POST' && parts[1] === 'executions' && parts[2] && parts[3] === 'cancel' && parts.length === 4) {
       const execution = executionById(state.runs, parts[2])
       if (!execution) return json({ error: 'Execution not found' }, 404)
@@ -691,15 +703,14 @@ export function createApi({ createContext }) {
       return json(executionDto(pending.run), 202)
     }
 
-    // Files copied off a provider before their URLs expired. Only hashed names
-    // resolve, so this cannot read anything else under the data directory.
+    // Legacy assets from runs created before downloads switched to refreshed
+    // Tripo task URLs remain readable, but new runs never write local files.
     if (method === 'GET' && parts[1] === 'assets' && parts.length === 3) {
       const asset = config.readAsset ? await config.readAsset(parts[2]) : null
       if (!asset) return json({ error: 'Asset not found' }, 404)
       return new Response(asset.bytes, {
         headers: {
           'content-type': asset.contentType,
-          // The name is a content hash, so the bytes can never change.
           'cache-control': 'public, max-age=31536000, immutable',
         },
       })

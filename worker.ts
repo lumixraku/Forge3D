@@ -100,6 +100,7 @@ const handle = createApi({
         },
         // Node-only: the Tripo runner and the on-disk asset cache.
         createTripoProvider: null,
+        getTripoTask: null,
         readAsset: null,
       },
       waitUntil: (promise) => ctx.waitUntil(Promise.resolve(promise).catch(() => {})),

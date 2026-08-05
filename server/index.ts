@@ -5,7 +5,7 @@
 import { createServer } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { createStore } from './store.js'
-import { createTripoRunner } from './tripo-run.js'
+import { createTripoRunner, createTripoTaskReader } from './tripo-run.js'
 import { readAsset } from './tripo-assets.js'
 import { createApi } from './api-core.js'
 
@@ -16,6 +16,7 @@ const dataDirectory = process.env.FORGE3D_DATA_DIR || undefined
 // Null when TRIPO_API_KEY is unset, which keeps every node on the simulated
 // producer so the demo runs without credentials.
 const createTripoProvider = createTripoRunner()
+const getTripoTask = createTripoTaskReader()
 const store = await createStore({ dataDirectory })
 
 // Local dev defaults to the Pi agent service. Set AGENT_SERVICE_URL=direct to use
@@ -39,6 +40,7 @@ const context = {
       model: process.env.DEEPSEEK_MODEL,
     },
     createTripoProvider,
+    getTripoTask,
     readAsset,
   },
   // Node keeps the process alive on its own, so a background turn or run only

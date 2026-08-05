@@ -237,8 +237,8 @@
 .canvas-title-bar .canvas-title-name { flex: 0 1 auto; min-width: 0; overflow: hidden; font-size: 14px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .canvas-title-actions { display: flex; flex: none; align-items: center; gap: 8px; }
 .canvas-switcher-anchor { position: relative; flex: none; }
-.canvas-button-group { flex: none; display: flex; align-items: stretch; height: 34px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-input); transition: border-color .15s ease; }
-.canvas-button-group button { display: flex; align-items: center; gap: 6px; padding: 0 12px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--text-secondary); font: 500 11px var(--font-sans); cursor: pointer; transition: background .15s ease, color .15s ease; }
+.canvas-button-group { flex: none; display: flex; align-items: stretch; height: 36px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-input); transition: border-color .15s ease; }
+.canvas-button-group button { display: flex; height: 100%; align-items: center; gap: 6px; padding: 0 12px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--text-secondary); font: 500 11px/1 var(--font-sans); cursor: pointer; transition: background .15s ease, color .15s ease; }
 .canvas-button-group button:first-child { border-left: 0; }
 .canvas-button-group button:hover { background: var(--bg-input-hover); color: var(--text-primary); }
 .canvas-button-group.open .wbg-label { background: var(--bg-input-hover); color: var(--text-primary); }
@@ -261,11 +261,11 @@
 .topbar-actions { grid-column: 3; display: flex; align-items: center; gap: 8px; padding-right: 16px; }
 .save-state { width: 15ch; overflow: hidden; color: var(--text-muted); font: 500 9px/1 var(--font-mono); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-switcher { display: flex; height: 36px; gap: 2px; padding: 3px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-input); transition: background .2s ease, border-color .2s ease; }
-.workspace-switcher button { height: 28px; padding: 0 10px; border: 0; border-radius: 4px; background: transparent; color: var(--text-muted); font: 500 8px/1 var(--font-mono); text-transform: uppercase; transition: background .15s ease, color .15s ease; }
+.workspace-switcher button { height: 28px; min-width: 82px; padding: 0 10px; border: 0; border-radius: 4px; background: transparent; color: var(--text-muted); font: 500 8px/1 var(--font-mono); text-transform: uppercase; transition: background .15s ease, color .15s ease; }
 .workspace-switcher button:hover:not(.active) { background: var(--bg-input-hover); color: var(--text-primary); }
 .workspace-switcher button.active { background: var(--acid); color: var(--text-inverse); }
 .theme-switcher { display: flex; height: 36px; gap: 2px; padding: 3px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-primary); transition: background .2s ease, border-color .2s ease; }
-.theme-switcher button { height: 28px; padding: 0 7px; border: 0; border-radius: 4px; background: transparent; color: var(--text-muted); font: 500 8px/1 var(--font-mono); text-transform: uppercase; transition: background .15s ease, color .15s ease; }
+.theme-switcher button { height: 28px; min-width: 44px; padding: 0 7px; border: 0; border-radius: 4px; background: transparent; color: var(--text-muted); font: 500 8px/1 var(--font-mono); text-transform: uppercase; transition: background .15s ease, color .15s ease; }
 .theme-switcher button:hover:not(.active) { background: var(--bg-input-hover); color: var(--text-primary); }
 .theme-switcher button.active { background: var(--bg-active); color: var(--acid); }
 .button { height: 36px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 8px; background: transparent; color: var(--text-primary); font: 500 11px/1 var(--font-mono); transition: border-color .15s ease, background .15s ease, color .15s ease; }

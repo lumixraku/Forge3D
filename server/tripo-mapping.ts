@@ -134,10 +134,11 @@ export function tripoNodeOutput(node, task, { preview = null, modelUrl = null, f
   // thumbnail without the upstream one to fall back on.
   const resolvedPreview = preview || output.rendered_image_url || fallbackPreview || null
   const resolvedModel = modelUrl || output.model_url || null
+  const taskId = task?.task_id || null
   const shared = {
     preview: resolvedPreview,
     modelUrl: resolvedModel,
-    tripoTaskId: task?.task_id || null,
+    tripoTaskId: taskId,
     creditsConsumed: task?.credits_consumed ?? null,
   }
 
@@ -150,7 +151,9 @@ export function tripoNodeOutput(node, task, { preview = null, modelUrl = null, f
       message: `${node.name || 'Export'} ready`,
       target: '3D Model',
       format,
-      outputs: resolvedModel ? [{ destination: 'dcc', format, filename: `${fileName}.${extension}`, downloadUrl: resolvedModel }] : [],
+      outputs: taskId
+        ? [{ destination: 'dcc', format, filename: `${fileName}.${extension}`, downloadUrl: `/api/tripo/tasks/${encodeURIComponent(taskId)}/download` }]
+        : resolvedModel ? [{ destination: 'dcc', format, filename: `${fileName}.${extension}`, downloadUrl: resolvedModel }] : [],
     }
   }
 

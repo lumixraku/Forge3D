@@ -153,7 +153,7 @@ test('a mesh transform with nothing upstream is refused before spending credits'
   assert.equal(client.calls.tasks.length, 0)
 })
 
-test('progress is reported while the task runs and the result is persisted', async () => {
+test('progress is reported while the task runs without downloading the result', async () => {
   const canvas = canvasOf([REFERENCE, MODEL], [['ref', 'model']])
   const seen = []
   const client = {
@@ -172,9 +172,8 @@ test('progress is reported while the task runs and the result is persisted', asy
 
   assert.deepEqual(seen, [0, 40])
   assert.equal(result.creditsConsumed, 30)
-  // The expiring Tripo urls are replaced by local asset paths.
-  assert.match(result.output.modelUrl, /^\/api\/assets\//)
-  assert.match(result.output.preview, /^\/api\/assets\//)
+  assert.equal(result.output.modelUrl, 'https://cdn/m.glb')
+  assert.equal(result.output.preview, 'https://cdn/p.webp')
 })
 
 test('an export shows the upstream thumbnail when its own task renders none', async () => {
@@ -192,5 +191,5 @@ test('an export shows the upstream thumbnail when its own task renders none', as
 
   assert.equal(result.output.preview, '/api/assets/aa.webp')
   assert.equal(result.output.outputs[0].filename, 'shark.glb')
-  assert.match(result.output.outputs[0].downloadUrl, /^\/api\/assets\//)
+  assert.equal(result.output.outputs[0].downloadUrl, '/api/tripo/tasks/task_new/download')
 })

@@ -193,7 +193,7 @@ test('persisted asset paths override the expiring Tripo urls', () => {
 test('export output carries a download the canvas can click', () => {
   const task = { task_id: 'task_abc', output: { model_url: 'https://cdn.tripo3d.ai/m.fbx' } }
   const output = tripoNodeOutput(node('export-model', { modelFormat: 'fbx', fileName: 'shark' }), task, { modelUrl: '/api/assets/bb.fbx' })
-  assert.deepEqual(output.outputs, [{ destination: 'dcc', format: 'fbx', filename: 'shark.fbx', downloadUrl: '/api/assets/bb.fbx' }])
+  assert.deepEqual(output.outputs, [{ destination: 'dcc', format: 'fbx', filename: 'shark.fbx', downloadUrl: '/api/tripo/tasks/task_abc/download' }])
   assert.equal(output.target, '3D Model')
 })
 

@@ -10,7 +10,7 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tripoNodeOutput, tripoRequest, usesTripo } from './tripo-mapping.js'
-import { assetUrlPrefix, persistTripoAsset, resolveAssetPath } from './tripo-assets.js'
+import { assetUrlPrefix, resolveAssetPath } from './tripo-assets.js'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
 const publicDirectory = path.join(root, '..', 'public')
@@ -198,7 +198,6 @@ export async function executeTripoNode(node, canvas, {
   context = new Map(),
   uploads = new Map(),
   onProgress = async () => {},
-  fetchImpl = fetch,
   pollIntervalMs = 2000,
   taskTimeoutMs = 600000,
 } = {}) {
@@ -229,12 +228,6 @@ export async function executeTripoNode(node, canvas, {
     onProgress: (current) => onProgress({ tripoTaskId: taskId, progress: current.progress ?? 0 }),
   })
 
-  // Output URLs expire in about five minutes, so both files are copied now.
-  const [preview, modelUrl] = await Promise.all([
-    persistTripoAsset(task.output?.rendered_image_url, { fetchImpl }),
-    persistTripoAsset(task.output?.model_url, { fetchImpl }),
-  ])
-
   // A convert task renders no image, so the node falls back to the thumbnail of
   // the mesh it was given.
   const fallbackPreview = resolveUpstreamPreview(node, canvas, context)
@@ -246,6 +239,6 @@ export async function executeTripoNode(node, canvas, {
     tripoTaskId: taskId,
     progress: 100,
     creditsConsumed: task.credits_consumed ?? null,
-    output: tripoNodeOutput(node, task, { preview, modelUrl, fallbackPreview }),
+    output: tripoNodeOutput(node, task, { fallbackPreview }),
   }
 }
