@@ -347,7 +347,7 @@
 .sidebar-note { position: absolute; right: 16px; bottom: 18px; left: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-card); transition: border-color .15s ease, box-shadow .15s ease; }
 .sidebar-note:hover { border-color: var(--line-strong); box-shadow: var(--shadow-md); }
 .sidebar-note p { margin: 8px 0 0; color: var(--text-muted); font-size: 11px; line-height: 1.5; }
-.chat-panel { display: grid; grid-template-rows: 62px minmax(0, 1fr) auto auto; min-width: 0; min-height: 0; overflow: hidden; border-right: 1px solid var(--line); background: var(--bg-panel); transition: background .2s ease, border-color .2s ease; }
+.chat-panel { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 62px minmax(0, 1fr) auto auto; min-width: 0; min-height: 0; overflow: hidden; border-right: 1px solid var(--line); background: var(--bg-panel); transition: background .2s ease, border-color .2s ease; }
 .chat-panel > header { display: flex; align-items: center; justify-content: space-between; padding: 0 17px; border-bottom: 1px solid var(--line); }
 .chat-panel header b { display: block; margin-top: 4px; font-size: 11px; }
 .chat-panel header i, .canvas-panel footer i { width: 7px; height: 7px; border-radius: 50%; background: var(--acid); box-shadow: 0 0 9px color-mix(in srgb, var(--acid) 60%, transparent); }
