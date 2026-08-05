@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { assetContentType, assetExtension, assetUrlPrefix, persistTripoAsset, resolveAssetPath } from './tripo-assets.js'
+import { assetContentType, assetExtension, assetUrlPrefix, persistTripoAsset, persistUploadedAsset, resolveAssetPath } from './tripo-assets.js'
 
 function fileResponse(bytes, contentType = 'model/gltf-binary') {
   return new Response(bytes, { status: 200, headers: { 'content-type': contentType } })
@@ -62,6 +62,14 @@ test('downloads a result and returns a local url', async () => {
   const file = url.slice(assetUrlPrefix.length)
   assert.match(file, /^[a-f0-9]{32}\.glb$/)
   assert.equal(await readFile(path.join(target, file), 'utf8'), 'glb-bytes')
+})
+
+test('stores an uploaded image in the local asset cache', async () => {
+  const target = await directory()
+  const url = await persistUploadedAsset(new Uint8Array([137, 80, 78, 71]), 'image/png', 'reference.png', { directory: target })
+
+  assert.match(url, /^\/api\/assets\/[a-f0-9]{32}\.png$/)
+  assert.deepEqual([...await readFile(path.join(target, url.slice(assetUrlPrefix.length)))], [137, 80, 78, 71])
 })
 
 test('identical content is stored once and fetched once per call', async () => {

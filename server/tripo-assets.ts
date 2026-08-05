@@ -120,6 +120,25 @@ export async function persistTripoAsset(url, {
   return `${assetUrlPrefix}${file}`
 }
 
+/** Stores a user upload in the same durable asset cache used by generated files. */
+export async function persistUploadedAsset(bytes, contentType = '', filename = '', {
+  directory = assetDirectory,
+} = {}) {
+  const extension = assetExtension(filename, contentType)
+  const file = `${createHash('md5').update(bytes).digest('hex')}.${extension}`
+  const destination = path.join(directory, file)
+
+  await mkdir(directory, { recursive: true })
+  try {
+    await stat(destination)
+  } catch {
+    const temporary = `${destination}.tmp`
+    await writeFile(temporary, bytes)
+    await rename(temporary, destination)
+  }
+  return `${assetUrlPrefix}${file}`
+}
+
 /** Reads a persisted asset back, for the route that serves them. */
 export async function readAsset(file) {
   const resolved = resolveAssetPath(file)

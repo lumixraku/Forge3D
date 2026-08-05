@@ -102,6 +102,7 @@ const handle = createApi({
         createTripoProvider: null,
         getTripoTask: null,
         readAsset: null,
+        uploadAsset: null,
       },
       waitUntil: (promise) => ctx.waitUntil(Promise.resolve(promise).catch(() => {})),
       recoverAgentTurns: !initialized,

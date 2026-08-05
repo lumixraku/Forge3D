@@ -706,6 +706,14 @@ export function createApi({ createContext }) {
 
     // Legacy assets from runs created before downloads switched to refreshed
     // Tripo task URLs remain readable, but new runs never write local files.
+    if (method === 'POST' && parts[1] === 'assets' && parts.length === 2) {
+      if (!config.uploadAsset) return json({ error: 'Asset uploads are unavailable' }, 503)
+      const contentType = request.headers.get('content-type') || 'application/octet-stream'
+      const bytes = new Uint8Array(await request.arrayBuffer())
+      if (!bytes.length) return json({ error: 'Asset file is empty' }, 400)
+      const url = await config.uploadAsset(bytes, contentType, request.headers.get('x-file-name') || '')
+      return json({ url, contentType })
+    }
     if (method === 'GET' && parts[1] === 'assets' && parts.length === 3) {
       const asset = config.readAsset ? await config.readAsset(parts[2]) : null
       if (!asset) return json({ error: 'Asset not found' }, 404)

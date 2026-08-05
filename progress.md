@@ -2,6 +2,13 @@
 
 ## 2026-08-05 - main
 
+- Added a local `POST /api/assets` upload path that writes user files into the existing hashed asset cache and returns a durable `/api/assets/<hash>.<extension>` URL.
+- Changed chat attachments to upload before insertion, so message metadata persists the server URL rather than a browser-only Data URL; uploaded images are now readable through the existing static asset route.
+- Added coverage for storing an uploaded image. Verification: `pnpm run typecheck`, `pnpm test` passed 197 tests, `git diff --check` passed, and a browser upload of `shark-reference.png` returned and served `/api/assets/b86db8acfe21956a64387b562ab1350a.png` as `image/png`.
+- Remaining issues: The Cloudflare Worker has no binary object-storage binding, so this upload route is intentionally available only from the Node server until an R2 bucket is configured.
+
+## 2026-08-05 - main
+
 - Committed the existing attachment card and responsive chat styling changes together with the previously completed port fallback work.
 - Verification: `pnpm run typecheck`, `pnpm test` passed 196 tests, and `git diff --check` passed.
 - Remaining issues: User-uploaded image thumbnails still use client-side data URLs and do not yet have a server-hosted static URL upload flow.

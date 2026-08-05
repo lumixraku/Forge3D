@@ -66,28 +66,21 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
     composerVersion.value += 1
   }
 
-  async function imageThumbnail(file) {
-    if (!file.type.startsWith('image/')) return null
-    const source = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(String(reader.result))
-      reader.onerror = () => reject(reader.error)
-      reader.readAsDataURL(file)
+  async function uploadAttachment(file) {
+    const uploaded = await request('/api/assets', {
+      method: 'POST',
+      headers: {
+        'content-type': file.type || 'application/octet-stream',
+        'x-file-name': encodeURIComponent(file.name),
+      },
+      body: await file.arrayBuffer(),
     })
-    const image = new Image()
-    image.src = source
-    await image.decode()
-    const scale = Math.min(1, 160 / Math.max(image.naturalWidth, image.naturalHeight))
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
-    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
-    canvas.getContext('2d')?.drawImage(image, 0, 0, canvas.width, canvas.height)
-    return canvas.toDataURL('image/jpeg', .78)
+    return uploaded.url
   }
 
   async function addComposerFiles(files) {
     for (const file of files) {
-      const preview = await imageThumbnail(file)
+      const preview = await uploadAttachment(file)
       composer.value?.chain().focus().insertAttachment({
         id: crypto.randomUUID(),
         name: file.name,

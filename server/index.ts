@@ -6,7 +6,7 @@ import { createServer } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { createStore } from './store.js'
 import { createTripoRunner, createTripoTaskReader } from './tripo-run.js'
-import { readAsset } from './tripo-assets.js'
+import { persistUploadedAsset, readAsset } from './tripo-assets.js'
 import { createApi } from './api-core.js'
 import { listenOnAvailablePort } from './listen.js'
 
@@ -43,6 +43,7 @@ const context = {
     createTripoProvider,
     getTripoTask,
     readAsset,
+    uploadAsset: persistUploadedAsset,
   },
   // Node keeps the process alive on its own, so a background turn or run only
   // needs its rejection swallowed.
