@@ -2,6 +2,12 @@
 
 ## 2026-08-05 - main
 
+- Replaced the README product screenshot with the user-provided clipboard capture, which shows a completed conversational 3D reconstruction workflow, Agent tool activity, and the canvas output together.
+- Verification: exported the clipboard PNG successfully as `assets/forge3d-canvas-studio.png` (2788x1700) and `git diff --check` passed.
+- Remaining issues: None.
+
+## 2026-08-05 - main
+
 - Repositioned the root README as a DeepSeek Agent Harness reference: documented its dual runtime, durable turns and checkpoints, validated shared tools, human-in-the-loop continuation, canvas-scoped SSE, authoritative state reconciliation, and real Tripo-backed workflow execution.
 - Added an architecture table, end-to-end execution flow, tool summary, accurate local runtime instructions, known constraints, and prominent links to the implementation-level documentation.
 - Verification: `pnpm test` passed 197 tests, `pnpm typecheck` passed, `pnpm build` passed (with Vite's existing large-chunk warning), and `git diff --check` passed.
