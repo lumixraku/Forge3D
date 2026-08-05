@@ -2,6 +2,19 @@
 
 ## 2026-08-05 - main
 
+- Repositioned the root README as a DeepSeek Agent Harness reference: documented its dual runtime, durable turns and checkpoints, validated shared tools, human-in-the-loop continuation, canvas-scoped SSE, authoritative state reconciliation, and real Tripo-backed workflow execution.
+- Added an architecture table, end-to-end execution flow, tool summary, accurate local runtime instructions, known constraints, and prominent links to the implementation-level documentation.
+- Verification: `pnpm test` passed 197 tests, `pnpm typecheck` passed, `pnpm build` passed (with Vite's existing large-chunk warning), and `git diff --check` passed.
+- Remaining issues: None.
+
+## 2026-08-05 - main
+
+- Replaced the main product screenshot with a light-mode capture and added it to the README introduction.
+- Verification: confirmed the `LIGHT` theme was selected in Chrome, the screenshot is 3840x1632, no browser console errors were present, and `git diff --check` passed.
+- Remaining issues: None.
+
+## 2026-08-05 - main
+
 - Added a local `POST /api/assets` upload path that writes user files into the existing hashed asset cache and returns a durable `/api/assets/<hash>.<extension>` URL.
 - Changed chat attachments to upload before insertion, so message metadata persists the server URL rather than a browser-only Data URL; uploaded images are now readable through the existing static asset route.
 - Added coverage for storing an uploaded image. Verification: `pnpm run typecheck`, `pnpm test` passed 197 tests, `git diff --check` passed, and a browser upload of `shark-reference.png` returned and served `/api/assets/b86db8acfe21956a64387b562ab1350a.png` as `image/png`.
