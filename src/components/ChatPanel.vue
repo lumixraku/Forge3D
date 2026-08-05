@@ -71,7 +71,10 @@ function addFiles(event) {
     <form class="composer" @submit.prevent="emit('send')">
       <EditorContent :editor="editor" />
       <input ref="fileInput" class="file-input" type="file" multiple @change="addFiles" />
-      <div class="composer-actions"><button class="composer-attach-button" type="button" title="Attach files" @click="fileInput.click()">Attach</button><span>ENTER TO SEND · SHIFT+ENTER FOR NEWLINE</span><div class="composer-run-actions"><button v-if="runningTurnId" class="composer-stop-button" type="button" :disabled="Boolean(stoppingTurnId)" @click="emit('stop-turn', runningTurnId)">{{ stoppingTurnId ? 'Stopping…' : 'Stop' }}</button><button :disabled="busy || !composerHasContent">Send ↗</button></div></div>
+      <div class="composer-actions">
+        <button class="composer-attach-button" type="button" title="Attach files" aria-label="Attach files" @click="fileInput.click()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20.5 11.5-8.8 8.8a6 6 0 0 1-8.5-8.5l9.5-9.5a4 4 0 0 1 5.7 5.7l-9.6 9.5a2 2 0 0 1-2.8-2.8l8.8-8.8" /></svg></button>
+        <div class="composer-run-actions"><button :class="{ 'composer-stop-button': runningTurnId }" :type="runningTurnId ? 'button' : 'submit'" :title="runningTurnId ? (stoppingTurnId ? 'Stopping' : 'Stop') : 'Send'" :aria-label="runningTurnId ? (stoppingTurnId ? 'Stopping' : 'Stop') : 'Send'" :disabled="runningTurnId ? Boolean(stoppingTurnId) : busy || !composerHasContent" @click="runningTurnId && emit('stop-turn', runningTurnId)"><svg v-if="runningTurnId" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1" /></svg><svg v-else viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4 14-3-6-7-1Z" /><path d="m12 13 7-8" /></svg></button></div>
+      </div>
     </form>
   </section>
 </template>

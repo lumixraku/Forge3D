@@ -372,19 +372,20 @@
 .thought-process > span::before { content: '✓'; margin-right: 6px; color: var(--acid); }
 @keyframes thinking-ellipsis { to { clip-path: inset(0 0 0 0); } }
 .error-message { margin: 0 17px 8px; color: var(--status-failed); font-size: 11px; }
-.composer { margin: 0 12px 12px; padding: 11px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--bg-input); transition: border-color .15s ease, box-shadow .15s ease; }
-.composer:focus-within { border-color: color-mix(in srgb, var(--acid) 50%, var(--line-strong)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--acid) 12%, transparent); }
-.composer-editor { display: block; min-height: 52px; width: 100%; outline: 0; color: var(--text-primary); font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; caret-color: var(--text-primary); cursor: text; }
+.composer { margin: 0 12px 12px; padding: 10px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--bg-input); transition: border-color .15s ease, box-shadow .15s ease; }
+.composer:focus-within { border-color: color-mix(in srgb, var(--acid) 45%, var(--line-strong)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--acid) 10%, transparent); }
+.composer-editor { display: block; min-height: 42px; width: 100%; outline: 0; color: var(--text-primary); font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; caret-color: var(--text-primary); cursor: text; }
 .composer-editor p { margin: 0; }
 .composer-editor p.is-editor-empty:first-child::before { float: left; height: 0; color: var(--text-muted); content: 'Describe a 3D canvas or ask for a change…'; pointer-events: none; }
-.composer-actions { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; margin-top: 8px; }
-.composer-actions > span { color: var(--text-muted); font: 500 8px var(--font-mono); }
+.composer-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; margin-top: 5px; }
 .composer-run-actions { display: flex; align-items: center; gap: 6px; }
-.composer button { padding: 7px 10px; border: 0; border-radius: 7px; background: var(--acid); color: var(--text-inverse); font: 600 9px var(--font-mono); transition: filter .15s ease, box-shadow .15s ease; }
-.composer .composer-attach-button { border: 1px solid var(--line-strong); background: transparent; color: var(--text-secondary); }
-.composer .composer-stop-button { border: 1px solid color-mix(in srgb, var(--status-failed) 55%, var(--line-strong)); background: transparent; color: var(--status-failed); }
+.composer button { display: grid; width: 30px; height: 30px; padding: 0; place-items: center; border: 0; border-radius: 50%; background: var(--acid); color: var(--text-inverse); transition: transform .15s ease, filter .15s ease, box-shadow .15s ease; }
+.composer button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.composer button svg rect { fill: currentColor; stroke: none; }
+.composer .composer-attach-button { border: 1px solid var(--line-subtle); background: var(--bg-input-hover); color: var(--text-muted); }
+.composer .composer-stop-button { border: 1px solid color-mix(in srgb, var(--status-failed) 55%, var(--line-strong)); background: color-mix(in srgb, var(--status-failed) 8%, transparent); color: var(--status-failed); }
 .composer .composer-attach-button:hover { border-color: var(--acid); color: var(--acid); }
-.composer button:hover:not(:disabled) { filter: brightness(1.08); }
+.composer button:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.08); }
 .composer button:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px color-mix(in srgb, var(--acid) 50%, transparent); }
 .composer-attachment { display: inline-flex; align-items: center; max-width: 220px; height: 25px; margin: 0 3px; padding: 0 8px 0 3px; vertical-align: middle; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-input-hover); color: var(--text-primary); line-height: 1; user-select: none; }
 .composer-attachment.ProseMirror-selectednode { border-color: var(--acid); box-shadow: 0 0 0 2px color-mix(in srgb, var(--acid) 20%, transparent); }

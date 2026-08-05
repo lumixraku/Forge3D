@@ -356,7 +356,7 @@ export function createApi({ createContext }) {
     recovered = true
     await context.store.reload(AGENT_COLLECTIONS)
     const { state } = context.store
-    const recoverable = state.turns.filter((turn) => ['queued', 'running'].includes(turn.status))
+    const recoverable = state.turns.filter((turn) => !turn.request && ['queued', 'running'].includes(turn.status))
     if (!recoverable.length) return
     const now = new Date().toISOString()
     for (const turn of recoverable) {
