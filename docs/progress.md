@@ -1,5 +1,13 @@
 # Progress
 
+## Agent Harness: 2026-08-05
+
+- Added persisted, sanitized Agent traces and resumable checkpoints for both the direct DeepSeek loop and the Pi Agent service.
+- Added `GET /api/turns/:turnId/trace`, trace event sequencing, terminal statuses, attempt/resume counters, and startup recovery for queued/interrupted Node turns.
+- Added offline fixture-driven Agent evals via `pnpm agent:eval`; fixed model responses assert DAG structure, parameter updates, trace events, secret redaction, and checkpoints.
+- Verification: `pnpm agent:eval` passed 3 tests; `pnpm test` passed 192 tests; `pnpm typecheck` passed; `pnpm build` passed; `git diff --check` passed.
+- Remaining issues: exact in-flight continuation across Cloudflare Worker isolate eviction still requires Durable Objects. None beyond that limitation.
+
 > This file is the required repository progress log. Documentation entry points
 > are in the root `README.md` and this `docs/` directory.
 

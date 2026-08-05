@@ -9,7 +9,7 @@
 import { migrateCanvasRefs, migrateTurns } from './server/migrations.js'
 import { createApi } from './server/api-core.js'
 
-const collections = ['canvases', 'sessions', 'runs', 'turns']
+const collections = ['canvases', 'sessions', 'runs', 'turns', 'agentTraces']
 
 async function readCollection(env, collection) {
   const value = await env.DB.prepare('SELECT value FROM app_state WHERE collection = ?1').bind(collection).first('value')
@@ -70,10 +70,12 @@ async function loadState(env) {
   return state
 }
 
+let initialized = false
+
 const handle = createApi({
   async createContext(request, { env, ctx }) {
     const state = await loadState(env)
-    return {
+    const context = {
       store: {
         state,
         persist: (names) => writeCollections(env, state, names),
@@ -101,7 +103,10 @@ const handle = createApi({
         readAsset: null,
       },
       waitUntil: (promise) => ctx.waitUntil(Promise.resolve(promise).catch(() => {})),
+      recoverAgentTurns: !initialized,
     }
+    initialized = true
+    return context
   },
 })
 

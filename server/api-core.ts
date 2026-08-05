@@ -21,8 +21,9 @@ import { runDeepSeekAgent } from './deepseek.js'
 import { cancelAgentViaService, runAgentViaService } from './agent-client.js'
 import { tripoNodeTypes } from './tripo-mapping.js'
 import { applyAgentCanvas, projectDto, replaceCanvasDocument } from './projects.js'
+import { appendAgentTrace, checkpointAgentTrace, createAgentTrace, sanitizeAgentError } from './agent-traces.js'
 
-const AGENT_COLLECTIONS = ['canvases', 'sessions', 'turns']
+const AGENT_COLLECTIONS = ['canvases', 'sessions', 'turns', 'agentTraces']
 
 function json(body, status = 200) {
   return new Response(body === null ? null : JSON.stringify(body), {
@@ -124,6 +125,7 @@ export function createApi({ createContext }) {
   // queue) so the agent service can steer it into the running run.
   const activeRuns = new Map()
   const activeTurnCancels = new Map()
+  let recovered = false
 
   async function executeAgentTurn(context, turn) {
     const { store, config } = context
@@ -131,10 +133,27 @@ export function createApi({ createContext }) {
     const canvasById = (id) => state.canvases.find((canvas) => canvas.id === id)
     const sessionById = (id) => state.sessions.find((session) => session.id === id)
     const turnById = (id) => state.turns.find((item) => item.id === id)
+    const traceByTurnId = (id) => state.agentTraces.find((trace) => trace.turnId === id)
     const reloadAgentCollections = () => store.reload(AGENT_COLLECTIONS)
     // Everything this turn produces goes out on the canvas's channel, so a client
     // that is not the one which posted the turn still sees it.
     const emit = (type, fields) => channels.broadcast(turn.canvasId, channels.event(turn, type, fields))
+    let trace
+    const recordTrace = async (type, payload = {}, updates = {}) => {
+      await store.reload(['agentTraces'])
+      trace = traceByTurnId(turn.id) || trace
+      if (!trace) return
+      Object.assign(trace, updates)
+      appendAgentTrace(trace, type, payload)
+      await store.persist(['agentTraces'])
+    }
+    const saveCheckpoint = async (checkpoint) => {
+      await store.reload(['agentTraces'])
+      trace = traceByTurnId(turn.id) || trace
+      if (!trace) return
+      checkpointAgentTrace(trace, checkpoint)
+      await store.persist(['agentTraces'])
+    }
 
     try {
       await reloadAgentCollections()
@@ -143,9 +162,14 @@ export function createApi({ createContext }) {
       if (startingTurn.status === 'cancelled' || startingTurn.status === 'cancelling') return
       Object.assign(startingTurn, turn)
       turn = startingTurn
+      trace = traceByTurnId(turn.id)
+      turn.attempt = (turn.attempt || 0) + 1
       turn.status = 'running'
       turn.startedAt = new Date().toISOString()
       await store.persist(['turns'])
+      if (trace) {
+        await recordTrace(turn.attempt > 1 ? 'turn_resumed' : 'turn_started', { attempt: turn.attempt }, { status: 'running', attempt: turn.attempt })
+      }
       emit('turn-start')
       const canvas = canvasById(turn.canvasId)
       if (!canvas) throw new Error('Canvas not found')
@@ -172,6 +196,9 @@ export function createApi({ createContext }) {
           message: turn.selection ? `${turn.message}\n\nThe user selected: ${turn.selection.selected_option_ids.map((optionId) => turn.request.options.find((option) => option.id === optionId)?.label || optionId).join(', ')}. Continue the turn using this selection.` : turn.message,
           canvas,
           history: session.messages || [],
+          checkpoint: ['tool_complete', 'waiting_for_user'].includes(trace?.checkpoint?.phase) ? trace.checkpoint : undefined,
+          onTrace: (event) => recordTrace(event.type, event.payload),
+          onCheckpoint: saveCheckpoint,
           onProgress: async (event) => {
             turn.progress.push(event)
             turn.updatedAt = new Date().toISOString()
@@ -209,6 +236,9 @@ export function createApi({ createContext }) {
         turn.completedAt = steerNow
         turn.updatedAt = steerNow
         await store.persist(['sessions', 'turns'])
+        if (trace) {
+          await recordTrace('turn_steered', {}, { status: 'succeeded', completedAt: steerNow })
+        }
         emit('text', { step_id: 'final-response', id: steerAssistantId, text: steerReply })
         emit('finish', { finish_reason: 'stop' })
         return
@@ -231,6 +261,9 @@ export function createApi({ createContext }) {
         turn.updatedAt = new Date().toISOString()
         state.sessions[sessionIndex] = nextSession
         await store.persist(['sessions', 'turns'])
+        if (trace) {
+          await recordTrace('turn_waiting_for_user', { request: turn.request }, { status: 'waiting_for_user' })
+        }
         emit('request_user_select', { request: turn.request })
         return
       }
@@ -250,6 +283,9 @@ export function createApi({ createContext }) {
       turn.completedAt = new Date().toISOString()
       turn.updatedAt = turn.completedAt
       await store.persist(['canvases', 'sessions', 'turns'])
+      if (trace) {
+        await recordTrace('turn_succeeded', { changedNodeIds: plan.changedNodeIds, structureChanged: plan.structureChanged }, { status: 'succeeded', completedAt: turn.completedAt })
+      }
       emit('text', { step_id: 'final-response', id: assistantMessageId, text: plan.reply })
       emit('canvas-updated', { changed_node_ids: plan.changedNodeIds, structure_changed: plan.structureChanged })
       emit('finish', { finish_reason: 'stop' })
@@ -262,6 +298,7 @@ export function createApi({ createContext }) {
           latestTurn.completedAt ||= new Date().toISOString()
           latestTurn.updatedAt = latestTurn.completedAt
           await store.persist(['turns']).catch(() => {})
+          await recordTrace('turn_cancelled').catch(() => {})
         }
         return
       }
@@ -278,6 +315,9 @@ export function createApi({ createContext }) {
         }
       } catch {
         // Keep the terminal status in memory if persistence itself fails.
+      }
+      if (trace) {
+        await recordTrace('turn_failed', { error: sanitizeAgentError(error) }, { status: 'failed', completedAt: turn.completedAt }).catch(() => {})
       }
       emit('error', { error: turn.error })
     }
@@ -310,6 +350,31 @@ export function createApi({ createContext }) {
     return enqueueAgentTurn(context, turn)
   }
 
+  async function recoverAgentTurns(context) {
+    if (recovered || !context.recoverAgentTurns) return
+    recovered = true
+    await context.store.reload(AGENT_COLLECTIONS)
+    const { state } = context.store
+    const recoverable = state.turns.filter((turn) => ['queued', 'running'].includes(turn.status))
+    if (!recoverable.length) return
+    const now = new Date().toISOString()
+    for (const turn of recoverable) {
+      if (turn.status === 'running') {
+        turn.status = 'queued'
+        turn.interruptedAt = now
+        turn.resumeCount = (turn.resumeCount || 0) + 1
+        const trace = state.agentTraces.find((item) => item.turnId === turn.id)
+        if (trace) {
+          trace.resumeCount = turn.resumeCount
+          appendAgentTrace(trace, 'turn_recovered', { previousStatus: 'running', resumeCount: turn.resumeCount }, now)
+        }
+      }
+      turn.updatedAt = now
+    }
+    await context.store.persist(['turns', 'agentTraces'])
+    for (const turn of recoverable) context.waitUntil(enqueueAgentTurn(context, turn))
+  }
+
   async function route(request, context) {
     const { store, config, waitUntil } = context
     const { state } = store
@@ -321,6 +386,17 @@ export function createApi({ createContext }) {
     const turnById = (id) => state.turns.find((turn) => turn.id === id)
 
     if (parts[0] !== 'api') return json({ error: 'Not found' }, 404)
+
+    if (method === 'GET' && parts[1] === 'turns' && parts[3] === 'trace' && parts.length === 4) {
+      const turn = turnById(parts[2])
+      if (!turn) return json({ error: 'Turn not found' }, 404)
+      const trace = state.agentTraces.find((item) => item.turnId === turn.id)
+      if (!trace) return json({ error: 'Agent trace not found' }, 404)
+      const afterValue = url.searchParams.get('after') || '0'
+      if (!/^\d+$/.test(afterValue)) return json({ error: 'after must be a non-negative integer' }, 400)
+      const after = Number(afterValue)
+      return json({ ...trace, events: trace.events.filter((event) => event.seq > after) })
+    }
 
     // What this deployment can actually do, so the debug panel can disable a
     // provider it has no credentials for instead of failing on execution.
@@ -369,8 +445,9 @@ export function createApi({ createContext }) {
       state.sessions = state.sessions.filter((session) => session.canvasId !== parts[2])
       state.runs = state.runs.filter((run) => run.canvasId !== parts[2])
       state.turns = state.turns.filter((turn) => turn.canvasId !== parts[2])
+      state.agentTraces = state.agentTraces.filter((trace) => trace.canvasId !== parts[2])
       await store.removeCanvas(parts[2])
-      await store.persist(['canvases', 'sessions', 'runs', 'turns'])
+      await store.persist(['canvases', 'sessions', 'runs', 'turns', 'agentTraces'])
       return json(null, 204)
     }
 
@@ -478,8 +555,13 @@ export function createApi({ createContext }) {
         createdAt: now,
         updatedAt: now,
       }
+      const trace = createAgentTrace(turn, { model: config.deepseek.model, runtime: config.agentServiceUrl ? 'pi-service' : 'direct' }, now)
+      turn.traceId = trace.id
+      appendAgentTrace(trace, 'turn_created', { message: turn.message }, now)
+      appendAgentTrace(trace, 'turn_queued', {}, now)
       state.turns.push(turn)
-      await store.persist(['turns'])
+      state.agentTraces.push(trace)
+      await store.persist(['turns', 'agentTraces'])
       waitUntil(startAgentTurn(context, turn))
       return json(turn, 202)
     }
@@ -508,6 +590,8 @@ export function createApi({ createContext }) {
       // validation above, and its request may no longer be the one answered here.
       if (currentTurn.status !== 'waiting_for_user' || !currentTurn.request || input.request_id !== currentTurn.request.request_id) return json({ error: 'Turn is not waiting for this selection' }, 409)
       currentTurn.selection = { request_id: currentTurn.request.request_id, selected_option_ids: selectedOptionIds }
+      const trace = state.agentTraces.find((item) => item.turnId === currentTurn.id)
+      if (trace) appendAgentTrace(trace, 'user_selection_received', currentTurn.selection)
       const requestMessage = session.messages.find((message) => message.id === currentTurn.requestMessageId)
       const selectedLabels = selectedOptionIds.map((optionId) => currentTurn.request.options.find((option) => option.id === optionId)?.label || optionId)
       if (requestMessage) {
@@ -517,7 +601,7 @@ export function createApi({ createContext }) {
       }
       currentTurn.status = 'queued'
       currentTurn.updatedAt = new Date().toISOString()
-      await store.persist(['sessions', 'turns'])
+      await store.persist(['sessions', 'turns', 'agentTraces'])
       waitUntil(enqueueAgentTurn(context, currentTurn))
       return json(currentTurn, 202)
     }
@@ -529,7 +613,9 @@ export function createApi({ createContext }) {
       if (['succeeded', 'failed', 'cancelled'].includes(turn.status)) return json(turn)
       turn.status = 'cancelling'
       turn.updatedAt = new Date().toISOString()
-      await store.persist(['turns'])
+      const trace = state.agentTraces.find((item) => item.turnId === turn.id)
+      if (trace) appendAgentTrace(trace, 'turn_cancel_requested')
+      await store.persist(['turns', 'agentTraces'])
       try {
         await activeTurnCancels.get(turn.id)?.()
       } catch (error) {
@@ -541,7 +627,12 @@ export function createApi({ createContext }) {
       turn.status = 'cancelled'
       turn.completedAt = new Date().toISOString()
       turn.updatedAt = turn.completedAt
-      await store.persist(['turns'])
+      if (trace) {
+        trace.status = 'cancelled'
+        trace.completedAt = turn.completedAt
+        appendAgentTrace(trace, 'turn_cancelled')
+      }
+      await store.persist(['turns', 'agentTraces'])
       channels.broadcast(turn.canvasId, channels.event(turn, 'finish', { finish_reason: 'cancelled' }))
       return json(turn)
     }
@@ -607,6 +698,7 @@ export function createApi({ createContext }) {
   return async function handle(request, runtime = {}) {
     try {
       const context = await createContext(request, runtime)
+      await recoverAgentTurns(context)
       return await route(request, context)
     } catch (error) {
       if (!error.statusCode) console.error(error)

@@ -62,22 +62,25 @@ function parseArguments(call) {
   }
 }
 
-export async function runDeepSeekAgent({ apiKey, message, canvas, history = [], fetchImpl = fetch, baseUrl = 'https://api.deepseek.com', model = 'deepseek-v4-flash', maxRounds = 5, signal, onProgress = () => {} }) {
+export async function runDeepSeekAgent({ apiKey, message, canvas, history = [], fetchImpl = fetch, baseUrl = 'https://api.deepseek.com', model = 'deepseek-v4-flash', maxRounds = 5, signal, onProgress = () => {}, onTrace = () => {}, onCheckpoint = () => {}, checkpoint }) {
   if (!apiKey) throw new DeepSeekError('DeepSeek is not configured.', 503)
   baseUrl ||= 'https://api.deepseek.com'
   model ||= 'deepseek-v4-flash'
-  let nextCanvas = structuredClone(canvas)
-  let structureChanged = false
-  const changes = []
-  const messages = [
+  let nextCanvas = structuredClone(checkpoint?.canvas || canvas)
+  let structureChanged = Boolean(checkpoint?.structureChanged)
+  const changes = structuredClone(checkpoint?.changes || [])
+  const messages = checkpoint?.messages ? structuredClone(checkpoint.messages) : [
     { role: 'system', content: systemPrompt },
     ...history.slice(-20).map(({ role, content }) => ({ role, content })),
     { role: 'user', content: message },
   ]
+  if (checkpoint?.phase === 'waiting_for_user') messages.push({ role: 'user', content: message })
 
-  for (let round = 0; round < maxRounds; round += 1) {
+  for (let round = checkpoint?.round || 0; round < maxRounds; round += 1) {
     await onProgress({ label: round ? 'Reviewing canvas changes' : 'Reviewing your request', status: 'running' })
     let response
+    const requestStartedAt = Date.now()
+    await onTrace({ type: 'model_request_started', payload: { round, model, messageCount: messages.length } })
     try {
       response = await fetchImpl(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST',
@@ -86,13 +89,16 @@ export async function runDeepSeekAgent({ apiKey, message, canvas, history = [], 
         signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000),
       })
     } catch (error) {
+      await onTrace({ type: 'model_request_failed', payload: { round, durationMs: Date.now() - requestStartedAt, error: { name: error?.name || 'Error', message: error?.message || String(error) } } })
       if (signal?.aborted) throw error
       throw new DeepSeekError('The DeepSeek service is unavailable.', 503)
     }
+    await onTrace({ type: 'model_response_received', payload: { round, status: response.status, durationMs: Date.now() - requestStartedAt } })
     if (!response.ok) throw new DeepSeekError(`DeepSeek request failed with status ${response.status}.`, response.status === 429 ? 503 : 502)
     const payload = await response.json()
     const assistant = payload.choices?.[0]?.message
     if (!assistant) throw new DeepSeekError('DeepSeek returned an invalid response.')
+    await onTrace({ type: 'assistant_message', payload: { round, content: assistant.content || '', toolCallCount: assistant.tool_calls?.length || 0, finishReason: payload.choices?.[0]?.finish_reason, usage: payload.usage } })
     if (!assistant.tool_calls?.length) {
       await onProgress({ label: 'Preparing final response', status: 'complete' })
       if (changes.length && nextCanvas.revision === canvas.revision) nextCanvas.revision += 1
@@ -107,7 +113,15 @@ export async function runDeepSeekAgent({ apiKey, message, canvas, history = [], 
 
     messages.push({ role: 'assistant', content: assistant.content || '', tool_calls: assistant.tool_calls })
     for (const call of assistant.tool_calls) {
-      const args = parseArguments(call)
+      const toolStartedAt = Date.now()
+      await onTrace({ type: 'tool_call_started', payload: { round, toolCallId: call.id, toolName: call.function.name, arguments: call.function.arguments } })
+      let args
+      try {
+        args = parseArguments(call)
+      } catch (error) {
+        await onTrace({ type: 'tool_call_failed', payload: { round, toolCallId: call.id, toolName: call.function.name, error: { name: error.name, message: error.message } } })
+        throw error
+      }
       const label = progressLabelByTool[call.function.name]
       if (!label) throw new DeepSeekError(`DeepSeek requested unsupported tool "${call.function.name}".`)
       await onProgress({ label, status: 'running' })
@@ -158,16 +172,22 @@ export async function runDeepSeekAgent({ apiKey, message, canvas, history = [], 
         if (typeof args.prompt !== 'string' || !args.prompt.trim() || !Array.isArray(args.options) || !args.options.length || optionIds.size !== args.options.length || args.options.some((option) => typeof option.id !== 'string' || !option.id || typeof option.label !== 'string' || !option.label) || !Number.isInteger(args.min) || !Number.isInteger(args.max) || args.min < 1 || args.max < args.min || args.max > args.options.length) {
           throw new DeepSeekError('DeepSeek requested an invalid user selection.')
         }
-        return {
+        const selectionPlan = {
           canvas: nextCanvas,
           changedNodeIds: [...new Set(changes.map((change) => change.nodeId))],
           structureChanged,
           userSelectionRequest: { prompt: args.prompt.trim(), options: args.options, min: args.min, max: args.max },
         }
+        await onTrace({ type: 'tool_call_succeeded', payload: { round, toolCallId: call.id, toolName: call.function.name, durationMs: Date.now() - toolStartedAt, result: selectionPlan.userSelectionRequest } })
+        messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(selectionPlan.userSelectionRequest) })
+        await onCheckpoint({ round: round + 1, messages, canvas: nextCanvas, changes, structureChanged, phase: 'waiting_for_user' })
+        return selectionPlan
       }
       messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) })
+      await onTrace({ type: 'tool_call_succeeded', payload: { round, toolCallId: call.id, toolName: call.function.name, durationMs: Date.now() - toolStartedAt, result } })
       await onProgress({ label, status: 'complete' })
     }
+    await onCheckpoint({ round: round + 1, messages, canvas: nextCanvas, changes, structureChanged, phase: 'tool_complete' })
   }
   throw new DeepSeekError('DeepSeek exceeded the tool-call limit.')
 }

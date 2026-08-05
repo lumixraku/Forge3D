@@ -37,7 +37,10 @@ export interface RunOptions {
   model?: string
   message: string
   canvas: any
+  checkpoint?: any
   onProgress?: (event: ProgressEvent) => void | Promise<void>
+  onTrace?: (event: any) => void | Promise<void>
+  onCheckpoint?: (checkpoint: any) => void | Promise<void>
 }
 
 // Labels are prefixed with "Pi ·" so the UI's Thought process makes it obvious
@@ -85,12 +88,16 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     structureChanged: boolean
     userSelectionRequest?: UserSelectionRequest
     agent?: any
-  } = { canvas: structuredClone(opts.canvas), changes: [], structureChanged: false }
+  } = {
+    canvas: structuredClone(opts.checkpoint?.canvas || opts.canvas),
+    changes: structuredClone(opts.checkpoint?.changes || []),
+    structureChanged: Boolean(opts.checkpoint?.structureChanged),
+  }
 
   const emit = (tool: string) => opts.onProgress?.({ label: progressLabelByTool[tool] || tool, status: 'running' })
   const nodeSummary = () => session.canvas.nodes.map((node: any) => ({ id: node.id, type: node.type, name: node.name }))
 
-  const tools = [
+  const toolImplementations = [
     {
       name: 'get_canvas_structure',
       label: 'Inspect canvas',
@@ -197,6 +204,22 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     },
   ]
 
+  const tools = toolImplementations.map((tool) => ({
+    ...tool,
+    execute: async (...args: any[]) => {
+      const startedAt = Date.now()
+      await opts.onTrace?.({ type: 'tool_call_started', payload: { toolCallId: args[0], toolName: tool.name, arguments: args[1] } })
+      try {
+        const output = await tool.execute(...args)
+        await opts.onTrace?.({ type: output?.isError ? 'tool_call_failed' : 'tool_call_succeeded', payload: { toolCallId: args[0], toolName: tool.name, durationMs: Date.now() - startedAt, result: output } })
+        return output
+      } catch (error: any) {
+        await opts.onTrace?.({ type: 'tool_call_failed', payload: { toolCallId: args[0], toolName: tool.name, durationMs: Date.now() - startedAt, error: { name: error?.name || 'Error', message: error?.message || String(error) } } })
+        throw error
+      }
+    },
+  }))
+
   const agent = new Agent({
     initialState: { systemPrompt, model, tools },
     streamFn: streamSimple as any,
@@ -210,6 +233,7 @@ export function startPiAgent(opts: RunOptions): LiveRun {
   let runError: string | undefined
   let cancelled = false
   agent.subscribe((event: any) => {
+    void opts.onTrace?.({ type: 'agent_event', payload: { type: event.type, message: event.type === 'message_end' ? event.message : undefined } })
     if (event.type === 'message_end' && event.message?.role === 'assistant') {
       const text = (event.message.content || []).filter((part: any) => part.type === 'text').map((part: any) => part.text).join('')
       if (text) reply = text
@@ -232,8 +256,12 @@ export function startPiAgent(opts: RunOptions): LiveRun {
 
   const done = (async (): Promise<AgentPlan> => {
     await opts.onProgress?.({ label: 'Pi · Reviewing your request', status: 'running' })
+    await opts.onTrace?.({ type: 'model_request_started', payload: { model: model.id } })
     try {
-      await agent.prompt(opts.message)
+      const resumeContext = opts.checkpoint?.phase === 'tool_complete'
+        ? `Resume an interrupted run. The already applied canvas changes are listed below. Do not repeat them; continue from the current canvas state.\n${JSON.stringify(opts.checkpoint.changes || [])}\n\nOriginal request: ${opts.message}`
+        : opts.message
+      await agent.prompt(resumeContext)
     } catch (error: any) {
       // request_user_select aborts the run on purpose; any other rejection is real.
       if (!session.userSelectionRequest && !cancelled) runError = runError || error?.message || 'Agent run failed'
@@ -247,6 +275,7 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     if (runError && !session.userSelectionRequest) throw new Error(runError)
 
     const changedNodeIds = [...new Set(session.changes.map((change) => change.nodeId))]
+    await opts.onCheckpoint?.({ phase: session.userSelectionRequest ? 'waiting_for_user' : 'complete', canvas: session.canvas, changes: session.changes, structureChanged: session.structureChanged })
     if (session.userSelectionRequest) {
       return { canvas: session.canvas, reply, changedNodeIds, structureChanged: session.structureChanged, userSelectionRequest: session.userSelectionRequest }
     }

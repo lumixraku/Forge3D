@@ -44,6 +44,36 @@ test('returns a validated generic user selection request', async () => {
   })
 })
 
+test('resumes a user selection checkpoint without repeating the selection tool', async () => {
+  const canvas = planCanvas('Create a text-to-3D canvas').canvas
+  const checkpoints = []
+  const first = await runDeepSeekAgent({
+    apiKey: 'test-key',
+    message: 'Help me choose a model version',
+    canvas,
+    fetchImpl: async () => response({ choices: [{ message: { role: 'assistant', tool_calls: [{ id: 'call-select', type: 'function', function: { name: 'request_user_select', arguments: JSON.stringify({ prompt: 'Choose a model version', options: [{ id: 'v2', label: 'v2' }, { id: 'v25', label: 'v2.5' }], min: 1, max: 1 }) } }] } }] }),
+    onCheckpoint: (checkpoint) => checkpoints.push(structuredClone(checkpoint)),
+  })
+  assert.ok(first.userSelectionRequest)
+
+  let requestBody
+  const resumed = await runDeepSeekAgent({
+    apiKey: 'test-key',
+    message: 'Help me choose a model version\n\nThe user selected: v2.5. Continue the turn using this selection.',
+    canvas,
+    checkpoint: checkpoints[0],
+    fetchImpl: async (_url, options) => {
+      requestBody = JSON.parse(options.body)
+      return response({ choices: [{ message: { role: 'assistant', content: 'Using v2.5.' } }] })
+    },
+  })
+
+  assert.equal(resumed.reply, 'Using v2.5.')
+  assert.equal(requestBody.messages.filter((entry) => entry.role === 'assistant' && entry.tool_calls).length, 1)
+  assert.equal(requestBody.messages.at(-1).role, 'user')
+  assert.match(requestBody.messages.at(-1).content, /v2\.5/)
+})
+
 test('requires the exact node ID selected by the model', async () => {
   const canvas = planCanvas('Create an image-first 3D canvas').canvas
   const replies = [

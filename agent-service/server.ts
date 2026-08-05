@@ -83,7 +83,10 @@ const server = createServer(async (req, res) => {
       model: input.model,
       message: input.message,
       canvas: input.canvas,
+      checkpoint: input.checkpoint,
       onProgress: (event) => write({ type: 'progress', event }),
+      onTrace: (event) => write({ type: 'trace', event }),
+      onCheckpoint: (checkpoint) => write({ type: 'checkpoint', checkpoint }),
     })
     if (canvasId) liveRuns.set(canvasId, { turnId: input.turnId, live })
     if (input.turnId) turns.set(input.turnId, { canvasId, live })

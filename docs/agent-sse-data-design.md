@@ -380,7 +380,15 @@ Application server
    -> Agent resumes and emits canvas-updated, text events, and finish
 ```
 
-`POST /api/turns/:turnId/continue` accepts `request_id` and `selected_option_ids`. It persists the selection and starts a fresh DeepSeek call with the original turn request plus the selected option labels, because the current DeepSeek invocation is one-shot rather than checkpoint-resumable.
+`POST /api/turns/:turnId/continue` accepts `request_id` and `selected_option_ids`. It persists the selection and resumes the turn with the stored Agent trace checkpoint. The checkpoint contains the working canvas, applied changes, model messages, and the next round, so completed tool work is not replayed.
+
+## Agent Harness Trace
+
+Each Agent turn has a persisted `agentTraces` record. It stores sanitized model requests and responses, assistant messages, tool-call lifecycle events, user-selection events, terminal status, attempt number, and a resumable checkpoint. Secrets such as API keys and authorization values are redacted and large values are bounded.
+
+The trace can be read with `GET /api/turns/:turnId/trace` and incrementally read with `?after=<event sequence>`. Queued and interrupted running turns are recovered on the first API request after a Node process restart; interrupted turns are re-queued and marked with a recovery event. Cloudflare Worker state remains D1-backed, but exact in-flight execution ownership across isolate eviction still requires a Durable Object.
+
+The offline fixture suite runs with `pnpm agent:eval`. It uses fixed model responses and asserts the resulting canvas DAG, parameter changes, trace events, secret redaction, and checkpoints without calling DeepSeek or consuming credits.
 
 ## Recovery
 

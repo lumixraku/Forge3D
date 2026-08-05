@@ -44,6 +44,7 @@ const context = {
   // Node keeps the process alive on its own, so a background turn or run only
   // needs its rejection swallowed.
   waitUntil: (promise) => void Promise.resolve(promise).catch(() => {}),
+  recoverAgentTurns: true,
 }
 
 const handle = createApi({ createContext: () => context })
