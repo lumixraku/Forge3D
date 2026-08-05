@@ -253,7 +253,7 @@ export function createApi({ createContext }) {
         if (sessionIndex < 0 || !turnById(turn.id)) throw new Error('Session or turn was deleted while this turn was running')
         const nextSession = structuredClone(state.sessions[sessionIndex])
         if (!nextSession.messages.some((message) => message.turnId === turn.id && message.role === 'user')) {
-          nextSession.messages.push({ id: `msg-${randomUUID()}`, role: 'user', content: turn.message, turnId: turn.id, createdAt: now })
+          nextSession.messages.push({ id: `msg-${randomUUID()}`, role: 'user', content: turn.message, attachments: turn.attachments || [], turnId: turn.id, createdAt: now })
         }
         const requestMessage = { id: `msg-${randomUUID()}`, role: 'assistant', content: '', turnId: turn.id, request: turn.request, progress: turn.progress, createdAt: now }
         nextSession.messages.push(requestMessage)
@@ -276,7 +276,7 @@ export function createApi({ createContext }) {
       if (!nextSession || !turnById(turn.id)) throw new Error('Session or turn was deleted while this turn was running')
       const now = new Date().toISOString()
       const assistantMessageId = `msg-${randomUUID()}`
-      if (!turn.requestMessageId) nextSession.messages.push({ id: `msg-${randomUUID()}`, role: 'user', content: turn.message, createdAt: now })
+      if (!turn.requestMessageId) nextSession.messages.push({ id: `msg-${randomUUID()}`, role: 'user', content: turn.message, attachments: turn.attachments || [], createdAt: now })
       nextSession.messages.push({ id: assistantMessageId, role: 'assistant', content: plan.reply, progress: turn.progress, createdAt: now })
       nextSession.updatedAt = now
       turn.status = 'succeeded'
@@ -552,6 +552,7 @@ export function createApi({ createContext }) {
         sessionId: session.id,
         canvasId: canvas.id,
         message: input.message,
+        attachments: Array.isArray(input.attachments) ? input.attachments : [],
         status: 'queued',
         progress: [],
         createdAt: now,

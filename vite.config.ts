@@ -6,12 +6,11 @@ export default defineConfig({
   plugins: [tailwindcss(), vue({ template: { compilerOptions: { isCustomElement: (tag) => tag === 'model-viewer' } } })],
   server: {
     port: 5175,
-    strictPort: true,
     watch: {
       ignored: ['**/server/data/**'],
     },
     proxy: {
-      '/api': 'http://127.0.0.1:8787',
+      '/api': process.env.VITE_API_URL || 'http://127.0.0.1:8787',
     },
   },
 })

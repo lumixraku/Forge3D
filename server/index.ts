@@ -8,6 +8,7 @@ import { createStore } from './store.js'
 import { createTripoRunner, createTripoTaskReader } from './tripo-run.js'
 import { readAsset } from './tripo-assets.js'
 import { createApi } from './api-core.js'
+import { listenOnAvailablePort } from './listen.js'
 
 const port = Number(process.env.PORT || 8787)
 // Set by the characterization tests so they run against a temp directory
@@ -99,10 +100,8 @@ const server = createServer(async (request, response) => {
   }
 })
 
-server.listen(port, '127.0.0.1', () => {
-  // The resolved port, not the requested one, so PORT=0 is usable.
-  console.log(`API listening on http://127.0.0.1:${server.address().port}`)
-})
+const listeningPort = await listenOnAvailablePort(server, port, '127.0.0.1')
+console.log(`API listening on http://127.0.0.1:${listeningPort}`)
 
 export { server }
 

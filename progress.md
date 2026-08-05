@@ -2,6 +2,34 @@
 
 ## 2026-08-05 - main
 
+- Committed the existing attachment card and responsive chat styling changes together with the previously completed port fallback work.
+- Verification: `pnpm run typecheck`, `pnpm test` passed 196 tests, and `git diff --check` passed.
+- Remaining issues: User-uploaded image thumbnails still use client-side data URLs and do not yet have a server-hosted static URL upload flow.
+
+## 2026-08-05 - main
+
+- Reworked chat attachment rendering so sent user messages retain image thumbnails and file metadata instead of displaying raw attachment text only.
+- Added compact attachment cards with constrained filenames, safe wrapping, image preview links, and responsive user-message bubbles.
+- Added client-side image thumbnails suitable for durable chat history and preserved attachment metadata through the turn API.
+- Verification: `pnpm run typecheck`, `pnpm test` passed 196 tests, and `git diff --check` passed. Browser inspection confirmed the updated chat layout loads without console errors.
+- Remaining issues: None.
+
+## 2026-08-05 - main
+
+- Added automatic port probing for both Node HTTP services, incrementing on `EADDRINUSE` instead of crashing.
+- Updated `pnpm run dev` to reserve available API and agent-service ports, pass them to child processes, and configure the Vite API proxy with the resolved API port.
+- Added a regression test for Node port fallback.
+- Verification: `pnpm run typecheck`, `node --import tsx --test server/listen.test.ts`, `git diff --check`, and an end-to-end `pnpm run dev` startup check passed. Existing occupied ports were skipped successfully.
+- Remaining issues: None.
+
+## 2026-08-05 - main
+
+- Enabled Vite's built-in port fallback so the web dev server increments from port 5175 when the requested port is occupied.
+- Verification: `pnpm run typecheck` passed. An integration check occupied port 5175 and confirmed `pnpm run dev:web` started on port 5176.
+- Remaining issues: None.
+
+## 2026-08-05 - main
+
 - Changed the chat composer to use one action button that switches between Send, Stop, and Stopping states.
 - Preserved the existing send and stop-turn events and their disabled behavior.
 - Verification: `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. Browser inspection confirmed exactly one composer action button and no console errors.

@@ -55,14 +55,39 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
     }).join('')).join('\n').trim()
   }
 
+  function composerAttachments() {
+    return (composer.value?.getJSON().content || []).flatMap((block) => (block.content || [])
+      .filter((node) => node.type === 'attachment')
+      .map((node) => ({ id: node.attrs.id, name: node.attrs.name, type: node.attrs.type, preview: node.attrs.preview })))
+  }
+
   function clearComposer() {
     composer.value?.commands.clearContent()
     composerVersion.value += 1
   }
 
-  function addComposerFiles(files) {
+  async function imageThumbnail(file) {
+    if (!file.type.startsWith('image/')) return null
+    const source = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(file)
+    })
+    const image = new Image()
+    image.src = source
+    await image.decode()
+    const scale = Math.min(1, 160 / Math.max(image.naturalWidth, image.naturalHeight))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
+    canvas.getContext('2d')?.drawImage(image, 0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL('image/jpeg', .78)
+  }
+
+  async function addComposerFiles(files) {
     for (const file of files) {
-      const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : null
+      const preview = await imageThumbnail(file)
       composer.value?.chain().focus().insertAttachment({
         id: crypto.randomUUID(),
         name: file.name,
@@ -169,7 +194,7 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
       const existing = activeSession.value?.messages.some((item) => item.turnId === turn.id)
       if (!existing) {
         activeSession.value.messages.push(
-          { id: `turn-user-${turn.id}`, role: 'user', content: turn.message, turnId: turn.id, createdAt: turn.createdAt },
+          { id: `turn-user-${turn.id}`, role: 'user', content: turn.message, attachments: turn.attachments || [], turnId: turn.id, createdAt: turn.createdAt },
           { id: `turn-assistant-${turn.id}`, role: 'assistant', content: '', progress: turn.progress, turnId: turn.id, createdAt: turn.createdAt, pending: !turn.request, request: turn.request || null },
         )
       }
@@ -236,12 +261,13 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
     busy.value = true
     error.value = ''
     const previousComposer = composer.value?.getJSON()
+    const attachments = composerAttachments()
     clearComposer()
     activeSession.value = {
       ...previousSession,
       messages: [
         ...messages.value,
-        { id: `pending-user-${Date.now()}`, role: 'user', content: message, createdAt },
+        { id: `pending-user-${Date.now()}`, role: 'user', content: message, attachments, createdAt },
         { id: pendingAssistantId, role: 'assistant', content: '', progress: [], turnId: null, createdAt, pending: true },
       ],
     }
@@ -254,7 +280,7 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
       const turn = await request(`/api/sessions/${sessionId}/turns`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message, attachments }),
       })
       const current = activeSession.value?.messages.find((item) => item.id === pendingAssistantId)
       if (current) current.turnId = turn.id

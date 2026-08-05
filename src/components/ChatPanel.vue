@@ -42,6 +42,14 @@ function addFiles(event) {
   event.target.value = ''
   emit('attach-files', files)
 }
+
+function isImage(attachment) {
+  return attachment?.type?.startsWith('image/') && attachment.preview
+}
+
+function userContent(message) {
+  return (message.content || '').replace(/\[Attachment: [^\]]+\]\s*/g, '').trim()
+}
 </script>
 
 <template>
@@ -64,7 +72,16 @@ function addFiles(event) {
             <button v-else class="user-selection-submit" type="button" :disabled="!canContinue(message) || message.pending || continuingTurnId === message.turnId" @click="emit('continue-turn', message)">{{ continuingTurnId === message.turnId ? 'Continuing…' : 'Continue' }}</button>
           </section>
         </template>
-        <p v-else>{{ message.content }}</p>
+        <div v-else class="user-message-body">
+          <div v-if="message.attachments?.length" class="message-attachments">
+            <a v-for="attachment in message.attachments" :key="attachment.id || attachment.name" class="message-attachment" :href="isImage(attachment) ? attachment.preview : undefined" :target="isImage(attachment) ? '_blank' : undefined" rel="noreferrer">
+              <img v-if="isImage(attachment)" :src="attachment.preview" :alt="attachment.name" />
+              <span v-else class="message-attachment-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6.5 3.5h7l4 4v13h-11zM13.5 3.5v4h4M9 12h6M9 16h6" /></svg></span>
+              <span class="message-attachment-copy"><b>{{ attachment.name }}</b><small>{{ attachment.type || 'File attachment' }}</small></span>
+            </a>
+          </div>
+          <p v-if="userContent(message)">{{ userContent(message) }}</p>
+        </div>
       </article>
     </div>
     <p v-if="error" class="error-message">{{ error }}</p>

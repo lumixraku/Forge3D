@@ -1,5 +1,6 @@
 import { createServer } from 'node:http'
 import { startPiAgent, type LiveRun } from './run.js'
+import { listenOnAvailablePort } from '../server/listen.js'
 
 // Standalone Node service that runs the Pi-framework agent. It streams NDJSON:
 // one {type:'progress', event} line per progress step, then a final
@@ -107,6 +108,5 @@ const server = createServer(async (req, res) => {
   }
 })
 
-server.listen(port, () => {
-  console.log(`[agent-service] Pi agent listening on http://127.0.0.1:${port}`)
-})
+const listeningPort = await listenOnAvailablePort(server, port, '127.0.0.1')
+console.log(`[agent-service] Pi agent listening on http://127.0.0.1:${listeningPort}`)
