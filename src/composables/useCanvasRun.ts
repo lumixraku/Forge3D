@@ -34,6 +34,8 @@ interface ExecutionDto {
   mode: ExecutionMode
   status: ExecutionStatus
   nodeExecutions: Record<string, NodeExecution>
+  createdAt?: string
+  completedAt?: string | null
 }
 
 interface CanvasRun {
@@ -42,6 +44,8 @@ interface CanvasRun {
   mode: ExecutionMode
   status: ExecutionStatus
   nodeRuns: Record<string, NodeExecution>
+  createdAt?: string
+  completedAt?: string | null
 }
 
 function toCanvasRun(execution: ExecutionDto): CanvasRun {
@@ -51,6 +55,8 @@ function toCanvasRun(execution: ExecutionDto): CanvasRun {
     mode: execution.mode,
     status: execution.status,
     nodeRuns: execution.nodeExecutions,
+    createdAt: execution.createdAt,
+    completedAt: execution.completedAt,
   }
 }
 

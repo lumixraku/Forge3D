@@ -223,6 +223,10 @@ const { isRunning, runDetails, runSummary, runCanvas, cancelRun } = useCanvasRun
   provider: selectedProvider,
 })
 
+watch([() => run.value?.id, () => run.value?.status], ([runId]) => {
+  if (runId) taskQueueOpen.value = true
+})
+
 watch(() => activeCanvas.value?.id, (canvasId) => { loadExecutions(canvasId) }, { immediate: true })
 
 // A section runs from its first executable child that nothing inside the section
