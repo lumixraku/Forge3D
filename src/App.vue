@@ -638,9 +638,19 @@ async function handleProjectNavigation() {
   }
 }
 
+function preventNativePinchZoom(event: Event) {
+  event.preventDefault()
+}
+
+function preventPageTrackpadPinchZoom(event: WheelEvent) {
+  if (event.ctrlKey && !(event.target instanceof Element && event.target.closest('.flow-canvas'))) event.preventDefault()
+}
+
 onMounted(async () => {
   window.addEventListener('pointerdown', closeCanvasMenu)
   window.addEventListener('popstate', handleProjectNavigation)
+  document.addEventListener('gesturestart', preventNativePinchZoom, { passive: false })
+  document.addEventListener('wheel', preventPageTrackpadPinchZoom, { capture: true, passive: false })
   try {
     await loadCanvass()
   } catch (caught) {
@@ -651,6 +661,8 @@ onUnmounted(() => {
   stopPendingSave()
   window.removeEventListener('pointerdown', closeCanvasMenu)
   window.removeEventListener('popstate', handleProjectNavigation)
+  document.removeEventListener('gesturestart', preventNativePinchZoom)
+  document.removeEventListener('wheel', preventPageTrackpadPinchZoom, true)
 })
 </script>
 

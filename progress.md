@@ -1,5 +1,11 @@
 # Progress
 
+## 2026-08-06 - main
+
+- Prevented native browser viewport pinch zoom across the application UI while preserving Vue Flow's canvas-owned pinch zoom and trackpad pinch handling inside `.flow-canvas`.
+- Verification: `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. The existing local browser tab was running an older bundle, so physical two-finger gesture verification was not available from that session.
+- Remaining issues: None.
+
 ## 2026-08-05 - main
 
 - Replaced the README product screenshot with the user-provided clipboard capture, which shows a completed conversational 3D reconstruction workflow, Agent tool activity, and the canvas output together.
