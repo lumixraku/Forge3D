@@ -32,9 +32,11 @@ export interface AgentPlan {
 }
 
 export interface RunOptions {
+  turnId?: string
   apiKey: string
   baseUrl?: string
   model?: string
+  timeoutMs?: number
   message: string
   canvas: any
   checkpoint?: any
@@ -69,6 +71,8 @@ export interface LiveRun {
 }
 
 export function startPiAgent(opts: RunOptions): LiveRun {
+  const timeoutMs = opts.timeoutMs || 120_000
+  const runLabel = opts.turnId || 'unknown-turn'
   const model = {
     id: opts.model || 'deepseek-chat',
     name: 'DeepSeek',
@@ -222,7 +226,7 @@ export function startPiAgent(opts: RunOptions): LiveRun {
 
   const agent = new Agent({
     initialState: { systemPrompt, model, tools },
-    streamFn: streamSimple as any,
+    streamFn: ((model: any, context: any, options: any) => streamSimple(model, context, { ...options, timeoutMs })) as any,
     getApiKey: () => opts.apiKey,
     // Drain every queued steering message at the next turn boundary.
     steeringMode: 'all',
@@ -232,11 +236,13 @@ export function startPiAgent(opts: RunOptions): LiveRun {
   let reply = ''
   let runError: string | undefined
   let cancelled = false
+  let timedOut = false
   agent.subscribe((event: any) => {
     void opts.onTrace?.({ type: 'agent_event', payload: { type: event.type, message: event.type === 'message_end' ? event.message : undefined } })
     if (event.type === 'message_end' && event.message?.role === 'assistant') {
       const text = (event.message.content || []).filter((part: any) => part.type === 'text').map((part: any) => part.text).join('')
       if (text) reply = text
+      if (event.message.errorMessage) runError = event.message.errorMessage
     }
     // Surface model/transport failures instead of silently returning an empty plan.
     const error = event.error || event.errorMessage || (typeof event.type === 'string' && event.type.includes('error') ? (event.message || 'agent error') : undefined)
@@ -265,8 +271,11 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     } catch (error: any) {
       // request_user_select aborts the run on purpose; any other rejection is real.
       if (!session.userSelectionRequest && !cancelled) runError = runError || error?.message || 'Agent run failed'
+    } finally {
+      clearTimeout(timeout)
     }
 
+    if (timedOut) throw new Error(`Agent run timed out after ${Math.round(timeoutMs / 1000)}s`)
     if (cancelled) {
       const error = new Error('Agent run cancelled')
       error.name = 'AbortError'

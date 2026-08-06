@@ -309,7 +309,6 @@ export function createApi({ createContext }) {
       if (!nextSession || !turnById(turn.id)) throw new Error('Session or turn was deleted while this turn was running')
       const now = new Date().toISOString()
       const assistantMessageId = `msg-${randomUUID()}`
-      if (!turn.requestMessageId) nextSession.messages.push({ id: `msg-${randomUUID()}`, role: 'user', content: turn.message, attachments: turn.attachments || [], createdAt: now })
       nextSession.messages.push({ id: assistantMessageId, role: 'assistant', content: plan.reply, progress: turn.progress, createdAt: now })
       nextSession.updatedAt = now
       turn.status = 'succeeded'
@@ -738,6 +737,11 @@ export function createApi({ createContext }) {
       return execution ? json(executionDto(execution)) : json({ error: 'Execution not found' }, 404)
     }
 
+    if (method === 'GET' && parts[1] === 'canvases' && parts[2] && parts[3] === 'executions' && parts.length === 4) {
+      const canvas = canvasById(parts[2])
+      return canvas ? json(canvasExecutions(state.runs.filter((run) => run.ownerId === user.id), canvas.id)) : json({ error: 'Canvas not found' }, 404)
+    }
+
     if (method === 'GET' && parts[1] === 'tripo' && parts[2] === 'tasks' && parts[3] && parts[4] === 'download' && parts.length === 5) {
       if (!config.getTripoTask) return json({ error: 'Tripo is not configured.' }, 503)
       const taskId = parts[3]
@@ -773,15 +777,15 @@ export function createApi({ createContext }) {
       // Default to Tripo whenever it is configured; the debug panel sends an
       // explicit provider to force one side or the other.
       const useTripo = requestedProvider ? requestedProvider === 'tripo' : Boolean(config.createTripoProvider)
-      const pending = createExecution(state.runs, match.canvas, match.node, mode)
+      const pending = createExecution(state.runs, canvas, node, mode)
       await store.persist(['runs'])
       waitUntil(executeExecution(
         state.runs,
         pending.run,
-        match.canvas,
+        canvas,
         pending.executionCanvas,
         pending.nodes,
-        match.node,
+        node,
         () => store.persist(['runs']),
         { createProvider: useTripo ? config.createTripoProvider : null },
       ).catch(console.error))

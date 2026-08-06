@@ -500,7 +500,7 @@ test('continuing or cancelling an unknown turn is a 404', async () => {
 })
 
 test('running a node executes it and its downstream on the simulated producer', async () => {
-  const started = await postJson('/api/nodes/canvas-fixture-generate-image/executions', { mode: 'downstream' })
+  const started = await postJson('/api/canvases/canvas-fixture/nodes/canvas-fixture-generate-image/executions', { mode: 'downstream' })
   assert.equal(started.status, 202)
   assert.equal(started.body.mode, 'downstream')
   assert.equal(started.body.entryNodeId, 'canvas-fixture-generate-image')
@@ -521,7 +521,7 @@ test('running a node executes it and its downstream on the simulated producer', 
 // that null straight into executionNodes, answering 500.
 test('a node that carries no work cannot be the entry point', async () => {
   for (const mode of ['downstream', 'node']) {
-    const { status, body } = await postJson('/api/nodes/canvas-fixture-prompt/executions', { mode })
+    const { status, body } = await postJson('/api/canvases/canvas-fixture/nodes/canvas-fixture-prompt/executions', { mode })
     assert.equal(status, 400, `mode=${mode}`)
     assert.match(body.error, /cannot be run on its own/)
   }
@@ -547,19 +547,19 @@ test('a node ID present on more than one canvas is resolved within the requested
 
 test('rejects an unknown node, an invalid mode and an unconfigured provider', async () => {
   assert.deepEqual(
-    await postJson('/api/nodes/missing/executions', { mode: 'node' }),
+    await postJson('/api/canvases/canvas-fixture/nodes/missing/executions', { mode: 'node' }),
     { status: 404, body: { error: 'Node not found' } },
   )
   assert.deepEqual(
-    await postJson('/api/nodes/canvas-fixture-prompt/executions', { mode: 'sideways' }),
+    await postJson('/api/canvases/canvas-fixture/nodes/canvas-fixture-prompt/executions', { mode: 'sideways' }),
     { status: 400, body: { error: 'Invalid execution mode' } },
   )
   assert.deepEqual(
-    await postJson('/api/nodes/canvas-fixture-prompt/executions', { provider: 'banana' }),
+    await postJson('/api/canvases/canvas-fixture/nodes/canvas-fixture-prompt/executions', { provider: 'banana' }),
     { status: 400, body: { error: 'provider must be "mock" or "tripo"' } },
   )
   // Tripo has no key in this environment, so asking for it explicitly is a 503.
-  const tripo = await postJson('/api/nodes/canvas-fixture-prompt/executions', { provider: 'tripo' })
+  const tripo = await postJson('/api/canvases/canvas-fixture/nodes/canvas-fixture-prompt/executions', { provider: 'tripo' })
   assert.equal(tripo.status, 503)
   assert.match(tripo.body.error, /Tripo is not configured/)
 })
@@ -568,7 +568,7 @@ test('reading and cancelling executions', async () => {
   assert.deepEqual(await api('/api/executions/missing'), { status: 404, body: { error: 'Execution not found' } })
   assert.deepEqual(await postJson('/api/executions/missing/cancel'), { status: 404, body: { error: 'Execution not found' } })
 
-  const started = await postJson('/api/nodes/canvas-fixture-generate-image/executions', { mode: 'node' })
+  const started = await postJson('/api/canvases/canvas-fixture/nodes/canvas-fixture-generate-image/executions', { mode: 'node' })
   const cancelled = await postJson(`/api/executions/${started.body.id}/cancel`)
   assert.equal(cancelled.status, 202)
   // Cancelling is a request; a run that already finished keeps its own status.

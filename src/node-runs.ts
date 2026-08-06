@@ -1,7 +1,7 @@
 export type NodeRunMap = Record<string, NodeRun>
 
 export interface NodeRun {
-  status: string
+  status: 'queued' | 'running' | 'cancelling' | 'cancelled' | 'succeeded' | 'failed' | 'skipped' | 'waiting_review'
   durationMs?: number | null
   error?: string | null
   // Only set when a real backend produced this node; a simulated run has none.

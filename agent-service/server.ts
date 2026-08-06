@@ -79,9 +79,11 @@ const server = createServer(async (req, res) => {
     // Start path: begin a new run and register it so it can be steered.
     console.log(`[agent-service] Pi START (${canvasId}): ${preview}`)
     const live = startPiAgent({
+      turnId: input.turnId,
       apiKey: input.apiKey,
       baseUrl: input.baseUrl,
       model: input.model,
+      timeoutMs: Number(process.env.AGENT_TIMEOUT_MS || 120_000),
       message: input.message,
       canvas: input.canvas,
       checkpoint: input.checkpoint,

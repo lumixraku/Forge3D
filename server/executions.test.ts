@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { cancelExecution, createExecution, executeExecution, executionDto, findNode, paginateAssets } from './executions.js'
+import { cancelExecution, canvasExecutions, createExecution, executeExecution, executionDto, paginateAssets } from './executions.js'
 
 const canvas = {
   id: 'canvas-1',
@@ -38,6 +38,16 @@ test('execution dto exposes the canvas that produced the execution', () => {
   assert.equal(executionDto(run).canvasId, 'canvas-1')
 })
 
+test('lists a canvas execution history with the newest run first', () => {
+  const runs = [
+    { id: 'older', canvasId: 'canvas-1', status: 'succeeded', createdAt: '2026-08-05T10:00:00.000Z', nodeRuns: {} },
+    { id: 'other-canvas', canvasId: 'canvas-2', status: 'succeeded', createdAt: '2026-08-06T10:00:00.000Z', nodeRuns: {} },
+    { id: 'newer', canvasId: 'canvas-1', status: 'succeeded', createdAt: '2026-08-06T11:00:00.000Z', nodeRuns: {} },
+  ]
+
+  assert.deepEqual(canvasExecutions(runs, 'canvas-1').map((run) => run.id), ['newer', 'older'])
+})
+
 test('stopping an execution lets its current step finish and skips later steps', async () => {
   const runs = []
   const pending = createExecution(runs, canvas, canvas.nodes[0], 'downstream')
@@ -48,10 +58,6 @@ test('stopping an execution lets its current step finish and skips later steps',
   assert.equal(execution.status, 'cancelled')
   assert.equal(execution.nodeExecutions.entry.status, 'succeeded')
   assert.equal(execution.nodeExecutions.model.status, 'skipped')
-})
-
-test('rejects ambiguous node ids across canvases', () => {
-  assert.throws(() => findNode([canvas, { ...canvas, id: 'canvas-2' }], 'entry'), /ambiguous/)
 })
 
 test('paginates assets with stable cursors', () => {
@@ -82,4 +88,22 @@ test('re-running one node sees what an earlier run produced upstream', async () 
   })
 
   assert.deepEqual(seen[0], { tripoTaskId: null, modelUrl: '/api/assets/aa.glb', preview: '/api/assets/bb.webp' })
+})
+
+test('keeps a submitted Tripo task traceable on the recorded failure', async () => {
+  const runs = []
+  const pending = createExecution(runs, canvas, canvas.nodes[0], 'node')
+
+  const execution = await executeExecution(runs, pending.run, canvas, pending.executionCanvas, pending.nodes, canvas.nodes[0], async () => {}, {
+    createProvider: ({ run }) => async (node) => {
+      run.nodeRuns[node.id].tripoTaskId = 'task_abc'
+      run.nodeRuns[node.id].progress = 40
+      throw new Error('Tripo task failed (task task_abc).')
+    },
+  })
+
+  assert.equal(execution.status, 'failed')
+  assert.equal(execution.nodeExecutions.entry.status, 'failed')
+  assert.equal(execution.nodeExecutions.entry.tripoTaskId, 'task_abc')
+  assert.equal(execution.nodeExecutions.entry.progress, 40)
 })

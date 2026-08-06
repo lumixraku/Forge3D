@@ -12,6 +12,7 @@ import ChatPanel from './components/ChatPanel.vue'
 import FrameNode from './components/FrameNode.vue'
 import ImagePreviewOverlay from './components/ImagePreviewOverlay.vue'
 import DebugPanel from './components/DebugPanel.vue'
+import ExecutionOutputPanel from './components/ExecutionOutputPanel.vue'
 import RunLogPanel from './components/RunLogPanel.vue'
 import TopBar from './components/TopBar.vue'
 import CanvasNode from './components/CanvasNode.vue'
@@ -40,7 +41,8 @@ const nodes = ref([])
 const edges = ref([])
 const run = ref(null)
 const nodeRuns = ref({})
-const busy = ref(false)
+const agentBusy = ref(false)
+const canvasBusy = ref(false)
 const error = ref('')
 const saving = ref(false)
 const savedState = ref('Saved')
@@ -154,11 +156,12 @@ const {
   edges,
   run,
   nodeRuns,
-  busy,
+  busy: agentBusy,
   error,
   saving,
   savedState,
-  runToken,
+  agentToken,
+  canvasRunToken,
   fitView,
   recordHistory,
   syncHistoryCanvas,
@@ -185,9 +188,9 @@ const {
 } = useAgentChat({
   activeCanvas,
   activeSession,
-  busy,
+  busy: agentBusy,
   error,
-  runToken,
+  runToken: agentToken,
   toCanvas: (canvas) => toCanvas(canvas),
   syncCanvasSummary: (canvas) => syncCanvasSummary(canvas),
   flushPendingSave: () => flushPendingSave(),
@@ -211,14 +214,16 @@ const { isRunning, runDetails, runSummary, runCanvas, cancelRun } = useCanvasRun
   edges,
   run,
   nodeRuns,
-  busy,
-  error,
-  runToken,
+  canvasBusy,
+  error: canvasError,
+  runToken: canvasRunToken,
   saveCanvas: () => saveCanvas(),
   materializeRunBatch: (sourceId, runId, previews) => materializeRunBatch(sourceId, runId, previews),
   // Null lets the server pick; the debug panel forces one backend.
   provider: selectedProvider,
 })
+
+watch(() => activeCanvas.value?.id, (canvasId) => { loadExecutions(canvasId) }, { immediate: true })
 
 // A section runs from its first executable child that nothing inside the section
 // feeds, falling back to the first executable child when they are all fed.
@@ -757,7 +762,7 @@ onUnmounted(() => {
       :canvas-view="canvasView"
       :saved-state="savedState"
       :theme="theme"
-      :busy="busy"
+      :busy="agentBusy"
       @rename="renameCanvas"
       @open-canvas="openCanvas"
       @create-canvas="createCanvas"
@@ -777,7 +782,7 @@ onUnmounted(() => {
       <ChatPanel
         :messages="messages"
         :editor="composer"
-        :busy="busy"
+        :busy="agentBusy"
         :error="error"
         :composer-has-content="composerHasContent"
         :continuing-turn-id="continuingTurnId"
@@ -800,7 +805,7 @@ onUnmounted(() => {
           :selected-count="selectedCount"
           :asset-library="assetLibrary"
           :has-canvas="Boolean(activeCanvas)"
-          :busy="busy"
+          :busy="canvasBusy"
           :saving="saving"
           :is-running="isRunning"
           :menu-open="toolbarMenuOpen"

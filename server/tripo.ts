@@ -115,14 +115,26 @@ export function createTripoClient({
     },
 
     /**
-     * Polls until the task reaches a terminal state. Tripo recommends 1-2s
-     * intervals and capping total wait; a task that outlives `timeoutMs` is
-     * reported as an error rather than left pending forever.
+     * Polls until Tripo itself reports a terminal state. Tripo recommends 1-2s
+     * intervals.
+     *
+     * A status request that fails tells us nothing about the task, so it is
+     * retried rather than treated as a failed generation: the submitted task is
+     * still running on Tripo's side and only Tripo can say it failed. This polls
+     * for as long as it takes; a lost status endpoint never turns into a
+     * generation failure.
      */
-    async awaitTask(taskId, { intervalMs = 2000, timeoutMs = 600000, onProgress = () => {} } = {}) {
-      const deadline = Date.now() + timeoutMs
+    async awaitTask(taskId, { intervalMs = 2000, onProgress = () => {} } = {}) {
       for (;;) {
-        const task = await this.getTask(taskId)
+        let task
+        try {
+          task = await this.getTask(taskId)
+        } catch (failure) {
+          // `send` already backed off across several attempts before giving up.
+          console.warn(`[tripo] status lookup for task ${taskId} failed, still polling: ${failure.message}`)
+          await wait(intervalMs)
+          continue
+        }
         await onProgress(task)
         if (task.status === 'success') return task
         if (TERMINAL_FAILURES.has(task.status)) {
@@ -133,7 +145,6 @@ export function createTripoClient({
             : task.message || task.error ? `: ${task.message || task.error}` : ''
           throw new TripoError(`Tripo task ${task.status}${reason} (task ${taskId}).`, 422)
         }
-        if (Date.now() >= deadline) throw new TripoError(`Tripo task did not finish within ${Math.round(timeoutMs / 1000)}s.`, 504)
         await wait(intervalMs)
       }
     },

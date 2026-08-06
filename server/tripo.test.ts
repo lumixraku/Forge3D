@@ -193,19 +193,31 @@ test('explains a banned task as a content policy rejection', async () => {
   await assert.rejects(tripo.awaitTask('task_abc'), /content policy/)
 })
 
-test('stops polling a task that never finishes', async () => {
-  let now = 0
-  const tripo = createTripoClient({
-    apiKey: 'test-key',
-    fetchImpl: async () => envelope({ task_id: 'task_abc', status: 'running', progress: 10 }),
-    // Advancing the clock inside the stubbed wait drives the deadline.
-    wait: async (duration) => { now += duration },
+// A status lookup that cannot be answered says nothing about the task, so the
+// only correct reading of it is "not known yet". Only Tripo can report a failure.
+test('keeps polling when the status lookup itself fails', async () => {
+  let calls = 0
+  const tripo = client(async () => {
+    calls += 1
+    // Enough consecutive outages to exhaust `send`'s own retries twice over.
+    if (calls <= 14) return new Response('gateway down', { status: 502 })
+    return envelope({ task_id: 'task_abc', status: 'success', output: { model_url: 'https://cdn/m.glb' } })
   })
-  const realNow = Date.now
-  Date.now = () => realNow.call(Date) + now
-  try {
-    await assert.rejects(tripo.awaitTask('task_abc', { timeoutMs: 10000 }), (error) => error.status === 504)
-  } finally {
-    Date.now = realNow
-  }
+
+  const task = await tripo.awaitTask('task_abc')
+  assert.equal(task.output.model_url, 'https://cdn/m.glb')
+})
+
+test('keeps polling a task that stays running', async () => {
+  let calls = 0
+  const tripo = client(async () => {
+    calls += 1
+    return calls <= 30
+      ? envelope({ task_id: 'task_abc', status: 'running', progress: 10 })
+      : envelope({ task_id: 'task_abc', status: 'success', output: { model_url: 'https://cdn/m.glb' } })
+  })
+
+  const task = await tripo.awaitTask('task_abc')
+  assert.equal(task.status, 'success')
+  assert.equal(calls, 31)
 })

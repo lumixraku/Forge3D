@@ -20,7 +20,8 @@ export function useCanvasDocument({
   error,
   saving,
   savedState,
-  runToken,
+  agentToken,
+  canvasRunToken,
   fitView,
   recordHistory,
   syncHistoryCanvas,
@@ -129,7 +130,8 @@ export function useCanvasDocument({
     if (token !== openToken) return
     resetWorkspace()
     closeCanvasEvents()
-    runToken.value += 1
+    agentToken.value += 1
+    canvasRunToken.value += 1
     error.value = ''
     activeSession.value = null
     const [data, session] = await Promise.all([

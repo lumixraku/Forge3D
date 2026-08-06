@@ -54,8 +54,10 @@ function toCanvasRun(execution: ExecutionDto): CanvasRun {
   }
 }
 
-export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, busy, error, runToken, saveCanvas, materializeRunBatch, provider = { value: null } }) {
+export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvasBusy, error, runToken, saveCanvas, materializeRunBatch, provider = { value: null } }) {
   const cancelRequested = ref(false)
+  const executions = ref([])
+  const executionsLoading = ref(false)
   const isRunning = computed(() => ['running', 'cancelling'].includes(run.value?.status))
   const runDetails = computed(() => summarizeRun(run.value, nodes.value))
   const runSummary = computed(() => {
@@ -83,9 +85,24 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, busy, 
     }
   }
 
+  async function loadExecutions(canvasId = activeCanvas.value?.id) {
+    if (!canvasId) {
+      executions.value = []
+      return
+    }
+    executionsLoading.value = true
+    try {
+      executions.value = await request(`/api/canvases/${canvasId}/executions`)
+    } catch (caught) {
+      error.value = caught.message
+    } finally {
+      executionsLoading.value = false
+    }
+  }
+
   async function runCanvas(targetNodeId?: string, scope: ExecutionMode = 'node') {
-    if (!activeCanvas.value || !targetNodeId || busy.value || isRunning.value) return
-    busy.value = true
+    if (!activeCanvas.value || !targetNodeId || canvasBusy.value || isRunning.value) return
+    canvasBusy.value = true
     cancelRequested.value = false
     error.value = ''
     const pollToken = ++runToken.value
@@ -98,10 +115,10 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, busy, 
       const planned: Record<string, NodeExecution> = Object.fromEntries(plan.map((node, index) => [node.id, { status: index === 0 ? 'running' : 'queued', durationMs: null, output: null, error: null }]))
       run.value = { id: null, entryNodeId: targetNodeId, mode: scope, status: 'running', nodeRuns: planned }
       nodeRuns.value = targetNodeId ? { ...nodeRuns.value, ...planned } : planned
-      busy.value = false
+      canvasBusy.value = false
 
       const canvasId = activeCanvas.value.id
-      const execution = await request(`/api/nodes/${targetNodeId}/executions`, {
+      const execution = await request(`/api/canvases/${encodeURIComponent(canvasId)}/nodes/${encodeURIComponent(targetNodeId)}/executions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -129,6 +146,7 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, busy, 
         if (node.data?.canvasType === 'generate-image' && Array.isArray(previews) && previews.length) materializeRunBatch(node.id, run.value.id, previews)
         if (node.data?.canvasType === 'export-model') downloadExport(nodeRun)
       }
+      await loadExecutions(canvasId)
     } catch (caught) {
       error.value = caught.message
       // Mark whichever node was mid-flight as failed so the canvas stops spinning.
@@ -140,7 +158,7 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, busy, 
         nodeRuns.value = { ...nodeRuns.value, ...run.value.nodeRuns }
       }
     } finally {
-      busy.value = false
+      canvasBusy.value = false
     }
   }
 
@@ -158,5 +176,5 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, busy, 
     }
   }
 
-  return { isRunning, runDetails, runSummary, runCanvas, cancelRun }
+  return { isRunning, runDetails, runSummary, runCanvas, cancelRun, executions, executionsLoading, loadExecutions }
 }

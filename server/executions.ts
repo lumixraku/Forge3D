@@ -5,18 +5,6 @@ import { randomUUID } from './ids.js'
 import { recordNodeExecution } from './run-log.js'
 import { latestNodeRuns } from './node-state.js'
 
-export function findNode(canvases, nodeId) {
-  const matches = canvases.flatMap((canvas) => (
-    canvas.nodes.filter((node) => node.id === nodeId).map((node) => ({ canvas, node }))
-  ))
-  if (matches.length > 1) {
-    const error = new Error('Node ID is ambiguous across canvases')
-    error.statusCode = 409
-    throw error
-  }
-  return matches[0] || null
-}
-
 export function executionById(runs, executionId) {
   return runs.find((run) => run.id === executionId) || null
 }
@@ -36,6 +24,13 @@ export function executionDto(run) {
     durationMs: Object.values(nodeExecutions).reduce((total, node) => total + (node.durationMs || 0), 0),
     nodeExecutions,
   }
+}
+
+export function canvasExecutions(runs, canvasId) {
+  return runs
+    .filter((run) => run.canvasId === canvasId)
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))
+    .map(executionDto)
 }
 
 export function cancelExecution(run) {
@@ -136,13 +131,23 @@ export async function executeExecution(runs, run, canvas, executionCanvas, nodes
       await onUpdate()
       if (result.status !== 'succeeded') break
     } catch (failure) {
+      const activeNodeRun = run.nodeRuns[node.id]
       run = recordNodeExecution(runs, {
         runId: run.id,
         canvas,
         node,
         entryNode,
         mode: run.mode,
-        result: { status: 'failed', durationMs: null, output: null, error: failure.message },
+        // Tripo may have accepted a task before this failed. Keep its id so the
+        // recorded failure remains traceable to the real task.
+        result: {
+          status: 'failed',
+          durationMs: null,
+          output: null,
+          error: failure.message,
+          ...(activeNodeRun?.tripoTaskId ? { tripoTaskId: activeNodeRun.tripoTaskId } : {}),
+          ...(activeNodeRun?.progress === undefined ? {} : { progress: activeNodeRun.progress }),
+        },
       })
       await onUpdate()
       break

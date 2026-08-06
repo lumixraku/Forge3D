@@ -199,7 +199,6 @@ export async function executeTripoNode(node, canvas, {
   uploads = new Map(),
   onProgress = async () => {},
   pollIntervalMs = 2000,
-  taskTimeoutMs = 600000,
 } = {}) {
   if (!usesTripo(node)) return null
   const startedAt = Date.now()
@@ -224,7 +223,6 @@ export async function executeTripoNode(node, canvas, {
   await onProgress({ tripoTaskId: taskId, progress: 0 })
   const task = await client.awaitTask(taskId, {
     intervalMs: pollIntervalMs,
-    timeoutMs: taskTimeoutMs,
     onProgress: (current) => onProgress({ tripoTaskId: taskId, progress: current.progress ?? 0 }),
   })
 
