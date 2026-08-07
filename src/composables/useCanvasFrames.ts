@@ -1,5 +1,5 @@
 import { nextTick } from 'vue'
-import { applyLayoutPositions, buildSelectionFrame, fitFrameNodes, pointInAnyFrame, reparentDraggedNodes } from '../frame-geometry'
+import { adoptNodesCoveredByDraggedFrames, applyLayoutPositions, buildSelectionFrame, fitFrameNodes, pointInAnyFrame, reparentDraggedNodes } from '../frame-geometry'
 import { frameComponentGap, frameInsets, layoutCanvas } from '../canvas-layout'
 
 // Frames (sections) are plain Vue Flow parent nodes, so their size and their
@@ -108,6 +108,8 @@ export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowC
   function onNodeDragStop({ nodes: draggedNodes = [] } = {}) {
     const reparented = reparentDraggedNodes(nodes.value, draggedNodes)
     if (reparented.changed) nodes.value = reparented.nodes
+    const adopted = adoptNodesCoveredByDraggedFrames(nodes.value, draggedNodes)
+    if (adopted.changed) nodes.value = adopted.nodes
     dragging = false
     fitFrames()
     scheduleSave()

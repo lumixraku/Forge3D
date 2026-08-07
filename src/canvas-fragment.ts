@@ -3,16 +3,28 @@ import { nodeSize } from './frame-geometry'
 // A fragment is a self-contained, position-normalized slice of a canvas: the
 // selected nodes, the edges between them, and the ports that crossed the cut.
 export function buildFragment(canvas, selectedIds: Set<string>, name = 'Untitled block') {
-  const fragmentNodes = canvas.nodes.filter((node) => selectedIds.has(node.id))
+  const includedIds = new Set(selectedIds)
+  let addedDescendant = true
+  while (addedDescendant) {
+    addedDescendant = false
+    for (const node of canvas.nodes) {
+      if (node.ui?.parentFrameId && includedIds.has(node.ui.parentFrameId) && !includedIds.has(node.id)) {
+        includedIds.add(node.id)
+        addedDescendant = true
+      }
+    }
+  }
+  const fragmentNodes = canvas.nodes.filter((node) => includedIds.has(node.id))
   if (!fragmentNodes.length) return null
-  const minX = Math.min(...fragmentNodes.map((node) => node.ui.position.x))
-  const minY = Math.min(...fragmentNodes.map((node) => node.ui.position.y))
-  const internalEdges = canvas.edges.filter((edge) => selectedIds.has(edge.source.nodeId) && selectedIds.has(edge.target.nodeId))
+  const roots = fragmentNodes.filter((node) => !node.ui?.parentFrameId || !includedIds.has(node.ui.parentFrameId))
+  const minX = Math.min(...roots.map((node) => node.ui.position.x))
+  const minY = Math.min(...roots.map((node) => node.ui.position.y))
+  const internalEdges = canvas.edges.filter((edge) => includedIds.has(edge.source.nodeId) && includedIds.has(edge.target.nodeId))
   const inputs = canvas.edges
-    .filter((edge) => !selectedIds.has(edge.source.nodeId) && selectedIds.has(edge.target.nodeId))
+    .filter((edge) => !includedIds.has(edge.source.nodeId) && includedIds.has(edge.target.nodeId))
     .map((edge) => ({ nodeId: edge.target.nodeId, port: edge.target.port }))
   const outputs = canvas.edges
-    .filter((edge) => selectedIds.has(edge.source.nodeId) && !selectedIds.has(edge.target.nodeId))
+    .filter((edge) => includedIds.has(edge.source.nodeId) && !includedIds.has(edge.target.nodeId))
     .map((edge) => ({ nodeId: edge.source.nodeId, port: edge.source.port }))
 
   return {
@@ -21,7 +33,15 @@ export function buildFragment(canvas, selectedIds: Set<string>, name = 'Untitled
     name,
     description: `${fragmentNodes.length}-step reusable block from ${canvas.name}`,
     source: { canvasId: canvas.id, canvasRevision: canvas.revision },
-    nodes: fragmentNodes.map((node) => ({ ...node, ui: { position: { x: node.ui.position.x - minX, y: node.ui.position.y - minY } } })),
+    nodes: fragmentNodes.map((node) => ({
+      ...node,
+      ui: {
+        ...node.ui,
+        position: roots.includes(node)
+          ? { x: node.ui.position.x - minX, y: node.ui.position.y - minY }
+          : { ...node.ui.position },
+      },
+    })),
     edges: internalEdges,
     interface: { inputs, outputs },
   }

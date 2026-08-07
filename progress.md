@@ -2,6 +2,14 @@
 
 ## 2026-08-07 - main
 
+- Fixed Section duplication to include all descendants, preserve child-local coordinates, remap parent references and internal edges, and wait for graph hydration before selecting the inserted hierarchy.
+- Made Fit target the current node selection, including nodes selected inside a Section, while retaining whole-canvas Fit when nothing is selected.
+- Made a moved Section adopt overlapping root nodes on drag stop using the same overlap ownership rule as moving a node into a Section; adopted nodes are converted into Section-local coordinates and existing children remain local.
+- Verification: `pnpm test` passed 201 tests, `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. Browser verification on the current workspace confirmed duplicating one Section produced the Section, all three children, and both internal edges with preserved local positions; selected child Fit updated the viewport.
+- Remaining issues: None.
+
+## 2026-08-07 - main
+
 - Stabilized executable node layout by always rendering the collapsed `Run details` row before and after execution; it remains disabled until details exist and stays collapsed when results arrive.
 - Removed the redundant always-visible run message and duration footer that appeared below `Run details` after execution.
 - Verification: `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. Browser inspection confirmed run and unrun nodes reserve the same details-row height, remain collapsed, and render no footer.

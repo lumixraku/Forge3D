@@ -367,6 +367,11 @@ function focusNode(id, padding = 0.25) {
   nextTick(() => fitView({ nodes: [id], padding, maxZoom: 1, duration: 350 }))
 }
 
+function fitCanvasView() {
+  const selectedIds = selectedNodes.value.map((node) => node.id)
+  fitView({ ...(selectedIds.length ? { nodes: selectedIds } : {}), padding: 0.18, duration: 400 })
+}
+
 function buildCanvasNode(type, { id, position, selected = false, config, parentNode } = {}) {
   const [kind, detail, tone] = nodePresentation[type]
   return {
@@ -733,7 +738,7 @@ onUnmounted(() => {
           @select-node-type="selectNodeType"
           @drag-node-type="startNodeDrag($event.event, $event.type)"
           @add-frame="addNode('frame')"
-          @fit-view="fitView({ padding: .18, duration: 400 })"
+          @fit-view="fitCanvasView"
           @auto-layout="autoLayout"
         />
         <CanvasContextMenu

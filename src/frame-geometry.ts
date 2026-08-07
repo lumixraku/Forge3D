@@ -118,6 +118,11 @@ function draggedSize(draggedNode: GeometryNode, node: GeometryNode) {
   }
 }
 
+function overlapArea(position: Point, size: { width: number; height: number }, framePosition: Point, frameBox: { width: number; height: number }) {
+  return Math.max(0, Math.min(position.x + size.width, framePosition.x + frameBox.width) - Math.max(position.x, framePosition.x))
+    * Math.max(0, Math.min(position.y + size.height, framePosition.y + frameBox.height) - Math.max(position.y, framePosition.y))
+}
+
 // Re-parent dropped nodes to whichever frame they overlap most, converting the
 // position into that frame's local space (or back to global when dropped out).
 export function reparentDraggedNodes(nodes: GeometryNode[], draggedNodes: GeometryNode[] = []) {
@@ -133,15 +138,13 @@ export function reparentDraggedNodes(nodes: GeometryNode[], draggedNodes: Geomet
 
     const position = absoluteNodePosition(draggedNode, nodeMap)
     const size = draggedSize(draggedNode, node)
-    const right = position.x + size.width
-    const bottom = position.y + size.height
     const oldParent = node.parentNode
     const containingFrames = frames
       .filter((frame) => frame.id !== node.id)
       .map((frame) => {
         const framePosition = absoluteNodePosition(frame, nodeMap)
         const frameBox = frameSize(frame)
-        const overlap = Math.max(0, Math.min(right, framePosition.x + frameBox.width) - Math.max(position.x, framePosition.x)) * Math.max(0, Math.min(bottom, framePosition.y + frameBox.height) - Math.max(position.y, framePosition.y))
+        const overlap = overlapArea(position, size, framePosition, frameBox)
         return { frame, framePosition, overlap }
       })
       .filter(({ overlap }) => overlap > 0)
@@ -157,6 +160,49 @@ export function reparentDraggedNodes(nodes: GeometryNode[], draggedNodes: Geomet
       position: {
         x: position.x - nextParentPosition.x,
         y: position.y - nextParentPosition.y,
+      },
+    }
+    nextNodes[nodeIndex] = updatedNode
+    nodeMap.set(node.id, updatedNode)
+    changed = true
+  }
+
+  return { nodes: nextNodes, changed }
+}
+
+// Moving a frame over root nodes has the same ownership semantics as moving
+// those nodes into the frame. Existing children already ride with their parent.
+export function adoptNodesCoveredByDraggedFrames(nodes: GeometryNode[], draggedNodes: GeometryNode[] = []) {
+  const nextNodes = [...nodes]
+  const nodeMap = indexNodes(nextNodes)
+  const draggedFrames = draggedNodes
+    .map((dragged) => ({ dragged, frame: nodeMap.get(dragged.id) }))
+    .filter(({ frame }) => frame?.type === 'frame')
+  if (!draggedFrames.length) return { nodes: nextNodes, changed: false }
+
+  let changed = false
+  for (const node of nextNodes) {
+    if (node.type === 'frame' || node.parentNode) continue
+    const position = absoluteNodePosition(node, nodeMap)
+    const size = nodeSize(node)
+    const coveringFrames = draggedFrames
+      .map(({ dragged, frame }) => {
+        const framePosition = absoluteNodePosition(dragged, nodeMap)
+        const overlap = overlapArea(position, size, framePosition, frameSize(frame))
+        return { frame, framePosition, overlap }
+      })
+      .filter(({ overlap }) => overlap > 0)
+      .sort((left, right) => right.overlap - left.overlap)
+    const owner = coveringFrames[0]
+    if (!owner) continue
+
+    const nodeIndex = nextNodes.findIndex((item) => item.id === node.id)
+    const updatedNode = {
+      ...node,
+      parentNode: owner.frame.id,
+      position: {
+        x: position.x - owner.framePosition.x,
+        y: position.y - owner.framePosition.y,
       },
     }
     nextNodes[nodeIndex] = updatedNode

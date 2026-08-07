@@ -99,7 +99,7 @@ export function useCanvasSelection({ nodes, edges, activeCanvas, error, schedule
       nodes: [...fromCanvas().nodes, ...domainNodes],
       edges: [...fromCanvas().edges, ...domainEdges],
     }
-    toCanvas(activeCanvas.value)
+    await toCanvas(activeCanvas.value)
     await nextTick()
     if (options.selectInserted) {
       const insertedIds = new Set(domainNodes.map((node) => node.id))

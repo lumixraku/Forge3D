@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyLayoutPositions, buildSelectionFrame, fitFrameNodes, pointInAnyFrame, reparentDraggedNodes } from './frame-geometry.js'
+import { adoptNodesCoveredByDraggedFrames, applyLayoutPositions, buildSelectionFrame, fitFrameNodes, pointInAnyFrame, reparentDraggedNodes } from './frame-geometry.js'
 
 const insets = { left: 10, right: 20, top: 30, bottom: 40 }
 
@@ -62,6 +62,27 @@ test('drops a node out of its frame back into global coordinates', () => {
   assert.equal(changed, true)
   assert.equal(next[1].parentNode, undefined)
   assert.deepEqual(next[1].position, { x: 900, y: 900 })
+})
+
+test('moving a frame over a root node adopts it in local coordinates', () => {
+  const nodes = [frame('f', { x: 0, y: 0 }, 400, 400), node('n', { x: 550, y: 150 }, { width: 100, height: 100 })]
+  const movedFrame = { ...nodes[0], position: { x: 500, y: 100 } }
+
+  const { nodes: next, changed } = adoptNodesCoveredByDraggedFrames([movedFrame, nodes[1]], [movedFrame])
+
+  assert.equal(changed, true)
+  assert.equal(next[1].parentNode, 'f')
+  assert.deepEqual(next[1].position, { x: 50, y: 50 })
+})
+
+test('moving a frame keeps its existing children in their local positions', () => {
+  const child = node('child', { x: 40, y: 60 }, { width: 100, height: 100 }, { parentNode: 'f' })
+  const movedFrame = frame('f', { x: 500, y: 100 }, 400, 400)
+
+  const { nodes: next, changed } = adoptNodesCoveredByDraggedFrames([movedFrame, child], [movedFrame])
+
+  assert.equal(changed, false)
+  assert.deepEqual(next[1].position, { x: 40, y: 60 })
 })
 
 test('reports whether a point falls inside any frame, including nested ones', () => {
