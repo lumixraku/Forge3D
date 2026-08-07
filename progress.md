@@ -1,5 +1,24 @@
 # Progress
 
+## 2026-08-07 - main
+
+- Removed the uninformative `Editable parameters` footer from nodes that have no run record; the footer remains available for actual run messages and durations.
+- Verification: `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed.
+- Remaining issues: None.
+
+## 2026-08-07 - main
+
+- Increased simulated node execution time from 600 ms to 5 seconds so mock runs keep their executing-state feedback visible long enough to inspect.
+- Verification: `pnpm run typecheck`, `node --import tsx --test server/mock-runs.test.ts` (10 tests), `pnpm run build`, and `git diff --check` passed.
+- Remaining issues: None.
+
+## 2026-08-07 - main
+
+- Added a prominent percentage progress bar to every executing node result state, using the existing Tripo API progress value and an indeterminate fallback for providers without percentages.
+- Added a pulsing glow and expanding halo to the executing node's right output port, with reduced-motion handling.
+- Verification: `pnpm run typecheck`, `pnpm run build`, `pnpm test` (197 tests), and `git diff --check` passed. Browser verification against a live Tripo execution confirmed progress updates reached the running node.
+- Remaining issues: The existing local development tab was serving an older hot-reloaded component bundle, so the new CSS animation itself was verified through the production build rather than that tab.
+
 ## 2026-08-06 - main
 
 - Prevented native browser viewport pinch zoom across the application UI while preserving Vue Flow's canvas-owned pinch zoom and trackpad pinch handling inside `.flow-canvas`.

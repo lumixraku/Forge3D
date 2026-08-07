@@ -175,7 +175,7 @@ export async function executeNode(node, canvas, {
   }
 
   const startedAt = Date.now()
-  await wait(600)
+  await wait(5000)
 
   // An unapproved check node is not a failure: it holds the sequence until the
   // user approves, so the caller stops without marking anything red.

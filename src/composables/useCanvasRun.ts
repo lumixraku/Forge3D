@@ -25,6 +25,7 @@ interface NodeExecution {
   durationMs: number | null
   output: ExecutionOutput | null
   error: string | null
+  progress?: number
 }
 
 interface ExecutionDto {

@@ -523,9 +523,15 @@
 .node-output.model-output:hover > img { filter: drop-shadow(0 16px 16px rgba(0, 0, 0, .5)); }
 .node-output-loading { position: absolute; z-index: 5; inset: 0; display: grid; place-content: center; justify-items: center; gap: 9px; background: color-mix(in srgb, var(--bg-input) 76%, transparent); backdrop-filter: blur(3px); color: var(--text-primary); text-align: center; }
 .node-output-loading::before { position: absolute; inset: 8px; border: 1px solid color-mix(in srgb, var(--node-accent) 76%, transparent); border-radius: 5px; box-shadow: inset 0 0 24px color-mix(in srgb, var(--node-accent) 14%, transparent); content: ''; animation: node-output-scan 1.4s ease-in-out infinite; }
-.node-output-loading .node-run-indicator, .node-output-loading strong { position: relative; z-index: 1; }
+.node-output-loading .node-run-indicator, .node-output-loading strong, .node-output-loading .node-progress { position: relative; z-index: 1; }
 .node-output-loading .node-run-indicator { width: 22px; height: 22px; border-width: 3px; border-color: color-mix(in srgb, var(--node-accent) 25%, transparent); border-top-color: var(--node-accent); animation: node-running .8s linear infinite; }
 .node-output-loading strong { color: var(--node-accent); font: 600 9px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+.node-progress { display: grid; grid-template-columns: minmax(0, 1fr) 30px; width: 150px; margin-top: 12px; align-items: center; gap: 8px; }
+.node-progress > span { position: relative; height: 4px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--node-accent) 18%, var(--line-subtle)); }
+.node-progress > span::after { position: absolute; inset: 0; width: var(--run-progress); border-radius: inherit; background: var(--node-accent); box-shadow: 0 0 10px color-mix(in srgb, var(--node-accent) 72%, transparent); content: ''; transition: width .35s ease; }
+.node-progress > b { color: var(--node-accent); font: 600 8px var(--font-mono); text-align: right; }
+.node-progress.indeterminate > span::after { width: 42%; animation: node-progress-indeterminate 1.1s ease-in-out infinite; }
+.node-output-loading .node-progress { margin-top: 1px; }
 .image-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 2px; }
 .image-candidate { position: relative; min-width: 0; min-height: 0; padding: 0; overflow: hidden; border: 0; border-radius: 3px; background: transparent; cursor: pointer; transition: transform .15s ease; }
 .image-candidate > img { display: block; width: 100%; height: 100%; object-fit: cover; transition: filter .15s ease, transform .15s ease; }
@@ -552,6 +558,7 @@
 @keyframes node-running { to { transform: rotate(360deg); } }
 @keyframes node-executing-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--status-running) 4%, transparent); transform: scale(1.1); } }
 @keyframes node-output-scan { 50% { inset: 15px; opacity: .45; } }
+@keyframes node-progress-indeterminate { from { transform: translateX(-110%); } to { transform: translateX(340%); } }
 .node-editor { display: grid; gap: 9px; margin-bottom: 12px; padding: 10px; border: 1px solid var(--line-subtle); border-radius: 8px; background: var(--bg-input); transition: border-color .15s ease; }
 .node-editor:focus-within { border-color: var(--line-strong); }
 .image-dropzone { display: grid; width: 100%; min-height: 64px; margin: 0 0 12px; padding: 12px; place-content: center; gap: 5px; border: 1px dashed var(--line-strong); border-radius: 8px; background: var(--bg-input); color: var(--text-primary); text-align: center; cursor: pointer; transition: border-color .15s ease, background .15s ease, box-shadow .15s ease; }
@@ -640,7 +647,7 @@
 .node-pulse { width: 5px; height: 5px; border-radius: 50%; background: var(--node-accent); }
 .canvas-node.is-running .node-pulse { animation: node-pulse 1s ease-in-out infinite; }
 @keyframes node-pulse { 50% { opacity: .25; transform: scale(.7); } }
-@media (prefers-reduced-motion: reduce) { .node-run-state.running .node-run-indicator, .canvas-node.is-running .node-pulse { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .node-run-state.running .node-run-indicator, .canvas-node.is-running .node-pulse, .node-progress.indeterminate > span::after, .canvas-node.is-executing .vue-flow__handle.canvas-handle.output-handle::before, .canvas-node.is-executing .vue-flow__handle.canvas-handle.output-handle::after { animation: none; } }
 .vue-flow__handle.canvas-handle { z-index: 6; width: 36px; height: 36px; border: 0; background: transparent; }
 /* Vue Flow adds a `vue-flow__handle-<id>` class per handle, so ports named left/right
    collide with its own position classes. Pin the side by our own input/output class. */
@@ -653,6 +660,10 @@
 .vue-flow__handle.canvas-handle.input-handle::after { left: 0; transform: translate(-50%, -50%); }
 .vue-flow__handle.canvas-handle.output-handle::after { right: 0; transform: translate(50%, -50%); }
 .vue-flow__handle.canvas-handle:hover::after { box-shadow: 0 0 0 5px color-mix(in srgb, var(--node-accent) 28%, transparent); }
+.canvas-node.is-executing .vue-flow__handle.canvas-handle.output-handle::before { position: absolute; top: 50%; right: 0; width: 20px; height: 20px; border-radius: 50%; background: color-mix(in srgb, var(--node-accent) 48%, transparent); content: ''; transform: translate(50%, -50%); animation: node-port-halo 1.5s ease-out infinite; }
+.canvas-node.is-executing .vue-flow__handle.canvas-handle.output-handle::after { animation: node-port-breathe 1.5s ease-in-out infinite; }
+@keyframes node-port-halo { 0% { opacity: .9; box-shadow: 0 0 10px var(--node-accent); transform: translate(50%, -50%) scale(.75); } 75%, 100% { opacity: 0; box-shadow: 0 0 22px color-mix(in srgb, var(--node-accent) 45%, transparent); transform: translate(50%, -50%) scale(2.25); } }
+@keyframes node-port-breathe { 0%, 100% { background: var(--node-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--node-accent) 24%, transparent), 0 0 8px color-mix(in srgb, var(--node-accent) 35%, transparent); } 50% { background: color-mix(in srgb, var(--node-accent) 76%, white); box-shadow: 0 0 0 6px color-mix(in srgb, var(--node-accent) 28%, transparent), 0 0 20px var(--node-accent); } }
 /* Port labels sit inside the card next to their handle. Ports-heavy nodes widen
    and inset their media (width:auto so the margin actually narrows it, not just
    shifts a 100%-wide box) to give the labels a gutter instead of overprinting. */

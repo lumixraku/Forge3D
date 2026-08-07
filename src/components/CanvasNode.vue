@@ -47,7 +47,8 @@ const stopsNodeRun = computed(() => isActiveEntry.value && props.runMode === 'no
 const stopsDownstreamRun = computed(() => isActiveEntry.value && props.runMode === 'downstream')
 // Only a real backend reports progress; a simulated node finishes too fast to
 // have any.
-const runProgress = computed(() => (typeof props.nodeRun?.progress === 'number' ? props.nodeRun.progress : null))
+const runProgress = computed(() => (typeof props.nodeRun?.progress === 'number' ? Math.round(Math.min(100, Math.max(0, props.nodeRun.progress))) : null))
+const progressStyle = computed(() => ({ '--run-progress': `${runProgress.value ?? 0}%` }))
 const actionLabel = computed(() => {
   if (runtimeStatus.value === 'running') return runProgress.value === null ? 'Generating…' : `Generating… ${runProgress.value}%`
   if (runtimeStatus.value === 'queued') return 'Queued'
@@ -184,25 +185,25 @@ function loadMockImage(file: File) {
         <img :src="image" :alt="`Generated concept ${index + 1}`" />
       </button>
       <span class="output-badge">{{ runtimePreviews.length }} {{ data.canvasType === 'image-decomposition' ? 'assets' : 'candidates' }}</span>
-      <div v-if="isExecuting" class="node-output-loading" role="status"><span class="node-run-indicator" /><strong>{{ runtimeStatus === 'queued' ? 'Queued' : runtimeStatus === 'cancelling' ? 'Stopping' : 'Generating' }}</strong></div>
+      <div v-if="isExecuting" class="node-output-loading" role="status"><span class="node-run-indicator" /><strong>{{ runtimeStatus === 'queued' ? 'Queued' : runtimeStatus === 'cancelling' ? 'Stopping' : 'Generating' }}</strong><div v-if="runtimeStatus === 'running'" class="node-progress" :class="{ indeterminate: runProgress === null }" :style="progressStyle"><span /><b>{{ runProgress === null ? 'Working' : `${runProgress}%` }}</b></div></div>
     </div>
     <div v-else-if="data.canvasType === 'generate-multiview-images' && showResult" class="node-output image-grid" aria-label="Generated multi-view images">
       <button v-for="view in viewPorts" :key="view" type="button" class="image-candidate nodrag nopan" :aria-label="`Preview ${view} view`" @click.stop="emit('preview-image', { src: runtimeViewPreviews[view], alt: `${view} view` })">
         <img :src="runtimeViewPreviews[view]" :alt="`${view} view`" />
       </button>
-      <div v-if="isExecuting" class="node-output-loading" role="status"><span class="node-run-indicator" /><strong>{{ runtimeStatus === 'queued' ? 'Queued' : runtimeStatus === 'cancelling' ? 'Stopping' : 'Generating' }}</strong></div>
+      <div v-if="isExecuting" class="node-output-loading" role="status"><span class="node-run-indicator" /><strong>{{ runtimeStatus === 'queued' ? 'Queued' : runtimeStatus === 'cancelling' ? 'Stopping' : 'Generating' }}</strong><div v-if="runtimeStatus === 'running'" class="node-progress" :class="{ indeterminate: runProgress === null }" :style="progressStyle"><span /><b>{{ runProgress === null ? 'Working' : `${runProgress}%` }}</b></div></div>
     </div>
     <button v-else-if="['reference-image', 'generated-image', 'generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'bake', 'texture', 'rigging', 'segments', 'model-preview'].includes(data.canvasType) && showResult" type="button" class="node-output nodrag nopan" :class="{ 'model-output': !['reference-image', 'generated-image'].includes(data.canvasType) }" :aria-label="['reference-image', 'generated-image'].includes(data.canvasType) ? `Preview ${data.label} image` : `Open ${data.label} in Model Editor`" @click.stop="['reference-image', 'generated-image'].includes(data.canvasType) ? emit('preview-image', { src: runtimePreview, alt: `${data.label} result` }) : emit('open-model-editor')">
       <img :src="runtimePreview" :alt="`${data.label} result`" />
       <div v-if="!['reference-image', 'generated-image', 'image-decomposition'].includes(data.canvasType)" class="model-orbit"><span /><span /><span /></div>
        <span class="output-badge">{{ data.canvasType === 'reference-image' ? 'Input image' : data.canvasType === 'generated-image' ? 'Generated view' : data.canvasType === 'retopology' ? `${Number(data.config.faceLimit).toLocaleString()} faces` : data.canvasType === 'texture' ? `${data.config.textureQuality}` : data.canvasType === 'rigging' ? 'Rigged' : data.canvasType === 'segments' ? `Segments · ${data.config.detailLevel}` : data.canvasType === 'smart-mesh' ? 'Smart mesh' : data.canvasType === 'bake' ? 'Baked' : '3D result' }}</span>
-      <span v-if="isExecuting" class="node-output-loading" role="status"><span class="node-run-indicator" /><strong>{{ runtimeStatus === 'queued' ? 'Queued' : runtimeStatus === 'cancelling' ? 'Stopping' : 'Generating' }}</strong></span>
+      <span v-if="isExecuting" class="node-output-loading" role="status"><span class="node-run-indicator" /><strong>{{ runtimeStatus === 'queued' ? 'Queued' : runtimeStatus === 'cancelling' ? 'Stopping' : 'Generating' }}</strong><span v-if="runtimeStatus === 'running'" class="node-progress" :class="{ indeterminate: runProgress === null }" :style="progressStyle"><span /><b>{{ runProgress === null ? 'Working' : `${runProgress}%` }}</b></span></span>
     </button>
     <button v-else-if="data.canvasType === 'export-model' && showResult" type="button" class="node-output model-output nodrag nopan" :aria-label="`Open ${data.label} in Model Editor`" @click.stop="emit('open-model-editor')">
       <img :src="runtimePreview" :alt="`${data.label} asset`" />
       <div class="model-orbit"><span /><span /><span /></div>
         <span class="output-badge">{{ nodeRun?.output?.format || exportFormat }}</span>
-      <span v-if="isExecuting" class="node-output-loading" role="status"><span class="node-run-indicator" /><strong>{{ runtimeStatus === 'queued' ? 'Queued' : runtimeStatus === 'cancelling' ? 'Stopping' : 'Exporting' }}</strong></span>
+      <span v-if="isExecuting" class="node-output-loading" role="status"><span class="node-run-indicator" /><strong>{{ runtimeStatus === 'queued' ? 'Queued' : runtimeStatus === 'cancelling' ? 'Stopping' : 'Exporting' }}</strong><span v-if="runtimeStatus === 'running'" class="node-progress" :class="{ indeterminate: runProgress === null }" :style="progressStyle"><span /><b>{{ runProgress === null ? 'Working' : `${runProgress}%` }}</b></span></span>
     </button>
     <div v-else-if="data.canvasType === 'review'" class="node-review-state" :class="runtimeStatus">
       <strong>{{ data.config.approved ? 'Approved' : runtimeStatus === 'waiting_review' ? 'Awaiting approval' : 'Checkpoint' }}</strong>
@@ -214,6 +215,7 @@ function loadMockImage(file: File) {
       <span class="node-run-indicator" />
       <strong>{{ runStateTitle }}</strong>
       <small>{{ runStateDetail }}</small>
+      <div v-if="runtimeStatus === 'running'" class="node-progress" :class="{ indeterminate: runProgress === null }" :style="progressStyle"><span /><b>{{ runProgress === null ? 'Working' : `${runProgress}%` }}</b></div>
     </div>
 
     <button v-if="data.canvasType === 'reference-image'" type="button" class="image-dropzone nodrag nopan" :class="{ dragging: imageDragging }" @click.stop="imageInput?.click()" @pointerdown.stop @dragenter.prevent.stop="imageDragging = true" @dragover.prevent.stop="imageDragging = true" @dragleave.prevent.stop="imageDragging = false" @drop.prevent.stop="dropImage">
@@ -254,7 +256,7 @@ function loadMockImage(file: File) {
         <p>{{ nodeRun.error || nodeRun.output?.message || 'Waiting for output' }}</p>
       </div>
     </section>
-    <footer><span>{{ nodeRun?.output?.message || nodeRun?.error || 'Editable parameters' }}</span><span v-if="nodeRun?.durationMs !== null && nodeRun?.durationMs !== undefined">{{ nodeRun.durationMs }} ms</span><span v-else class="node-pulse" /></footer>
+    <footer v-if="nodeRun"><span>{{ nodeRun.output?.message || nodeRun.error || runtimeStatus }}</span><span v-if="nodeRun.durationMs !== null && nodeRun.durationMs !== undefined">{{ nodeRun.durationMs }} ms</span><span v-else class="node-pulse" /></footer>
     <template v-for="(port, index) in data.outputPorts" :key="`output-${port.id}`">
       <Handle :id="port.id" class="canvas-handle output-handle" type="source" :position="Position.Right" :style="{ top: `${28 + (index + 1) * 52}px` }" :title="`Outputs ${port.type}`" />
     </template>
