@@ -50,7 +50,7 @@ export function buildFragment(canvas, selectedIds: Set<string>, name = 'Untitled
 // Give a fragment fresh ids so it can be inserted alongside its source, and shift
 // it into place. `translateRoots` moves every node without a parent frame (used by
 // import); otherwise only frames move and their children ride along.
-export function remapFragment(fragment, { offset, translateRoots = false, suffix = crypto.randomUUID() }) {
+export function remapFragment(fragment, { offset, suffix = crypto.randomUUID() }) {
   const idMap = new Map(fragment.nodes.map((node, index) => [node.id, `${node.id}-${suffix}-${index}`]))
   const nodes = fragment.nodes.map((node) => ({
     ...JSON.parse(JSON.stringify(node)),
@@ -58,8 +58,8 @@ export function remapFragment(fragment, { offset, translateRoots = false, suffix
     ui: {
       ...node.ui,
       position: {
-        x: node.ui.position.x + ((translateRoots ? !node.ui.parentFrameId : node.type === 'frame') ? offset.x : 0),
-        y: node.ui.position.y + ((translateRoots ? !node.ui.parentFrameId : node.type === 'frame') ? offset.y : 0),
+        x: node.ui.position.x + (!node.ui.parentFrameId ? offset.x : 0),
+        y: node.ui.position.y + (!node.ui.parentFrameId ? offset.y : 0),
       },
       ...(node.ui.parentFrameId ? { parentFrameId: idMap.get(node.ui.parentFrameId) } : {}),
     },

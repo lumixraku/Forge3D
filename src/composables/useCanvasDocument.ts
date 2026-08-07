@@ -247,7 +247,7 @@ export function useCanvasDocument({
       validateImportedCanvas(input)
       await pasteFragment(
         { nodes: input.nodes, edges: input.edges || [] },
-        { offset: importPlacementOffset(nodes.value, input.nodes), translateRoots: true },
+        { offset: importPlacementOffset(nodes.value, input.nodes) },
       )
       closeCanvasSwitcher()
     } catch (caught) {

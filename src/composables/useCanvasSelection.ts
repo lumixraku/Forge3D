@@ -1,6 +1,7 @@
 import { computed, nextTick, ref } from 'vue'
 import { request } from '../api'
 import { buildFragment, remapFragment } from '../canvas-fragment'
+import { toCanvasGraph } from '../canvas-graph'
 
 // Everything derived from, or acting on, the current canvas selection: the
 // selection computeds, deletion, and the fragment clipboard (copy/paste/duplicate).
@@ -94,13 +95,23 @@ export function useCanvasSelection({ nodes, edges, activeCanvas, error, schedule
       offset: options.offset || { x: maxX + 310, y: 120 },
       translateRoots: options.translateRoots,
     })
-    activeCanvas.value = {
+    const nextCanvas = {
       ...fromCanvas(),
       nodes: [...fromCanvas().nodes, ...domainNodes],
       edges: [...fromCanvas().edges, ...domainEdges],
     }
-    await toCanvas(activeCanvas.value)
-    await nextTick()
+    activeCanvas.value = nextCanvas
+    if (options.preserveLayout) {
+      const insertedGraph = toCanvasGraph({ ...nextCanvas, nodes: domainNodes, edges: domainEdges })
+      nodes.value = [
+        ...nodes.value.map((node) => ({ ...node, selected: false })),
+        ...insertedGraph.nodes.map((node) => ({ ...node, selected: Boolean(options.selectInserted) })),
+      ]
+      edges.value = [...edges.value.map((edge) => ({ ...edge, selected: false })), ...insertedGraph.edges]
+    } else {
+      await toCanvas(activeCanvas.value)
+      await nextTick()
+    }
     if (options.selectInserted) {
       const insertedIds = new Set(domainNodes.map((node) => node.id))
       nodes.value = nodes.value.map((node) => ({ ...node, selected: insertedIds.has(node.id) }))
@@ -114,7 +125,7 @@ export function useCanvasSelection({ nodes, edges, activeCanvas, error, schedule
     if (!fragment || !selected.length) return
     const minX = Math.min(...selected.map((node) => node.position.x))
     const minY = Math.min(...selected.map((node) => node.position.y))
-    await pasteFragment(fragment, { offset: { x: minX + 24, y: minY + 24 }, selectInserted: true })
+    await pasteFragment(fragment, { offset: { x: minX + 24, y: minY + 24 }, selectInserted: true, preserveLayout: true })
   }
 
   async function createCanvasFromSelection() {

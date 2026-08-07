@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { FRAME_PADDING, FRAME_TITLE_SCREEN_HEIGHT, frameComponentGap, frameInsets, layoutCanvas } from './canvas-layout.js'
+import { FRAME_PADDING, FRAME_TITLE_SCREEN_HEIGHT, frameComponentGap, frameInsets, layoutCanvas, layoutSelection, selectedLayoutGroups } from './canvas-layout.js'
 
 function overlaps(a, b, positions) {
   const first = positions.get(a.id)
@@ -83,4 +83,81 @@ test('ignores missing endpoints and handles cycles deterministically', async () 
   assert.deepEqual([...first], [...second])
   assert.equal(first.size, nodes.length)
   assert.ok([...first.values()].every(({ x, y }) => Number.isFinite(x) && Number.isFinite(y)))
+})
+
+test('lays out only selected root nodes and treats a selected section as one node', async () => {
+  const nodes = [
+    { id: 'section', type: 'frame', selected: true, position: { x: 100, y: 100 }, width: 700, height: 500 },
+    { id: 'child-a', parentNode: 'section', position: { x: 40, y: 70 } },
+    { id: 'child-b', parentNode: 'section', position: { x: 360, y: 90 } },
+    { id: 'outside', selected: true, position: { x: 1000, y: 180 } },
+    { id: 'untouched', position: { x: 1500, y: 800 } },
+  ]
+  const plan = selectedLayoutGroups(nodes, [{ source: 'child-b', target: 'outside' }])
+  const result = await layoutSelection(nodes, [{ source: 'child-b', target: 'outside' }])
+
+  assert.deepEqual(plan.groups.map((group) => group.nodes.map((node) => node.id)), [['section', 'outside']])
+  assert.deepEqual(plan.groups[0].edges.map(({ source, target }) => ({ source, target })), [{ source: 'section', target: 'outside' }])
+  assert.deepEqual([...result.positions.keys()], ['section', 'outside'])
+  assert.equal(result.positions.has('child-a'), false)
+  assert.equal(result.positions.has('child-b'), false)
+  assert.equal(result.positions.has('untouched'), false)
+})
+
+test('selecting only a section lays out its contents without moving the section', async () => {
+  const nodes = [
+    { id: 'section', type: 'frame', selected: true, position: { x: 500, y: 300 } },
+    { id: 'child-a', parentNode: 'section', position: { x: 80, y: 120 } },
+    { id: 'child-b', parentNode: 'section', position: { x: 420, y: 160 } },
+    { id: 'outside', position: { x: 1200, y: 200 } },
+  ]
+  const result = await layoutSelection(nodes, [{ source: 'child-a', target: 'child-b' }])
+
+  assert.deepEqual([...result.positions.keys()], ['child-a', 'child-b'])
+  assert.ok(result.positions.get('child-a').x < result.positions.get('child-b').x)
+  assert.equal(result.positions.has('section'), false)
+  assert.equal(result.positions.has('outside'), false)
+  assert.deepEqual([...result.fitFrameIds], ['section'])
+})
+
+test('treats selected descendants as part of their selected section', async () => {
+  const nodes = [
+    { id: 'section', type: 'frame', selected: true, position: { x: 500, y: 300 } },
+    { id: 'child-a', parentNode: 'section', selected: true, position: { x: 80, y: 120 } },
+    { id: 'child-b', parentNode: 'section', selected: true, position: { x: 420, y: 160 } },
+    { id: 'outside', position: { x: 1200, y: 200 } },
+  ]
+  const result = await layoutSelection(nodes, [{ source: 'child-a', target: 'child-b' }])
+
+  assert.deepEqual([...result.positions.keys()], ['child-a', 'child-b'])
+  assert.equal(result.positions.has('section'), false)
+  assert.equal(result.positions.has('outside'), false)
+  assert.deepEqual([...result.fitFrameIds], ['section'])
+})
+
+test('lays out selected nodes inside their section and leaves siblings untouched', async () => {
+  const nodes = [
+    { id: 'section', type: 'frame', position: { x: 500, y: 300 } },
+    { id: 'child-a', parentNode: 'section', selected: true, position: { x: 80, y: 120 } },
+    { id: 'child-b', parentNode: 'section', selected: true, position: { x: 420, y: 160 } },
+    { id: 'sibling', parentNode: 'section', position: { x: 760, y: 200 } },
+  ]
+  const result = await layoutSelection(nodes, [{ source: 'child-a', target: 'child-b' }, { source: 'child-b', target: 'sibling' }])
+
+  assert.deepEqual([...result.positions.keys()], ['child-a', 'child-b'])
+  assert.equal(result.positions.has('section'), false)
+  assert.equal(result.positions.has('sibling'), false)
+  assert.equal(result.fitFrameIds.size, 0)
+})
+
+test('lays out root nodes globally only when nothing is selected', async () => {
+  const nodes = [
+    { id: 'section', type: 'frame', position: { x: 100, y: 100 }, width: 700, height: 500 },
+    { id: 'child', parentNode: 'section', position: { x: 80, y: 120 } },
+    { id: 'outside', position: { x: 1000, y: 180 } },
+  ]
+  const result = await layoutSelection(nodes, [{ source: 'child', target: 'outside' }])
+
+  assert.deepEqual([...result.positions.keys()], ['section', 'outside'])
+  assert.equal(result.positions.has('child'), false)
 })

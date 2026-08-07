@@ -6,6 +6,10 @@ let elkPromise
 
 interface LayoutNode {
   id: string
+  type?: string
+  parentNode?: string
+  position?: { x: number; y: number }
+  selected?: boolean
   width?: number
   height?: number
   dimensions?: { width?: number; height?: number }
@@ -21,6 +25,68 @@ interface LayoutEdge {
 }
 
 interface LayoutOptions { originX?: number; originY?: number; columnGap?: number; rowGap?: number; componentGap?: number }
+
+function layoutEntity(nodeId: string, parentId: string | undefined, nodeMap: Map<string, LayoutNode>) {
+  let node = nodeMap.get(nodeId)
+  while (node?.parentNode !== parentId) {
+    if (!node?.parentNode) return null
+    node = nodeMap.get(node.parentNode)
+  }
+  return node
+}
+
+export function selectedLayoutGroups(nodes: LayoutNode[], edges: LayoutEdge[]) {
+  const selected = nodes.filter((node) => node.selected)
+  const nodeMap = new Map(nodes.map((node) => [node.id, node]))
+  const selectedIds = new Set(selected.map((node) => node.id))
+  const selectedRoots = selected.filter((node) => {
+    let parentId = node.parentNode
+    while (parentId) {
+      if (selectedIds.has(parentId)) return false
+      parentId = nodeMap.get(parentId)?.parentNode
+    }
+    return true
+  })
+  const singleFrame = selectedRoots.length === 1 && selectedRoots[0].type === 'frame' ? selectedRoots[0] : null
+  const candidates = singleFrame
+    ? nodes.filter((node) => node.parentNode === singleFrame.id)
+    : (selectedRoots.length ? selectedRoots : nodes.filter((node) => !node.parentNode))
+  const candidateIds = new Set(candidates.map((node) => node.id))
+  const groups = new Map<string | undefined, LayoutNode[]>()
+
+  for (const node of candidates) {
+    if (node.parentNode && candidateIds.has(node.parentNode)) continue
+    const parentId = singleFrame?.id || node.parentNode
+    groups.set(parentId, [...(groups.get(parentId) || []), node])
+  }
+
+  return {
+    fitFrameIds: new Set(singleFrame ? [singleFrame.id] : []),
+    groups: [...groups].map(([parentId, groupNodes]) => {
+      const groupIds = new Set(groupNodes.map((node) => node.id))
+      const groupEdges = edges.flatMap((edge) => {
+        const source = layoutEntity(edge.source, parentId, nodeMap)
+        const target = layoutEntity(edge.target, parentId, nodeMap)
+        if (!source || !target || source.id === target.id || !groupIds.has(source.id) || !groupIds.has(target.id)) return []
+        return [{ ...edge, source: source.id, target: target.id }]
+      })
+      return { parentId, nodes: groupNodes, edges: groupEdges }
+    }),
+  }
+}
+
+export async function layoutSelection(nodes: LayoutNode[], edges: LayoutEdge[], options: LayoutOptions = {}) {
+  const plan = selectedLayoutGroups(nodes, edges)
+  const positions = new Map<string, { x: number; y: number }>()
+  for (const group of plan.groups) {
+    if (!group.nodes.length) continue
+    const originX = Math.min(...group.nodes.map((node) => node.position?.x || 0))
+    const originY = Math.min(...group.nodes.map((node) => node.position?.y || 0))
+    const groupPositions = await layoutCanvas(group.nodes, group.edges, { ...options, originX, originY })
+    for (const [id, position] of groupPositions) positions.set(id, position)
+  }
+  return { positions, fitFrameIds: plan.fitFrameIds }
+}
 
 function getElk() {
   elkPromise ||= import('elkjs/lib/elk.bundled.js').then(({ default: ELK }) => new ELK())

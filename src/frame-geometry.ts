@@ -74,12 +74,12 @@ function framedSize(bounds: Bounds, insets: Insets) {
 // Resize every auto-sized frame to its children and shift those children so the
 // content sits inside the frame's insets. Returns a new node list; `changed` is
 // false when every frame already fits, so callers can skip the write.
-export function fitFrameNodes(nodes: GeometryNode[], insets: Insets) {
+export function fitFrameNodes(nodes: GeometryNode[], insets: Insets, frameIds?: Set<string>) {
   let changed = false
   const nextNodes = [...nodes]
   const nodeIndexes = new Map(nextNodes.map((node, index) => [node.id, index]))
 
-  for (const frame of nextNodes.filter((node) => node.type === 'frame')) {
+  for (const frame of nextNodes.filter((node) => node.type === 'frame' && (!frameIds || frameIds.has(node.id)))) {
     if (frame.data?.manualSize) continue
     const children = nextNodes.filter((node) => node.parentNode === frame.id)
     if (!children.length) continue
