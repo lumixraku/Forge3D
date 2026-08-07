@@ -41,6 +41,28 @@ export function createCanvas(input) {
   }
 }
 
+export function duplicateCanvas(source) {
+  const nodeIds = new Map(source.nodes.map((node) => [node.id, `${node.id}-${randomUUID()}`]))
+  return createCanvas({
+    ...source,
+    name: `${source.name} Copy`,
+    nodes: source.nodes.map((node) => ({
+      ...structuredClone(node),
+      id: nodeIds.get(node.id),
+      ui: {
+        ...structuredClone(node.ui),
+        ...(node.ui.parentFrameId ? { parentFrameId: nodeIds.get(node.ui.parentFrameId) } : {}),
+      },
+    })),
+    edges: source.edges.map((edge) => ({
+      ...structuredClone(edge),
+      id: `${edge.id || 'edge'}-${randomUUID()}`,
+      source: { ...edge.source, nodeId: nodeIds.get(edge.source.nodeId) },
+      target: { ...edge.target, nodeId: nodeIds.get(edge.target.nodeId) },
+    })),
+  })
+}
+
 // A readable stand-in for a canvas whose session row is missing, so opening the
 // canvas still succeeds. It is not persisted.
 export function emptySession(canvas) {

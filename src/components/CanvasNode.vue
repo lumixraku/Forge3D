@@ -245,8 +245,8 @@ function loadMockImage(file: File) {
       <button type="button" :class="stopsNodeRun ? 'stop-run' : 'generate-node'" :disabled="isActiveEntry && !stopsNodeRun" @click.stop="stopsNodeRun ? emit('stop-run') : emit('run-canvas', props.id)">{{ stopsNodeRun ? 'Stop' : actionLabel }}</button>
       <button type="button" :class="stopsDownstreamRun ? 'stop-run' : 'run-downstream'" :disabled="isActiveEntry && !stopsDownstreamRun" @click.stop="stopsDownstreamRun ? emit('stop-run') : emit('run-downstream', props.id)">{{ stopsDownstreamRun ? 'Stop' : 'Run downstream' }}</button>
     </div>
-    <section v-if="nodeRun" class="node-run-details nodrag">
-      <button type="button" :aria-expanded="runDetailsOpen" @click.stop="runDetailsOpen = !runDetailsOpen"><span>Run details</span><b :class="{ open: runDetailsOpen }"><svg class="chevron-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></b></button>
+    <section v-if="isExecutableNode" class="node-run-details nodrag">
+      <button type="button" :disabled="!nodeRun" :aria-expanded="Boolean(nodeRun && runDetailsOpen)" @click.stop="runDetailsOpen = !runDetailsOpen"><span>Run details</span><b :class="{ open: nodeRun && runDetailsOpen }"><svg class="chevron-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></b></button>
       <div v-if="runDetailsOpen" class="node-run-detail-content">
         <small>Run {{ runId || 'previous run' }}</small>
         <dl><div><dt>Node</dt><dd>{{ id }}</dd></div><div><dt>Type</dt><dd>{{ data.canvasType }}</dd></div><div><dt>Status</dt><dd>{{ nodeRun.status }}</dd></div><div><dt>Duration</dt><dd>{{ nodeRun.durationMs === null ? 'Pending' : `${nodeRun.durationMs} ms` }}</dd></div></dl>
@@ -256,7 +256,6 @@ function loadMockImage(file: File) {
         <p>{{ nodeRun.error || nodeRun.output?.message || 'Waiting for output' }}</p>
       </div>
     </section>
-    <footer v-if="nodeRun"><span>{{ nodeRun.output?.message || nodeRun.error || runtimeStatus }}</span><span v-if="nodeRun.durationMs !== null && nodeRun.durationMs !== undefined">{{ nodeRun.durationMs }} ms</span><span v-else class="node-pulse" /></footer>
     <template v-for="(port, index) in data.outputPorts" :key="`output-${port.id}`">
       <Handle :id="port.id" class="canvas-handle output-handle" type="source" :position="Position.Right" :style="{ top: `${28 + (index + 1) * 52}px` }" :title="`Outputs ${port.type}`" />
     </template>

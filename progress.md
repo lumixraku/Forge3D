@@ -2,6 +2,27 @@
 
 ## 2026-08-07 - main
 
+- Stabilized executable node layout by always rendering the collapsed `Run details` row before and after execution; it remains disabled until details exist and stays collapsed when results arrive.
+- Removed the redundant always-visible run message and duration footer that appeared below `Run details` after execution.
+- Verification: `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. Browser inspection confirmed run and unrun nodes reserve the same details-row height, remain collapsed, and render no footer.
+- Remaining issues: None.
+
+## 2026-08-07 - main
+
+- Fixed project duplication so every copied node and edge receives a fresh ID, with frame-parent and edge endpoint references remapped to the copied graph.
+- Scoped node execution requests to the active canvas, allowing previously duplicated legacy canvases with overlapping node IDs to run without ambiguous cross-canvas lookup errors.
+- Added regression coverage for copied graph identity and canvas-scoped execution.
+- Verification: `pnpm test` (198 tests), `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed.
+- Remaining issues: Existing duplicated canvases retain their old node IDs, but canvas-scoped execution now handles them correctly; IDs are regenerated the next time a canvas is duplicated.
+
+## 2026-08-07 - main
+
+- Removed the obsolete bottom margin beneath run action buttons when a node has no run details, restoring balanced card padding after the placeholder footer was removed.
+- Verification: `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed.
+- Remaining issues: None.
+
+## 2026-08-07 - main
+
 - Removed the uninformative `Editable parameters` footer from nodes that have no run record; the footer remains available for actual run messages and durations.
 - Verification: `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed.
 - Remaining issues: None.

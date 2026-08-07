@@ -16,7 +16,7 @@ import { randomUUID } from './ids.js'
 import { latestNodeRuns } from './node-state.js'
 import { executionAssets } from './run-assets.js'
 import { cancelExecution, createExecution, executeExecution, executionById, executionDto, findNode, paginateAssets } from './executions.js'
-import { createInitialSession, createCanvas, createSession, emptySession } from './canvases.js'
+import { createInitialSession, createCanvas, createSession, duplicateCanvas, emptySession } from './canvases.js'
 import { runDeepSeekAgent } from './deepseek.js'
 import { cancelAgentViaService, runAgentViaService } from './agent-client.js'
 import { tripoNodeTypes } from './tripo-mapping.js'
@@ -455,8 +455,8 @@ export function createApi({ createContext }) {
     if (method === 'POST' && parts[1] === 'projects' && parts[3] === 'duplicate' && parts.length === 4) {
       const source = canvasById(parts[2])
       if (!source) return json({ error: 'Project not found' }, 404)
-      const now = new Date().toISOString()
-      const canvas = { ...structuredClone(source), id: `canvas-${randomUUID()}`, name: `${source.name} Copy`, revision: 1, createdAt: now, updatedAt: now }
+      const canvas = duplicateCanvas(source)
+      const now = canvas.createdAt
       state.canvases.push(canvas)
       state.sessions.push({ id: `session-${randomUUID()}`, canvasId: canvas.id, createdAt: now, updatedAt: now, messages: [{ id: `msg-${randomUUID()}`, role: 'assistant', content: 'This canvas was duplicated and can now evolve independently.', createdAt: now }] })
       await store.persist(['canvases', 'sessions'])
@@ -677,9 +677,11 @@ export function createApi({ createContext }) {
     }
 
     if (method === 'POST' && parts[1] === 'nodes' && parts[2] && parts[3] === 'executions' && parts.length === 4) {
-      const match = findNode(state.canvases, parts[2])
+      const input = await parseJson(request)
+      const searchableCanvases = input.canvasId ? state.canvases.filter((canvas) => canvas.id === input.canvasId) : state.canvases
+      const match = findNode(searchableCanvases, parts[2])
       if (!match) return json({ error: 'Node not found' }, 404)
-      const { mode = 'downstream', provider: requestedProvider } = await parseJson(request)
+      const { mode = 'downstream', provider: requestedProvider } = input
       if (requestedProvider && !['mock', 'tripo'].includes(requestedProvider)) {
         return json({ error: 'provider must be "mock" or "tripo"' }, 400)
       }

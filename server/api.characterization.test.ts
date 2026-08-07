@@ -272,6 +272,12 @@ test('duplicating a project copies the graph and resets the revision', async () 
   assert.equal(copy.body.revision, 1)
   assert.equal(copy.body.nodeCount, 2)
   assert.notEqual(copy.body.id, source.body.id)
+  const sourceCanvas = (await api(`/api/canvases/${source.body.id}`)).body.canvas
+  const copiedCanvas = (await api(`/api/canvases/${copy.body.id}`)).body.canvas
+  assert.ok(copiedCanvas.nodes.every((node, index) => node.id !== sourceCanvas.nodes[index].id))
+  assert.notEqual(copiedCanvas.edges[0].id, sourceCanvas.edges[0].id)
+  assert.equal(copiedCanvas.edges[0].source.nodeId, copiedCanvas.nodes[0].id)
+  assert.equal(copiedCanvas.edges[0].target.nodeId, copiedCanvas.nodes[1].id)
 
   assert.equal((await postJson('/api/projects/missing/duplicate')).status, 404)
 })
@@ -425,20 +431,22 @@ test('a node that carries no work cannot be the entry point', async () => {
   }
 })
 
-test('a node ID present on more than one canvas cannot be run', async () => {
-  // Node IDs are resolved across every canvas, so duplicating a project makes
-  // both copies' node IDs ambiguous.
+test('a node ID present on more than one canvas is resolved within the requested canvas', async () => {
   const source = await postJson('/api/projects', {
     name: 'Ambiguous source',
     nodes: canvasFixture('y', { prefix: 'ambiguous' }).nodes,
     edges: canvasFixture('y', { prefix: 'ambiguous' }).edges,
   })
-  await postJson(`/api/projects/${source.body.id}/duplicate`)
+  const duplicate = await postJson('/api/projects', {
+    name: 'Second canvas with legacy IDs',
+    nodes: canvasFixture('y', { prefix: 'ambiguous' }).nodes,
+    edges: canvasFixture('y', { prefix: 'ambiguous' }).edges,
+  })
 
-  assert.deepEqual(
-    await postJson('/api/nodes/ambiguous-generate-image/executions', { mode: 'node' }),
-    { status: 409, body: { error: 'Node ID is ambiguous across canvases' } },
-  )
+  const started = await postJson('/api/nodes/ambiguous-generate-image/executions', { mode: 'node', canvasId: duplicate.body.id })
+  assert.equal(started.status, 202)
+  assert.equal(started.body.canvasId, duplicate.body.id)
+  assert.notEqual(started.body.canvasId, source.body.id)
 })
 
 test('rejects an unknown node, an invalid mode and an unconfigured provider', async () => {

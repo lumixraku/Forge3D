@@ -631,6 +631,7 @@
 .node-run-details { margin: 0 0 10px; border-top: 1px solid var(--line-subtle); border-bottom: 1px solid var(--line-subtle); }
 .node-run-details > button { display: flex; align-items: center; justify-content: space-between; width: 100%; height: 31px; padding: 0; border: 0; background: transparent; color: var(--text-muted); font: 500 8px var(--font-mono); text-transform: uppercase; transition: color .15s ease; }
 .node-run-details > button:hover { color: var(--text-primary); }
+.node-run-details > button:disabled { cursor: default; color: var(--text-disabled); }
 .node-run-details > button b { display: inline-flex; font-size: 12px; font-weight: 400; transition: transform .15s ease; }.node-run-details > button b.open { transform: rotate(180deg); }
 .node-run-detail-content { max-height: 165px; padding: 0 0 9px; overflow: auto; color: var(--text-secondary); }
 .node-run-detail-content > small { display: block; overflow: hidden; color: var(--text-muted); font: 400 7px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }

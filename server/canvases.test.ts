@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createInitialSession, createCanvas, createSession } from './canvases.js'
+import { createInitialSession, createCanvas, createSession, duplicateCanvas } from './canvases.js'
 
 const node = (id, x = 0) => ({ id, type: 'prompt', name: id, config: {}, ui: { position: { x, y: 0 } } })
 
@@ -59,6 +59,24 @@ test('imports an exported canvas as a new canvas', () => {
   assert.deepEqual(imported.nodes, exported.nodes)
   assert.deepEqual(imported.edges, exported.edges)
   assert.deepEqual(imported.viewport, exported.viewport)
+})
+
+test('duplicates a canvas with fresh graph IDs', () => {
+  const source = createCanvas({
+    name: 'Source',
+    nodes: [node('frame'), { ...node('child', 300), ui: { position: { x: 300, y: 0 }, parentFrameId: 'frame' } }],
+    edges: [{ id: 'frame-child', source: { nodeId: 'frame', port: 'text' }, target: { nodeId: 'child', port: 'input' } }],
+  })
+  const copy = duplicateCanvas(source)
+
+  assert.notEqual(copy.id, source.id)
+  assert.equal(copy.name, 'Source Copy')
+  assert.equal(copy.revision, 1)
+  assert.ok(copy.nodes.every((copied, index) => copied.id !== source.nodes[index].id))
+  assert.equal(copy.nodes[1].ui.parentFrameId, copy.nodes[0].id)
+  assert.notEqual(copy.edges[0].id, source.edges[0].id)
+  assert.equal(copy.edges[0].source.nodeId, copy.nodes[0].id)
+  assert.equal(copy.edges[0].target.nodeId, copy.nodes[1].id)
 })
 
 test('requires a name and accepts an empty canvas', () => {

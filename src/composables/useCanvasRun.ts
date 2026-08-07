@@ -106,6 +106,7 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, busy, 
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           mode: scope === 'downstream' ? 'downstream' : 'node',
+          canvasId,
           // Omitted entirely when no override is set, so the server keeps deciding.
           ...(provider.value ? { provider: provider.value } : {}),
         }),
