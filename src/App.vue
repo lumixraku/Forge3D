@@ -26,7 +26,7 @@ import { useCanvasDocument } from './composables/useCanvasDocument'
 import { useCanvasRun } from './composables/useCanvasRun'
 import { useDebugSettings } from './composables/useDebugSettings'
 import { edgeDefaults, nodePresentation } from './canvas-graph'
-import { canConnectPorts, compatibleNodeTypes, hasModelEditor, isExecutableNodeType, nodeCatalog, nodeCategories, nodeDefaults, nodeDefinition, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
+import { canConnectNodeTypes, compatibleNodeTypes, hasModelEditor, isExecutableNodeType, nodeCatalog, nodeCategories, nodeDefaults, nodeDefinition, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
 
 const ModelEditor = defineAsyncComponent(() => import('./components/ModelEditor.vue'))
 
@@ -243,23 +243,21 @@ function isValidConnection(connection) {
   if (!connection?.source || !connection?.target || connection.source === connection.target) return false
   const source = nodes.value.find((node) => node.id === connection.source)
   const target = nodes.value.find((node) => node.id === connection.target)
-  return Boolean(source && target && canConnectPorts(source.data.canvasType, connection.sourceHandle, target.data.canvasType, connection.targetHandle))
+  return Boolean(source && target && canConnectNodeTypes(source.data.canvasType, target.data.canvasType))
 }
 
 function addConnection(connection) {
-  if (!isValidConnection(connection)) return false
   const source = nodes.value.find((node) => node.id === connection.source)
   const target = nodes.value.find((node) => node.id === connection.target)
-  const exists = edges.value.some((edge) => edge.source === source.id && edge.sourceHandle === connection.sourceHandle && edge.target === target.id && edge.targetHandle === connection.targetHandle)
+  if (!source || !target || !isValidConnection(connection)) return false
+  const exists = edges.value.some((edge) => edge.source === source.id && edge.target === target.id)
   if (exists) return false
   edges.value = addEdge({
-    id: `edge-${source.id}-${connection.sourceHandle}-${target.id}-${connection.targetHandle}-${Date.now().toString(36)}`,
+    id: `edge-${source.id}-${target.id}-${Date.now().toString(36)}`,
     source: source.id,
     target: target.id,
-    sourceHandle: connection.sourceHandle,
-    targetHandle: connection.targetHandle,
-    sourcePort: connection.sourceHandle,
-    targetPort: connection.targetHandle,
+    sourceHandle: 'output',
+    targetHandle: 'input',
     ...edgeDefaults,
   }, edges.value)
   scheduleSave()
@@ -276,9 +274,7 @@ function onConnectEnd(event) {
   const targetElement = point ? document.elementFromPoint(point.clientX, point.clientY)?.closest('.vue-flow__node') : null
   const target = targetElement?.dataset.id
   if (target) {
-    const targetNode = nodes.value.find((node) => node.id === target)
-    const targetHandle = nodeInputPorts(targetNode?.data.canvasType).find((port) => canConnectPorts(nodes.value.find((node) => node.id === pendingConnection.nodeId)?.data.canvasType, pendingConnection.sourceHandle, targetNode?.data.canvasType, port.id))?.id
-    if (targetHandle) addConnection({ source: pendingConnection.nodeId, sourceHandle: pendingConnection.sourceHandle, target, targetHandle })
+    addConnection({ source: pendingConnection.nodeId, sourceHandle: 'output', target, targetHandle: 'input' })
   }
   else if (point) openNodeMenuAt(point.clientX, point.clientY, pendingConnection.nodeId)
   pendingConnection = null
@@ -425,10 +421,7 @@ function addNode(type, sourceId, position) {
   scheduleSave()
   nextTick(() => {
     if (sourceId) {
-      const source = nodes.value.find((item) => item.id === sourceId)
-      const sourceHandle = source?.data.outputPorts?.[0]?.id
-      const targetHandle = node.data.inputPorts.find((port) => canConnectPorts(source?.data.canvasType, sourceHandle, type, port.id))?.id
-      if (sourceHandle && targetHandle) addConnection({ source: sourceId, sourceHandle, target: node.id, targetHandle })
+      addConnection({ source: sourceId, sourceHandle: 'output', target: node.id, targetHandle: 'input' })
     }
     fitView({ nodes: [node.id], padding: 1.5, maxZoom: 1, duration: 350 })
   })
@@ -468,10 +461,8 @@ function materializeRunBatch(sourceId, runId, previews) {
 
   nodes.value = [...nodes.value, ...created]
   nextTick(() => {
-    const sourceHandle = source.data.outputPorts?.[0]?.id
     for (const node of created) {
-      const targetHandle = node.data.inputPorts.find((port) => canConnectPorts(source.data.canvasType, sourceHandle, 'generated-image', port.id))?.id
-      if (sourceHandle && targetHandle) addConnection({ source: sourceId, sourceHandle, target: node.id, targetHandle })
+      addConnection({ source: sourceId, sourceHandle: 'output', target: node.id, targetHandle: 'input' })
     }
     scheduleSave()
   })

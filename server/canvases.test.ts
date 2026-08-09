@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createInitialSession, createCanvas, createSession, duplicateCanvas } from './canvases.js'
 
-const node = (id, x = 0) => ({ id, type: 'prompt', name: id, config: {}, ui: { position: { x, y: 0 } } })
+const node = (id, x = 0) => ({ id, type: 'generate-image', name: id, config: {}, ui: { position: { x, y: 0 } } })
 
 test('creates a canvas and initial session with server-owned fields', () => {
   const canvas = createCanvas({
@@ -12,7 +12,7 @@ test('creates a canvas and initial session with server-owned fields', () => {
     updatedAt: '2000-01-01T00:00:00.000Z',
     name: ' Selected canvas ',
     nodes: [node('a'), node('b', 300)],
-    edges: [{ id: 'a-b', source: { nodeId: 'a', port: 'text' }, target: { nodeId: 'b', port: 'input' } }],
+    edges: [{ id: 'a-b', source: { nodeId: 'a', port: 'image' }, target: { nodeId: 'b', port: 'image' } }],
   })
   const session = createInitialSession(canvas)
 
@@ -47,7 +47,7 @@ test('imports an exported canvas as a new canvas', () => {
     createdAt: '2000-01-01T00:00:00.000Z',
     updatedAt: '2000-01-01T00:00:00.000Z',
     nodes: [node('a'), node('b', 300)],
-    edges: [{ id: 'a-b', source: { nodeId: 'a', port: 'text' }, target: { nodeId: 'b', port: 'input' } }],
+    edges: [{ id: 'a-b', source: { nodeId: 'a', port: 'image' }, target: { nodeId: 'b', port: 'image' } }],
     viewport: { x: 80, y: 160, zoom: 0.72 },
   }
   const imported = createCanvas(exported)
@@ -65,7 +65,7 @@ test('duplicates a canvas with fresh graph IDs', () => {
   const source = createCanvas({
     name: 'Source',
     nodes: [node('frame'), { ...node('child', 300), ui: { position: { x: 300, y: 0 }, parentFrameId: 'frame' } }],
-    edges: [{ id: 'frame-child', source: { nodeId: 'frame', port: 'text' }, target: { nodeId: 'child', port: 'input' } }],
+    edges: [{ id: 'frame-child', source: { nodeId: 'frame', port: 'image' }, target: { nodeId: 'child', port: 'image' } }],
   })
   const copy = duplicateCanvas(source)
 

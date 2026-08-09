@@ -7,8 +7,8 @@ const canvas = {
   revision: 4,
   nodes: [
     { id: 'entry', type: 'generate-image', name: 'Generate', config: { previews: ['/a.png'] } },
-    { id: 'model', type: 'text-to-3d', name: 'Model', config: { preview: '/model.png' } },
-    { id: 'other', type: 'text-to-3d', name: 'Other', config: {} },
+    { id: 'model', type: 'generate-model', name: 'Model', config: { preview: '/model.png' } },
+    { id: 'other', type: 'generate-model', name: 'Other', config: {} },
   ],
   edges: [{ source: { nodeId: 'entry' }, target: { nodeId: 'model' } }],
 }

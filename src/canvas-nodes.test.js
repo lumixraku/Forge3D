@@ -14,20 +14,23 @@ test('uses Lychee node names while preserving unmatched node names', () => {
   assert.equal(nodeDisplayName('export-model', 'Export Model'), 'Export')
 })
 
-test('every node exposes at most one universal input and one output handle', () => {
-  // Multi-input nodes collapse to a single untyped input handle.
-  assert.deepEqual(nodeInputPorts('generate-model'), [{ id: 'input', label: 'Input', type: 'any' }])
-  assert.deepEqual(nodeInputPorts('multiview-to-3d'), [{ id: 'input', label: 'Input', type: 'any' }])
-  assert.deepEqual(nodeInputPorts('texture'), [{ id: 'input', label: 'Input', type: 'any' }])
+test('exposes schema-defined typed input and output handles', () => {
+  assert.deepEqual(nodeInputPorts('generate-model').map(({ id, type }) => ({ id, type })), [{ id: 'image', type: 'image' }, { id: 'text', type: 'text' }])
+  assert.deepEqual(nodeInputPorts('multiview-to-3d').map(({ id, type }) => ({ id, type })), [
+    { id: 'front', type: 'image' }, { id: 'back', type: 'image' }, { id: 'left', type: 'image' }, { id: 'right', type: 'image' },
+  ])
+  assert.deepEqual(nodeInputPorts('texture').map(({ id, type }) => ({ id, type })), [{ id: 'model', type: 'model' }, { id: 'image', type: 'image' }, { id: 'text', type: 'text' }])
   // Source-only nodes have no input; terminal nodes have no output.
   assert.deepEqual(nodeInputPorts('prompt'), [])
   assert.deepEqual(nodeOutputPorts('export-model'), [])
   // Output keeps the node's result type on the single handle.
-  assert.deepEqual(nodeOutputPorts('generate-model'), [{ id: 'output', label: 'Output', type: 'model' }])
-  assert.deepEqual(nodeOutputPorts('generate-multiview-images'), [{ id: 'output', label: 'Output', type: 'image' }])
+  assert.deepEqual(nodeOutputPorts('generate-model'), [{ id: 'model', label: 'Model', type: 'model' }])
+  assert.deepEqual(nodeOutputPorts('generate-multiview-images').map(({ id, type }) => ({ id, type })), [
+    { id: 'front', type: 'image' }, { id: 'back', type: 'image' }, { id: 'left', type: 'image' }, { id: 'right', type: 'image' },
+  ])
 })
 
-test('the universal input accepts any producing node', () => {
+test('connects only compatible port types', () => {
   assert.equal(canConnectNodeTypes('prompt', 'generate-image'), true)
   assert.equal(canConnectNodeTypes('reference-image', 'generate-image'), true)
   assert.equal(canConnectNodeTypes('generate-image', 'generate-model'), true)
@@ -39,12 +42,11 @@ test('the universal input accepts any producing node', () => {
   assert.equal(canConnectNodeTypes('unknown', 'generate-image'), false)
 })
 
-test('connects only the single output handle to the single input handle', () => {
-  assert.equal(canConnectPorts('reference-image', 'output', 'multiview-to-3d', 'input'), true)
-  assert.equal(canConnectPorts('generate-multiview-images', 'output', 'multiview-to-3d', 'input'), true)
-  assert.equal(canConnectPorts('generate-model', 'output', 'texture', 'input'), true)
-  // Legacy typed / view port ids no longer resolve to a real handle.
-  assert.equal(canConnectPorts('generate-multiview-images', 'front', 'multiview-to-3d', 'front'), false)
+test('connects matching named ports only', () => {
+  assert.equal(canConnectPorts('reference-image', 'image', 'multiview-to-3d', 'front'), true)
+  assert.equal(canConnectPorts('generate-multiview-images', 'front', 'multiview-to-3d', 'front'), true)
+  assert.equal(canConnectPorts('generate-model', 'model', 'texture', 'model'), true)
+  assert.equal(canConnectPorts('generate-multiview-images', 'front', 'multiview-to-3d', 'back'), true)
   assert.equal(canConnectPorts('generate-image', 'image', 'texture', 'model'), false)
 })
 
@@ -75,8 +77,8 @@ test('registers the image decomposition demo as an image node', () => {
   const decomposition = nodeCatalog.find((node) => node.type === 'image-decomposition')
 
   assert.equal(decomposition.category, '2D')
-  assert.deepEqual(nodeInputPorts(decomposition.type), [{ id: 'input', label: 'Input', type: 'any' }])
-  assert.deepEqual(nodeOutputPorts(decomposition.type), [{ id: 'output', label: 'Output', type: 'image' }])
+  assert.deepEqual(nodeInputPorts(decomposition.type), [{ id: 'image', label: 'Image', type: 'image' }])
+  assert.deepEqual(nodeOutputPorts(decomposition.type), [{ id: 'image', label: 'Image', type: 'image' }])
   assert.ok(compatibleNodeTypes('reference-image').some((node) => node.type === decomposition.type))
 })
 

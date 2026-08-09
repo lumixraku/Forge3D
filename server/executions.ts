@@ -1,4 +1,5 @@
 import { isExecutableNodeType } from '../src/canvas-schema.js'
+import { validateCanvasGraph } from '../src/canvas-nodes.js'
 import { downstreamCanvas, executeNode, executionNodes } from './mock-runs.js'
 import { randomUUID } from './ids.js'
 import { recordNodeExecution } from './run-log.js'
@@ -66,6 +67,14 @@ export function createExecution(runs, canvas, entryNode, mode = 'downstream') {
   if (!isExecutableNodeType(entryNode.type)) {
     const error = new Error(`${entryNode.name || entryNode.type} cannot be run on its own`)
     error.statusCode = 400
+    throw error
+  }
+  const issues = validateCanvasGraph(canvas.nodes, canvas.edges || [], { requireInputs: true })
+  if (issues.length) {
+    const issue = issues[0]
+    const error = new Error(issue.message)
+    error.statusCode = 400
+    error.issue = issue
     throw error
   }
   const executionCanvas = mode === 'downstream'

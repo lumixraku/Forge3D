@@ -1,6 +1,7 @@
 import { describeCanvasParameters, canvasParameters } from './canvas-parameters.js'
 import { randomUUID } from './ids.js'
 import { applyNodeParameter, nodeDefaults as schemaDefaults, canvasNodeSchema } from '../src/canvas-schema.js'
+import { nodeInputPorts, nodeOutputPorts } from '../src/canvas-nodes.js'
 
 export const nodeDefaults = Object.fromEntries(canvasNodeSchema
   .filter((node) => node.type !== 'frame' && node.type !== 'generated-image')
@@ -70,11 +71,17 @@ export function rebuildDagEdges(nodes) {
     const source = byType.get(sourceType)
     const target = byType.get(targetType)
     if (!source || !target) return
-    edges.push({
-      id: `${source.id}-${target.id}`,
-      source: { nodeId: source.id, port: 'output' },
-      target: { nodeId: target.id, port: 'input' },
-    })
+    const usedTargetPorts = new Set(edges.filter((edge) => edge.target.nodeId === target.id).map((edge) => edge.target.port))
+    for (const sourcePort of nodeOutputPorts(sourceType)) {
+      const targetPort = nodeInputPorts(targetType).find((candidate) => !usedTargetPorts.has(candidate.id) && (candidate.id === sourcePort.id || candidate.type === sourcePort.type || candidate.type === 'any'))
+      if (!targetPort) continue
+      usedTargetPorts.add(targetPort.id)
+      edges.push({
+        id: `${source.id}-${sourcePort.id}-${target.id}-${targetPort.id}`,
+        source: { nodeId: source.id, port: sourcePort.id },
+        target: { nodeId: target.id, port: targetPort.id },
+      })
+    }
   }
 
   connect('reference-image', 'generate-image')

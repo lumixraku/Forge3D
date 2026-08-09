@@ -1,4 +1,5 @@
 import { randomUUID } from './ids.js'
+import { validateCanvasGraph } from '../src/canvas-nodes.js'
 
 function invalid(message) {
   const error = new Error(message)
@@ -25,6 +26,8 @@ export function createCanvas(input) {
     !nodeIds.has(edge.source?.nodeId) || !nodeIds.has(edge.target?.nodeId) ||
     typeof edge.source?.port !== 'string' || typeof edge.target?.port !== 'string'
   )) invalid('Canvas edges must connect nodes inside the canvas')
+  const graphIssues = validateCanvasGraph(input.nodes, input.edges || [])
+  if (graphIssues.length) invalid(graphIssues[0].message)
 
   const now = new Date().toISOString()
   return {
@@ -61,18 +64,6 @@ export function duplicateCanvas(source) {
       target: { ...edge.target, nodeId: nodeIds.get(edge.target.nodeId) },
     })),
   })
-}
-
-// A readable stand-in for a canvas whose session row is missing, so opening the
-// canvas still succeeds. It is not persisted.
-export function emptySession(canvas) {
-  return {
-    id: `session-${randomUUID()}`,
-    canvasId: canvas.id,
-    createdAt: canvas.createdAt,
-    updatedAt: canvas.updatedAt || canvas.createdAt,
-    messages: [],
-  }
 }
 
 export function createSession(canvas) {

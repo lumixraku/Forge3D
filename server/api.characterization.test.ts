@@ -66,6 +66,10 @@ before(async () => {
     path.join(dataDirectory, 'canvases', 'canvas-fixture.json'),
     JSON.stringify(canvasFixture('canvas-fixture')),
   )
+  await writeFile(
+    path.join(dataDirectory, 'canvases', 'canvas-without-session.json'),
+    JSON.stringify(canvasFixture('canvas-without-session')),
+  )
   await writeFile(path.join(dataDirectory, 'sessions.json'), JSON.stringify([
     {
       id: 'session-fixture',
@@ -210,6 +214,21 @@ test('creating a project validates the canvas and seeds a session', async () => 
   assert.equal(sessions.body.length, 1)
   assert.equal(sessions.body[0].messages.length, 1)
   assert.equal(sessions.body[0].messages[0].role, 'assistant')
+})
+
+test('opening a canvas repairs and persists its missing session', async () => {
+  const first = await api('/api/canvases/canvas-without-session/sessions')
+  assert.equal(first.status, 200)
+  assert.equal(first.body.length, 1)
+  assert.equal(first.body[0].canvasId, 'canvas-without-session')
+
+  const history = await api(`/api/sessions/${first.body[0].id}/chat-history`)
+  assert.equal(history.status, 200)
+  assert.equal(history.body.id, first.body[0].id)
+
+  const second = await api('/api/canvases/canvas-without-session/sessions')
+  assert.equal(second.body.length, 1)
+  assert.equal(second.body[0].id, first.body[0].id)
 })
 
 test('patching a project renames it and refuses a blank name', async () => {

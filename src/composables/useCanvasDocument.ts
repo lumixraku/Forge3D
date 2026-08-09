@@ -34,6 +34,7 @@ export function useCanvasDocument({
   let saveTimer
   let savePromise = null
   let pendingSaveSnapshot = null
+  let openToken = 0
 
   async function toCanvas(canvas) {
     hydrating.value = true
@@ -74,18 +75,27 @@ export function useCanvasDocument({
   }
 
   async function openCanvas(id, { replaceHistory = false } = {}) {
+    const token = ++openToken
     resetWorkspace()
     if (activeCanvas.value && activeCanvas.value.id !== id) await flushPendingSave()
+    if (token !== openToken) return
     closeCanvasEvents()
     runToken.value += 1
     error.value = ''
-    const data = await request(`/api/canvases/${id}`)
+    activeSession.value = null
+    const [data, session] = await Promise.all([
+      request(`/api/canvases/${id}`),
+      loadSessions(id),
+    ])
+    if (token !== openToken) return
     activeCanvas.value = data.canvas
+    activeSession.value = session
     run.value = null
     nodeRuns.value = data.nodeRuns || {}
     await toCanvas(data.canvas)
-    await loadSessions(id)
+    if (token !== openToken) return
     await restoreTurns()
+    if (token !== openToken) return
     // Subscribe after the REST reads, so the channel only has to carry what
     // happens from here on; an interrupted turn was already restored above.
     subscribeCanvasEvents(id)

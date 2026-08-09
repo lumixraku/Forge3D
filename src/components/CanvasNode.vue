@@ -81,7 +81,8 @@ const reviewImage = computed(() => props.inboundImage || props.nodeRun?.output?.
 const runtimePreviews = computed(() => props.nodeRun?.output?.previews || props.data.config.previews || [])
 const runtimeViewPreviews = computed(() => props.nodeRun?.output?.viewPreviews || props.data.config.viewPreviews || {})
 const viewPorts = ['front', 'back', 'left', 'right']
-const densePorts = computed(() => Math.max(props.data.inputPorts?.length || 0, props.data.outputPorts?.length || 0) > 2)
+const visibleInputPorts = computed(() => props.data.inputPorts?.length ? [{ id: 'input', label: 'Input' }] : [])
+const visibleOutputPorts = computed(() => props.data.outputPorts?.length ? [{ id: 'output', label: 'Output' }] : [])
 const exportTarget = computed(() => props.inboundType || '3D Model')
 const exportFormat = computed(() => props.data.config.modelFormat || 'GLB')
 const runConfig = computed(() => {
@@ -168,15 +169,15 @@ function loadMockImage(file: File) {
 </script>
 
 <template>
-  <article class="canvas-node" :class="[`tone-${data.tone}`, `is-${runtimeStatus}`, { selected, 'is-executing': isExecuting, 'dense-ports': densePorts }]">
+  <article class="canvas-node" :class="[`tone-${data.tone}`, `is-${runtimeStatus}`, { selected, 'is-executing': isExecuting }]">
     <div class="node-external-title">
       <span class="node-icon">{{ data.kind.slice(0, 1) }}</span>
       <input v-if="editingName" ref="nameInput" v-model="draftName" class="node-name-input nodrag nopan" aria-label="Node name" @click.stop @dblclick.stop @pointerdown.stop @keydown.enter.prevent="saveName" @keydown.esc.prevent="cancelNameEdit" @blur="saveName" />
       <h3 v-else title="Double-click to rename" @dblclick.stop="startNameEdit">{{ data.label }}</h3>
       <span class="node-status" :class="runtimeStatus" role="status" :aria-label="runtimeStatus" :title="runtimeStatus" />
     </div>
-    <template v-for="(port, index) in data.inputPorts" :key="`input-${port.id}`">
-      <Handle :id="port.id" class="canvas-handle input-handle" type="target" :position="Position.Left" :style="{ top: `${28 + (index + 1) * 52}px` }" :title="`Accepts ${port.type}`" />
+    <template v-for="(port, index) in visibleInputPorts" :key="`input-${port.id}`">
+      <Handle :id="port.id" class="canvas-handle input-handle" type="target" :position="Position.Left" :style="{ top: `${28 + (index + 1) * 52}px` }" title="Input" />
     </template>
     <p class="node-detail">{{ data.detail }}</p>
 
@@ -256,8 +257,8 @@ function loadMockImage(file: File) {
         <p>{{ nodeRun.error || nodeRun.output?.message || 'Waiting for output' }}</p>
       </div>
     </section>
-    <template v-for="(port, index) in data.outputPorts" :key="`output-${port.id}`">
-      <Handle :id="port.id" class="canvas-handle output-handle" type="source" :position="Position.Right" :style="{ top: `${28 + (index + 1) * 52}px` }" :title="`Outputs ${port.type}`" />
+    <template v-for="(port, index) in visibleOutputPorts" :key="`output-${port.id}`">
+      <Handle :id="port.id" class="canvas-handle output-handle" type="source" :position="Position.Right" :style="{ top: `${28 + (index + 1) * 52}px` }" title="Output" />
     </template>
     <div class="node-next-control nodrag nopan" :class="{ open: nextMenuOpen }">
       <button type="button" class="node-next-button" aria-label="Add and connect next node" :aria-expanded="nextMenuOpen" @click.stop="nextMenuOpen = !nextMenuOpen">+</button>
