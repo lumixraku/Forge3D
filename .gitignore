@@ -7,8 +7,6 @@ dist-cloudflare/
 .env
 .env.*
 !.env.example
-server/data/*.json
+server/data/*
 !server/data/.gitkeep
-server/data/canvases/*.json
-server/data/assets/
 .vercel/
