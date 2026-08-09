@@ -16,7 +16,7 @@ import { randomUUID } from './ids.js'
 import { latestNodeRuns } from './node-state.js'
 import { executionAssets } from './run-assets.js'
 import { cancelExecution, createExecution, executeExecution, executionById, executionDto, findNode, paginateAssets } from './executions.js'
-import { createInitialSession, createCanvas, createSession, duplicateCanvas, emptySession } from './canvases.js'
+import { createInitialSession, createCanvas, createSession, duplicateCanvas } from './canvases.js'
 import { runDeepSeekAgent } from './deepseek.js'
 import { cancelAgentViaService, runAgentViaService } from './agent-client.js'
 import { tripoNodeTypes } from './tripo-mapping.js'
@@ -480,8 +480,14 @@ export function createApi({ createContext }) {
     if (method === 'GET' && parts[1] === 'canvases' && parts[2] && parts[3] === 'sessions' && parts.length === 4) {
       const canvas = canvasById(parts[2])
       if (!canvas) return json({ error: 'Canvas not found' }, 404)
-      const sessions = state.sessions.filter((session) => session.canvasId === canvas.id)
-      return json(sessions.length ? sessions : [emptySession(canvas)])
+      let sessions = state.sessions.filter((session) => session.canvasId === canvas.id)
+      if (!sessions.length) {
+        const session = createInitialSession(canvas)
+        state.sessions.push(session)
+        await store.persist(['sessions'])
+        sessions = [session]
+      }
+      return json(sessions)
     }
 
     if (method === 'POST' && parts[1] === 'canvases' && parts[2] && parts[3] === 'sessions' && parts.length === 4) {

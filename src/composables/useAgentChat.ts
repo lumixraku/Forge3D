@@ -92,9 +92,11 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
 
   async function loadSessions(canvasId) {
     const sessions = await request(`/api/canvases/${canvasId}/sessions`)
-    activeSession.value = sessions[0]
+    const session = sessions[0]
       ? await request(`/api/sessions/${encodeURIComponent(sessions[0].id)}/chat-history`)
       : null
+    if (!session || session.canvasId !== canvasId) throw new Error('Project session is unavailable')
+    return session
   }
 
   async function refreshCanvas(canvasId, turnId) {
@@ -249,6 +251,12 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
     const message = composerMessage()
     if (!message) return
     const previousSession = activeSession.value
+    const canvasId = activeCanvas.value?.id
+    if (!canvasId || !previousSession || previousSession.canvasId !== canvasId) {
+      error.value = 'Project session is still loading'
+      return
+    }
+    const sessionId = previousSession.id
     const createdAt = new Date().toISOString()
     const pendingAssistantId = `pending-assistant-${Date.now()}`
     busy.value = true
@@ -266,8 +274,9 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
     }
     try {
       await flushPendingSave()
-      const sessionId = activeSession.value?.id
-      if (!sessionId) throw new Error('Open a project before sending a message')
+      if (activeCanvas.value?.id !== canvasId || activeSession.value?.id !== sessionId) {
+        throw new Error('Project changed before the message was sent')
+      }
       busy.value = false
       // 202 with the turn; its events arrive on the project's canvas channel.
       const turn = await request(`/api/sessions/${sessionId}/turns`, {
