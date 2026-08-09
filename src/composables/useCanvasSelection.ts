@@ -2,6 +2,7 @@ import { computed, nextTick, ref } from 'vue'
 import { request } from '../api'
 import { buildFragment, remapFragment } from '../canvas-fragment'
 import { toCanvasGraph } from '../canvas-graph'
+import { removeSelectedElements } from '../canvas-selection'
 
 // Everything derived from, or acting on, the current canvas selection: the
 // selection computeds, deletion, and the fragment clipboard (copy/paste/duplicate).
@@ -16,31 +17,10 @@ export function useCanvasSelection({ nodes, edges, activeCanvas, error, schedule
   const hasSelectedNode = computed(() => selectedNodes.value.length > 0)
   const hasSelection = computed(() => selectedCount.value > 0)
 
-  function deleteSelected({ preserveFrameChildren = true } = {}) {
-    const selectedFrameIds = new Set(selectedNodes.value.filter((node) => node.type === 'frame').map((node) => node.id))
-    const nodeIds = new Set(selectedNodes.value
-      .filter((node) => node.type !== 'frame' && (!preserveFrameChildren || !selectedFrameIds.has(node.parentNode)))
-      .map((node) => node.id))
-    const edgeIds = new Set(selectedEdges.value.map((edge) => edge.id))
-    const frames = new Map(nodes.value.filter((node) => selectedFrameIds.has(node.id)).map((node) => [node.id, node]))
-    nodes.value = nodes.value
-      .filter((node) => !selectedFrameIds.has(node.id) && !nodeIds.has(node.id))
-      .map((node) => {
-        const frame = frames.get(node.parentNode)
-        if (!frame) return node
-        return {
-          ...node,
-          parentNode: undefined,
-          extent: undefined,
-          expandParent: false,
-          position: { x: frame.position.x + node.position.x, y: frame.position.y + node.position.y },
-        }
-      })
-    edges.value = edges.value.filter((edge) =>
-      !edgeIds.has(edge.id) &&
-      !nodeIds.has(edge.source) &&
-      !nodeIds.has(edge.target)
-    )
+  function deleteSelected(options = {}) {
+    const next = removeSelectedElements(nodes.value, edges.value, options)
+    nodes.value = next.nodes
+    edges.value = next.edges
     scheduleSave()
   }
 
