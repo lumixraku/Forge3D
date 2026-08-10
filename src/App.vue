@@ -72,7 +72,7 @@ const { fitView, screenToFlowCoordinate, updateNodeInternals, viewport } = useVu
 const { theme, resolvedTheme, setTheme } = useTheme()
 
 const {
-  clipboardFragment, selectedNodes, frameableSelectedNodes, canFrameSelection, canDissolveSelection,
+  selectedNodes, frameableSelectedNodes, canFrameSelection, canDissolveSelection,
   selectedCount, hasSelection, deleteSelected, dissolveSelectedFrames, selectAll,
   selectCanvasEdge, copySelected, pasteFragment, duplicateSelected, createCanvasFromSelection,
 } = useCanvasSelection({
@@ -614,7 +614,6 @@ useKeyboardShortcuts({
   nodeMenuOpen,
   canvasMenu,
   hasSelection,
-  clipboardFragment,
   closeImagePreview,
   closeModelEditor,
   closeCanvasSwitcher,

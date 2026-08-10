@@ -1,5 +1,23 @@
 import { nodeSize } from './frame-geometry'
 
+const CLIPBOARD_HEADER = 'FORGE3D_CANVAS_FRAGMENT/1\n'
+
+export function serializeFragment(fragment) {
+  return `${CLIPBOARD_HEADER}${JSON.stringify(fragment)}`
+}
+
+export function parseFragment(text) {
+  if (typeof text !== 'string' || !text.startsWith(CLIPBOARD_HEADER)) return null
+  try {
+    const fragment = JSON.parse(text.slice(CLIPBOARD_HEADER.length))
+    if (fragment?.kind !== 'canvas-fragment' || fragment?.schemaVersion !== '1.0' || !Array.isArray(fragment.nodes) || !Array.isArray(fragment.edges)) return null
+    validateImportedCanvas(fragment)
+    return fragment.nodes.length ? fragment : null
+  } catch {
+    return null
+  }
+}
+
 // A fragment is a self-contained, position-normalized slice of a canvas: the
 // selected nodes, the edges between them, and the ports that crossed the cut.
 export function buildFragment(canvas, selectedIds: Set<string>, name = 'Untitled block') {

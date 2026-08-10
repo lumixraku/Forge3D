@@ -1,13 +1,12 @@
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick } from 'vue'
 import { request } from '../api'
-import { buildFragment, remapFragment } from '../canvas-fragment'
+import { buildFragment, remapFragment, serializeFragment } from '../canvas-fragment'
 import { toCanvasGraph } from '../canvas-graph'
 import { removeSelectedElements } from '../canvas-selection'
 
 // Everything derived from, or acting on, the current canvas selection: the
-// selection computeds, deletion, and the fragment clipboard (copy/paste/duplicate).
+// selection computeds, deletion, and fragment copy/paste/duplicate.
 export function useCanvasSelection({ nodes, edges, activeCanvas, error, scheduleSave, fromCanvas, toCanvas, loadCanvass }) {
-  const clipboardFragment = ref(null)
   const selectedNodes = computed(() => nodes.value.filter((node) => node.selected))
   const selectedEdges = computed(() => edges.value.filter((edge) => edge.selected))
   const frameableSelectedNodes = computed(() => selectedNodes.value.filter((node) => node.type !== 'frame' && !node.parentNode))
@@ -60,15 +59,14 @@ export function useCanvasSelection({ nodes, edges, activeCanvas, error, schedule
   async function copySelected() {
     const fragment = selectedFragmentData('Copied selection')
     if (!fragment) return
-    clipboardFragment.value = fragment
     try {
-      await navigator.clipboard.writeText(JSON.stringify(fragment, null, 2))
+      await navigator.clipboard.writeText(serializeFragment(fragment))
     } catch {
-      // The in-app clipboard still works when browser clipboard permission is unavailable.
+      error.value = 'Could not copy the selection to the system clipboard'
     }
   }
 
-  async function pasteFragment(fragment = clipboardFragment.value, options: any = {}) {
+  async function pasteFragment(fragment, options: any = {}) {
     if (!fragment?.nodes?.length) return
     const maxX = nodes.value.length ? Math.max(...nodes.value.map((node) => node.position.x)) : 0
     const { nodes: domainNodes, edges: domainEdges } = remapFragment(fragment, {
@@ -133,7 +131,6 @@ export function useCanvasSelection({ nodes, edges, activeCanvas, error, schedule
   }
 
   return {
-    clipboardFragment,
     selectedNodes,
     frameableSelectedNodes,
     canFrameSelection,

@@ -1,4 +1,5 @@
 import { onMounted, onUnmounted } from 'vue'
+import { parseFragment } from '../canvas-fragment'
 
 // Global canvas shortcuts. Registered in the capture phase so an open overlay can
 // claim Escape before the canvas sees it.
@@ -9,7 +10,6 @@ export function useKeyboardShortcuts({
   nodeMenuOpen,
   canvasMenu,
   hasSelection,
-  clipboardFragment,
   closeImagePreview,
   closeModelEditor,
   closeCanvasSwitcher,
@@ -24,6 +24,10 @@ export function useKeyboardShortcuts({
   duplicateSelected,
   deleteSelected,
 }) {
+  function isEditing(target: EventTarget | null) {
+    return target instanceof Element && Boolean(target.closest('input, textarea, [contenteditable="true"]'))
+  }
+
   function handleKeyboard(event: KeyboardEvent) {
     if (imagePreview.value) {
       if (event.key === 'Escape') {
@@ -53,8 +57,7 @@ export function useKeyboardShortcuts({
       if (hasSelection.value) duplicateSelected()
       return
     }
-    const editing = ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)
-    if (editing) return
+    if (isEditing(event.target)) return
     if (modifier && event.key.toLowerCase() === 'z') {
       event.preventDefault()
       if (event.shiftKey) redo()
@@ -85,12 +88,22 @@ export function useKeyboardShortcuts({
       event.preventDefault()
       copySelected()
     }
-    if (modifier && event.key.toLowerCase() === 'v' && clipboardFragment.value) {
-      event.preventDefault()
-      pasteFragment()
-    }
   }
 
-  onMounted(() => window.addEventListener('keydown', handleKeyboard, true))
-  onUnmounted(() => window.removeEventListener('keydown', handleKeyboard, true))
+  function handlePaste(event: ClipboardEvent) {
+    if (isEditing(event.target) || workspaceMode.value !== 'canvas') return
+    const fragment = parseFragment(event.clipboardData?.getData('text/plain'))
+    if (!fragment) return
+    event.preventDefault()
+    pasteFragment(fragment, { selectInserted: true })
+  }
+
+  onMounted(() => {
+    window.addEventListener('keydown', handleKeyboard, true)
+    window.addEventListener('paste', handlePaste, true)
+  })
+  onUnmounted(() => {
+    window.removeEventListener('keydown', handleKeyboard, true)
+    window.removeEventListener('paste', handlePaste, true)
+  })
 }

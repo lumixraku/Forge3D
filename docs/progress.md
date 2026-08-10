@@ -1,5 +1,13 @@
 # Progress
 
+## 2026-08-10 - main
+
+- Replaced the per-tab canvas clipboard with a versioned system-clipboard fragment format, so the most recently copied selection is the single source used across browser tabs and canvases.
+- Added native paste-event parsing and validation, fresh node/edge ID remapping, inserted-selection behavior, and safeguards that leave ordinary text and editor paste unchanged.
+- Added clipboard serialization/parsing regression coverage.
+- Verification: `pnpm test` passed 218 tests, `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. Browser inspection in the existing Chrome session confirmed the app loaded without console errors and ordinary canvas paste was not intercepted; the build retains the existing large-chunk warning.
+- Remaining issues: A physical cross-tab system clipboard gesture still requires manual browser interaction because Chrome automation cannot populate the trusted OS clipboard event path.
+
 ## 2026-08-10 - feat/style
 
 - Added a custom Vue Flow execution edge that overlays a bright, animated dash stream on every dependency feeding the currently running node.
