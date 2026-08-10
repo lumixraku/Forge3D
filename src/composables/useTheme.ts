@@ -20,9 +20,10 @@ export function useTheme() {
     if (theme.value === 'system') applyTheme()
   }
 
+  applyTheme()
+
   onMounted(() => {
     systemTheme.addEventListener('change', handleSystemThemeChange)
-    applyTheme()
   })
   onUnmounted(() => systemTheme.removeEventListener('change', handleSystemThemeChange))
 

@@ -3,7 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0d0f0f" />
+    <meta name="theme-color" content="#eef1ee" />
+    <script>
+      (() => {
+        const theme = localStorage.getItem('forge3d-theme') || 'system'
+        const resolvedTheme = theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : theme === 'system' ? 'light' : theme
+        document.documentElement.dataset.theme = resolvedTheme
+        document.documentElement.style.colorScheme = resolvedTheme
+      })()
+    </script>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2224%22 fill=%22%23d7ff56%22/><text x=%2250%22 y=%2262%22 text-anchor=%22middle%22 font-size=%2244%22 font-family=%22monospace%22 font-weight=%22700%22 fill=%22%2310130d%22>F3</text></svg>" />
     <title>Forge3D Canvas Studio</title>
   </head>

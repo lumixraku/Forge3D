@@ -1,5 +1,12 @@
 # Progress
 
+## 2026-08-10 - main
+
+- Fixed the light-theme refresh flash by resolving the saved theme in `index.html` before the stylesheet and Vue application load, so the `data-theme` attribute is present for the first paint.
+- Updated the browser theme-color to the light background and applied the same theme synchronously in `useTheme` before component mount.
+- Verification: `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. Browser inspection at `http://localhost:5176` confirmed the saved `light` preference, applied `light` theme, light color scheme, and `rgb(238, 241, 238)` document background. The build retains the existing large-chunk warning.
+- Remaining issues: None.
+
 ## 2026-08-07 - main
 
 - Fixed Section auto-fit scheduling so frame changes caused by layout are not treated as child changes that trigger a second global fit pass; selected Section layout now keeps unrelated Sections and their contents stable.
