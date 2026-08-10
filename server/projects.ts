@@ -18,6 +18,7 @@ export function replaceCanvasDocument(project, input, canvasId, updatedAt) {
     name: project.name,
     description: project.description,
     createdAt: project.createdAt,
+    revision: project.revision + 1,
     updatedAt,
   }
 }

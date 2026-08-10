@@ -15,10 +15,12 @@ import DebugPanel from './components/DebugPanel.vue'
 import RunLogPanel from './components/RunLogPanel.vue'
 import TopBar from './components/TopBar.vue'
 import CanvasNode from './components/CanvasNode.vue'
+import ExecutionEdge from './components/ExecutionEdge.vue'
 import { useAgentChat } from './composables/useAgentChat'
 import { useAssetLibrary } from './composables/useAssetLibrary'
 import { useCanvasFrames } from './composables/useCanvasFrames'
 import { useCanvasHistory } from './composables/useCanvasHistory'
+import { useCanvasPresence } from './composables/useCanvasPresence'
 import { useCanvasSelection } from './composables/useCanvasSelection'
 import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
 import { useTheme } from './composables/useTheme'
@@ -59,13 +61,49 @@ const canvasView = ref('canvas')
 const modelEditorNodeId = ref(null)
 const imagePreview = ref(null)
 const runSummaryOpen = ref(false)
+const editLockedNoticeOpen = ref(false)
+const editLockedNoticeName = ref('')
 let pendingConnection = null
+let editLockedNoticeTimer
+
+const executionEdges = computed(() => edges.value.map((edge) => ({
+  ...edge,
+  type: 'execution',
+  data: { ...edge.data, running: nodeRuns.value[edge.target]?.status === 'running' },
+})))
 
 const { fitView, screenToFlowCoordinate, updateNodeInternals, viewport } = useVueFlow()
 const { theme, resolvedTheme, setTheme } = useTheme()
+const {
+  clientId, canEdit, editorName, acquireEditLease, markEditActivity, configureIdleRelease,
+  applyPresenceEvent, canvasOpened, releasePresence,
+} = useCanvasPresence({ activeCanvas, error })
+
+function ensureEditAccess(event?: Event) {
+  if (!canEdit.value) {
+    if (editorName.value) showEditLockedNotice()
+    acquireEditLease()
+  }
+  return true
+}
+
+function showEditLockedNotice() {
+  if (!editorName.value) return
+  editLockedNoticeName.value = editorName.value
+  editLockedNoticeOpen.value = true
+  clearTimeout(editLockedNoticeTimer)
+  editLockedNoticeTimer = setTimeout(() => {
+    editLockedNoticeOpen.value = false
+    editLockedNoticeName.value = ''
+  }, 3000)
+}
+
+watch(editorName, (name) => {
+  if (name) showEditLockedNotice()
+})
 
 const {
-  clipboardFragment, selectedNodes, frameableSelectedNodes, canFrameSelection, canDissolveSelection,
+  selectedNodes, frameableSelectedNodes, canFrameSelection, canDissolveSelection,
   selectedCount, hasSelection, deleteSelected, dissolveSelectedFrames, selectAll,
   selectCanvasEdge, copySelected, pasteFragment, duplicateSelected, createCanvasFromSelection,
 } = useCanvasSelection({
@@ -80,16 +118,16 @@ const {
 })
 
 const {
-  fitFramesAfterRender, makeSelectionFrame, onCanvasPointerDown, onSelectionStart, onSelectionEnd,
+  fitFramesAfterRender, suppressFrameFit, makeSelectionFrame, onCanvasPointerDown, onSelectionStart, onSelectionEnd,
   onElementsChange, onFrameResizeStart, onFrameResizeEnd, onNodeDragStart, onNodeDragStop, autoLayout,
 } = useCanvasFrames({
   nodes,
   edges,
-  viewport,
   fitView,
   screenToFlowCoordinate,
   updateNodeInternals,
   scheduleSave: () => scheduleSave(),
+  scheduleLayoutSave: () => scheduleLayoutSave(),
   frameableSelectedNodes,
   nextNodeId,
   focusNode,
@@ -105,9 +143,9 @@ const { syncHistoryCanvas, recordHistory, undo, redo } = useCanvasHistory({
 })
 
 const {
-  hydrating, toCanvas, fromCanvas, syncCanvasSummary, loadCanvass, openCanvas, scheduleSave,
+  hydrating, toCanvas, fromCanvas, syncCanvasSummary, loadCanvass, openCanvas, scheduleSave, scheduleLayoutSave,
   flushPendingSave, saveCanvas, stopPendingSave, duplicateCanvas, deleteCanvas, createCanvas,
-  renameCanvas, exportCanvas, importCanvasFile,
+  renameCanvas, exportCanvas, importCanvasFile, refreshCanvasFromServer,
 } = useCanvasDocument({
   canvases,
   activeCanvas,
@@ -125,6 +163,7 @@ const {
   recordHistory,
   syncHistoryCanvas,
   fitFramesAfterRender,
+  suppressFrameFit,
   loadSessions: (id) => loadSessions(id),
   restoreTurns: () => restoreTurns(),
   subscribeCanvasEvents: (id) => subscribeCanvasEvents(id),
@@ -132,6 +171,11 @@ const {
   pasteFragment,
   resetWorkspace,
   closeCanvasSwitcher,
+  clientId,
+  canvasOpened,
+  releasePresence,
+  acquireEditLease,
+  markEditActivity,
 })
 
 const {
@@ -147,6 +191,16 @@ const {
   toCanvas: (canvas) => toCanvas(canvas),
   syncCanvasSummary: (canvas) => syncCanvasSummary(canvas),
   flushPendingSave: () => flushPendingSave(),
+  onCanvasEvent: applyPresenceEvent,
+  onCanvasDocumentEvent: () => refreshCanvasFromServer(),
+  clientId,
+  acquireEditLease,
+  markEditActivity,
+})
+
+configureIdleRelease({
+  flush: () => flushPendingSave({ detectChanges: true }),
+  isBusy: () => saving.value || busy.value || isRunning.value || Boolean(runningTurnId.value),
 })
 
 const { capabilitiesError, debugPanelOpen, selectedProvider, activeProvider, tripoAvailable, tripoNodeTypes, setProvider } = useDebugSettings()
@@ -607,7 +661,6 @@ useKeyboardShortcuts({
   nodeMenuOpen,
   canvasMenu,
   hasSelection,
-  clipboardFragment,
   closeImagePreview,
   closeModelEditor,
   closeCanvasSwitcher,
@@ -621,6 +674,7 @@ useKeyboardShortcuts({
   pasteFragment,
   duplicateSelected,
   deleteSelected,
+  ensureEditAccess,
 })
 
 async function handleProjectNavigation() {
@@ -642,9 +696,30 @@ function preventPageTrackpadPinchZoom(event: WheelEvent) {
   if (event.ctrlKey && !(event.target instanceof Element && event.target.closest('.flow-canvas'))) event.preventDefault()
 }
 
+async function releaseOnBlur() {
+  try {
+    await flushPendingSave({ detectChanges: true, keepalive: true })
+  } finally {
+    await releasePresence(undefined, { keepalive: true })
+  }
+}
+
+function flushWhenHidden() {
+  if (document.visibilityState === 'hidden') releaseOnBlur()
+  else refreshOnFocus()
+}
+
+function refreshOnFocus() {
+  refreshCanvasFromServer().catch((caught) => { error.value = caught.message })
+}
+
 onMounted(async () => {
   window.addEventListener('pointerdown', closeCanvasMenu)
   window.addEventListener('popstate', handleProjectNavigation)
+  window.addEventListener('blur', releaseOnBlur)
+  window.addEventListener('focus', refreshOnFocus)
+  window.addEventListener('pagehide', releaseOnBlur)
+  document.addEventListener('visibilitychange', flushWhenHidden)
   document.addEventListener('gesturestart', preventNativePinchZoom, { passive: false })
   document.addEventListener('wheel', preventPageTrackpadPinchZoom, { capture: true, passive: false })
   try {
@@ -655,8 +730,13 @@ onMounted(async () => {
 })
 onUnmounted(() => {
   stopPendingSave()
+  clearTimeout(editLockedNoticeTimer)
   window.removeEventListener('pointerdown', closeCanvasMenu)
   window.removeEventListener('popstate', handleProjectNavigation)
+  window.removeEventListener('blur', releaseOnBlur)
+  window.removeEventListener('focus', refreshOnFocus)
+  window.removeEventListener('pagehide', releaseOnBlur)
+  document.removeEventListener('visibilitychange', flushWhenHidden)
   document.removeEventListener('gesturestart', preventNativePinchZoom)
   document.removeEventListener('wheel', preventPageTrackpadPinchZoom, true)
 })
@@ -666,6 +746,9 @@ onUnmounted(() => {
 
 <template>
   <main class="app-shell">
+    <div v-if="editLockedNoticeOpen" class="edit-lock-notice" role="alert">
+      <span><strong>{{ editLockedNoticeName }}</strong> 正在编辑此画布</span>
+    </div>
     <TopBar
       v-model:switcher-open="canvasSwitcherOpen"
       :active-canvas="activeCanvas"
@@ -751,9 +834,10 @@ onUnmounted(() => {
           @select-node-type="selectNodeType"
           @drag-node-type="startNodeDrag($event.event, $event.type)"
         />
-        <VueFlow v-show="canvasView === 'canvas'" v-model:nodes="nodes" v-model:edges="edges" :class="['flow-canvas', `canvas-mode-${canvasMode}`]" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="canvasMode === 'select' ? true : null" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @viewport-change-start="dismissCanvasPopups" @pointerdown.capture="onCanvasPointerDown" @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
+        <VueFlow v-show="canvasView === 'canvas'" v-model:nodes="nodes" :edges="executionEdges" @update:edges="edges = $event" :class="['flow-canvas', `canvas-mode-${canvasMode}`]" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="canvasMode === 'select' ? true : null" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @viewport-change-start="dismissCanvasPopups" @pointerdown.capture="onCanvasPointerDown" @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
           <template #node-frame="props"><FrameNode v-bind="props" :zoom="viewport.zoom" :running="sectionIsRunning(props.id)" @update-name="updateNodeName(props.id, $event)" @resize-start="onFrameResizeStart(props.id)" @resize-end="onFrameResizeEnd" @run="runSection(props.id)" @stop-run="cancelRun" /></template>
           <template #node-canvas="props"><CanvasNode v-bind="props" :node-run="nodeRuns[props.id] || null" :run-id="run?.id || null" :run-entry-node-id="run?.entryNodeId || null" :run-mode="run?.mode || null" :run-status="run?.status || null" :inbound-type="inboundExportTarget(props.id)" :inbound-image="inboundImage(props.id)" :node-catalog="compatibleNodeTypes(props.data.canvasType)" :viewport-dismiss-version="viewportDismissVersion" @update-config="updateNodeConfig(props.id, $event)" @update-name="updateNodeName(props.id, $event)" @open-model-editor="openModelEditor(props.id)" @preview-image="openImagePreview" @add-next="addNode($event, props.id)" @run-canvas="runCanvas($event, 'node')" @run-downstream="runCanvas($event, 'downstream')" @stop-run="cancelRun" /></template>
+          <template #edge-execution="props"><ExecutionEdge v-bind="props" /></template>
           <Background :gap="24" :size="1.2" :pattern-color="resolvedTheme === 'dark' ? '#252b2c' : '#cdd2cf'" />
           <MiniMap position="bottom-right" :width="160" :height="100" :pannable="true" :zoomable="true" :mask-color="resolvedTheme === 'dark' ? 'rgba(10, 12, 12, .7)' : 'rgba(238, 241, 238, .72)'" :node-color="resolvedTheme === 'dark' ? '#606a63' : '#a6afa9'" :node-stroke-color="resolvedTheme === 'dark' ? '#929a94' : '#737d76'" :node-stroke-width="1" :node-border-radius="4" />
           <Controls position="bottom-right" />

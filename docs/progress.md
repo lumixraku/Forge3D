@@ -1,5 +1,65 @@
 # Progress
 
+## 2026-08-10 - main
+
+- Fixed the collaborative canvas save loop that shifted node positions whenever a collaborator refocused their tab. `frameInsets` folded `FRAME_TITLE_SCREEN_HEIGHT / zoom` into frame sizes and child positions, which are persisted, so two clients at different zoom levels each refit the received geometry to their own answer and saved it back. Insets and `frameComponentGap` are now zoom-independent and take no zoom argument; the four call sites in `useCanvasFrames` were updated and the now-unused `viewport` dependency was dropped from that composable and its `App.vue` call site.
+- Gated `scheduleLayoutSave` on `hasUnsavedCanvasChanges()` so applying a collaborator's canvas cannot save and broadcast a document that was only received. Re-measuring the DOM after `reconcileCanvasGraph` replaces node `data` can queue a frame fit after `suppressFrameFit` has already reopened, since Vue Flow reports dimensions through a ResizeObserver rather than the awaited ticks.
+- Replaced the `canvas-layout` test that asserted the old zoom-scaled insets with one pinning zoom independence, and added a `frame-geometry` regression test that refits geometry another client already fitted and requires `changed` to be false.
+- Verification: `pnpm test` passed 223 tests, `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. The regression test was bisected against the previous zoom-scaled `frameInsets`: it fails there once the receiving refit uses a different zoom (`frameInsets(0.72)`), which is the real-world case, and passes after the fix. Because the new signature takes no zoom, the committed test cannot express that divergence and so guards the invariant going forward rather than reproducing the original bug. The build retains the existing large-chunk warning. Not verified in a browser: the exact ResizeObserver-versus-tick ordering that makes the receive path save is read from the Vue Flow source, not observed live, so the second change is defense in depth on top of the zoom fix.
+- Remaining issues: Two focus-path items found while reading and deliberately left alone as out of scope. `refreshCanvasFromServer` has no `openToken` guard like `openCanvas`, so the `focus` and `visibilitychange` listeners can both fire on tab switch and overlap. `releaseOnBlur` drops the presence lease without reacquiring it on focus, so editing rights wait for the next `ensureEditAccess`.
+
+## 2026-08-10 - main
+
+- Fixed remote focus refreshes so replacing node configuration does not run frame fitting or respond to the transient Vue Flow dimension changes caused by re-rendering node contents. Existing viewport and layout remain untouched; initial canvas hydration keeps the repair path.
+- Verification: `pnpm test`, `pnpm typecheck`, `pnpm build`, and `git diff --check` passed.
+- Remaining issues: None.
+
+## 2026-08-10 - main
+
+- Fixed canvas stacking so the page top bar and canvas toolbar establish positioned UI layers above all Vue Flow content, with opaque toolbar chrome preventing nodes from showing through button regions.
+- Raised Section nodes above regular canvas nodes so their title and Run controls remain visible and interactive when node content overlaps the Section header.
+- Verification: `pnpm test` passed 218 tests, `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. Browser verification in the existing Chrome session confirmed the top bar and canvas toolbar have effective positioned z-index layers, hit testing resolves to their controls, and Section nodes render above regular nodes. The build retains the existing large-chunk warning; the only browser console error was an unrelated blocked Google Fonts request (`ERR_CONNECTION_CLOSED`).
+- Remaining issues: None.
+
+## 2026-08-10 - main
+
+- Added server-owned canvas revision increments and conditional snapshot replacement using `baseRevision`; stale writes now receive `409` with the current remote canvas instead of overwriting it.
+- Added durable browser workflow drafts with an immediate localStorage mirror and IndexedDB persistence, restoring and uploading a draft only when its base revision still matches the remote canvas.
+- Split saving into 700ms workflow and 10s layout schedules, retained Agent and execution flushes, and added blur flush plus focus-time remote reconciliation. Remote updates win on an actual revision conflict.
+- Fixed blur/page-hide flushing to detect an unsaved graph even if a mutation event was missed, added keepalive page-exit writes, prevented canvas switching from clearing state before flushing it, and converted Vue reactive snapshots to plain data before IndexedDB storage.
+- Verification: `pnpm test` passed 218 tests, `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. Browser verification in the existing Chrome session deleted a node, dispatched blur before the debounce completed, and confirmed a `PUT /api/canvases/:id` request; undo plus a second blur also issued the matching restore request. The build retains the existing large-chunk warning.
+- Remaining issues: None.
+
+## 2026-08-10 - main
+
+- Replaced the readable JSON canvas clipboard payload with MessagePack bytes stored only under the `web application/vnd.forge3d.canvas-fragment+msgpack` custom clipboard format, without a `text/plain` fallback.
+- Added binary decoding with the existing fragment schema and graph validation, while leaving editor paste and unrelated clipboard content unchanged.
+- Added regression coverage for binary round trips, non-readable JSON output, malformed bytes, empty fragments, and unsupported schema versions.
+- Verification: `pnpm test` passed 218 tests, `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. Browser verification in the existing Chrome session confirmed the clipboard exposed only the custom MessagePack type, contained no `text/plain`, and pasted one encoded node successfully; no console warnings or errors were reported. The build retains the existing large-chunk warning.
+- Remaining issues: Web custom clipboard formats require a supporting modern browser; this encoding hides readable structure but is intentionally not encryption.
+
+## 2026-08-10 - main
+
+- Replaced the per-tab canvas clipboard with a versioned system-clipboard fragment format, so the most recently copied selection is the single source used across browser tabs and canvases.
+- Added native paste-event parsing and validation, fresh node/edge ID remapping, inserted-selection behavior, and safeguards that leave ordinary text and editor paste unchanged.
+- Added clipboard serialization/parsing regression coverage.
+- Verification: `pnpm test` passed 218 tests, `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. Browser inspection in the existing Chrome session confirmed the app loaded without console errors and ordinary canvas paste was not intercepted; the build retains the existing large-chunk warning.
+- Remaining issues: A physical cross-tab system clipboard gesture still requires manual browser interaction because Chrome automation cannot populate the trusted OS clipboard event path.
+
+## 2026-08-10 - feat/style
+
+- Added a custom Vue Flow execution edge that overlays a bright, animated dash stream on every dependency feeding the currently running node.
+- Matched the Flora treatment by keeping a subtle pale node-colored border stationary and moving a compact white glowing point clockwise along the rounded panel perimeter, while preserving the existing card and port indicators.
+- Verification: `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. Browser inspection used the existing Chrome session at `http://localhost:5176`; a mock execution confirmed the running panel renders without the previous oversized rotating wash. The build retains the existing large-chunk warning.
+- Remaining issues: None.
+
+## 2026-08-10 - main
+
+- Fixed the light-theme refresh flash by resolving the saved theme in `index.html` before the stylesheet and Vue application load, so the `data-theme` attribute is present for the first paint.
+- Updated the browser theme-color to the light background and applied the same theme synchronously in `useTheme` before component mount.
+- Verification: `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. Browser inspection at `http://localhost:5176` confirmed the saved `light` preference, applied `light` theme, light color scheme, and `rgb(238, 241, 238)` document background. The build retains the existing large-chunk warning.
+- Remaining issues: None.
+
 ## 2026-08-07 - main
 
 - Fixed Section auto-fit scheduling so frame changes caused by layout are not treated as child changes that trigger a second global fit pass; selected Section layout now keeps unrelated Sections and their contents stable.
@@ -854,3 +914,15 @@ five nodes green, 80 credits.
   paths, and confirmed the working tree contains the intended documentation
   changes. Tests were not run because this change only reorganizes Markdown.
 - Remaining issues: None.
+## 2026-08-10 - main
+
+- Added process-local canvas edit leases with 30-second expiry, 10-second client renewal, immediate release on canvas/page exit, SSE presence updates, and lease enforcement for canvas saves and Agent edits.
+- Added edit-idle release: actual workflow changes reset a 30-second timer; after inactivity the client flushes pending changes and releases the lease. Saving, Agent turns, and canvas execution defer release until work completes. Viewing, selection, panning, zooming, and tab visibility do not count as edits.
+- Corrected focus-loss handling so window blur itself, a hidden document, and page exit each flush pending changes and send the lease `DELETE` immediately. Release now keys off the locally acquired canvas ID rather than transient SSE lease state, so blur cannot skip the request.
+- Added per-tab guest identities, read-only interaction guards, current-editor status, and a dismissible top notice naming the active editor.
+- Limited the active-editor notice to three seconds per display, including when a user attempts a blocked edit; its timer is cleared when the app unmounts.
+- Changed presence from an edit lock to an advisory signal: another editor triggers the three-second notice but no longer blocks canvas interaction, rename, saves, or Agent messages. Revision checks still return `409` for genuinely stale snapshots.
+- Kept the advisory editor notice visible for the full three-second duration by removing its immediate close action and storing the detected editor name separately from live presence; a chained release event can no longer unmount the notice early.
+- Verification: `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. The build retains the existing large-chunk warning.
+- Verification: `pnpm test` passed 219 tests, `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. Focus-loss correction was rechecked with `pnpm test`, `pnpm typecheck`, and `git diff --check`. The build retains the existing large-chunk warning. Browser re-verification was blocked because the existing localhost Chrome tabs stopped responding to Chrome MCP reload and snapshot requests.
+- Remaining issues: Process-local leases require shared TTL storage for multi-instance deployment; complete the two-tab 30-second idle handoff check when the existing Chrome session responds.

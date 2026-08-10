@@ -77,13 +77,15 @@ test('separates independent canvas components', async () => {
   assert.equal(overlaps(nodes[0], nodes[2], positions), false)
 })
 
-test('keeps frame title space constant across viewport zoom levels', () => {
-  for (const zoom of [0.5, 1, 2]) {
-    const insets = frameInsets(zoom)
-    assert.equal((insets.top - FRAME_PADDING) * zoom, FRAME_TITLE_SCREEN_HEIGHT)
-    assert.equal(insets.bottom, FRAME_PADDING)
-    assert.equal((frameComponentGap(zoom) - insets.top - insets.bottom - 32) * zoom, FRAME_TITLE_SCREEN_HEIGHT)
-  }
+// Insets feed persisted geometry, so they must not vary with the local viewport:
+// collaborators at different zoom levels would each refit to their own answer and
+// bounce the canvas back and forth. Callers pass no zoom at all now.
+test('reserves frame title space independent of viewport zoom', () => {
+  const insets = frameInsets()
+  assert.equal(insets.top - FRAME_PADDING, FRAME_TITLE_SCREEN_HEIGHT)
+  assert.equal(insets.bottom, FRAME_PADDING)
+  assert.equal(frameComponentGap() - insets.top - insets.bottom - 32, FRAME_TITLE_SCREEN_HEIGHT)
+  for (const zoom of [0.5, 1, 2]) assert.deepEqual(frameInsets(zoom), insets)
 })
 
 test('ignores missing endpoints and handles cycles deterministically', async () => {

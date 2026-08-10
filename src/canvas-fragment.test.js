@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildFragment, remapFragment } from './canvas-fragment.js'
+import { buildFragment, parseFragment, remapFragment, serializeFragment } from './canvas-fragment.js'
 import { toCanvasGraph } from './canvas-graph.js'
 
 function node(id, x, y, parentFrameId) {
@@ -51,4 +51,28 @@ test('copying root nodes offsets the roots without changing their relative layou
     { source: pasted.edges[0].source.nodeId, target: pasted.edges[0].target.nodeId },
     { source: pasted.nodes[0].id, target: pasted.nodes[1].id },
   )
+})
+
+test('clipboard fragments round-trip through the binary system clipboard format', () => {
+  const canvas = {
+    id: 'canvas',
+    revision: 1,
+    name: 'Canvas',
+    nodes: [node('first', 120, 80), node('second', 420, 140)],
+    edges: [{ id: 'edge', source: { nodeId: 'first', port: 'output' }, target: { nodeId: 'second', port: 'input' } }],
+  }
+  const fragment = buildFragment(canvas, new Set(['first', 'second']), 'Nodes')
+
+  const serialized = serializeFragment(fragment)
+
+  assert.ok(serialized instanceof Uint8Array)
+  assert.equal(new TextDecoder().decode(serialized).includes('"kind":"canvas-fragment"'), false)
+  assert.deepEqual(parseFragment(serialized), fragment)
+})
+
+test('clipboard parsing ignores ordinary or invalid clipboard content', () => {
+  assert.equal(parseFragment(new TextEncoder().encode('ordinary text')), null)
+  assert.equal(parseFragment(Uint8Array.from([0xde, 0xad, 0xbe, 0xef])), null)
+  assert.equal(parseFragment(serializeFragment({ kind: 'canvas-fragment', schemaVersion: '1.0', nodes: [], edges: [] })), null)
+  assert.equal(parseFragment(serializeFragment({ kind: 'canvas-fragment', schemaVersion: '2.0', nodes: [node('first', 0, 0)], edges: [] })), null)
 })

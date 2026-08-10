@@ -123,6 +123,35 @@
   button:disabled { cursor: not-allowed; opacity: .45; }
 }
 
+.edit-lock-notice {
+  position: fixed;
+  z-index: 1000;
+  top: 16px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 300px;
+  padding: 12px 12px 12px 16px;
+  transform: translateX(-50%);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-popover);
+  font-size: 13px;
+}
+
+.edit-lock-notice button {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+}
+
 @layer components {
   .panel {
     background: var(--bg-card);
@@ -224,7 +253,7 @@
 }
 
 .app-shell { display: grid; grid-template-rows: 68px minmax(0, 1fr); width: 100%; height: 100%; background: var(--bg-primary); transition: background .2s ease; }
-.topbar { z-index: 10; display: grid; grid-template-columns: 350px 1fr auto; align-items: center; border-bottom: 1px solid var(--line); background: var(--bg-tertiary); transition: background .2s ease, border-color .2s ease; }
+.topbar { position: relative; z-index: 10; display: grid; grid-template-columns: 350px 1fr auto; align-items: center; border-bottom: 1px solid var(--line); background: var(--bg-tertiary); transition: background .2s ease, border-color .2s ease; }
 .brand-lockup { display: flex; align-items: center; gap: 12px; height: 100%; padding: 0 18px; border-right: 1px solid var(--line); }
 .brand-mark { display: grid; width: 35px; height: 35px; place-items: center; border-radius: 10px; background: var(--acid); color: var(--text-inverse); font: 600 12px var(--font-mono); transition: transform .15s ease, box-shadow .15s ease; }
 .brand-lockup:hover .brand-mark { transform: scale(1.04); box-shadow: 0 0 0 3px color-mix(in srgb, var(--acid) 20%, transparent); }
@@ -404,7 +433,7 @@
 .composer-attachment img, .composer-attachment-icon { display: grid; width: 19px; height: 19px; margin-right: 5px; place-items: center; border-radius: 5px; object-fit: cover; background: var(--bg-active); font-size: 11px; }
 .composer-attachment-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .canvas-panel { display: grid; grid-template-rows: 62px minmax(0, 1fr) auto 27px; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg-secondary); transition: background .2s ease; }
-.canvas-toolbar { z-index: 5; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.canvas-toolbar { position: relative; z-index: 5; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--bg-secondary); }
 .canvas-toolbar b { display: block; margin-top: 3px; color: var(--text-secondary); font: 500 10px var(--font-mono); }
 .canvas-toolbar > div:last-child { display: flex; gap: 5px; overflow: visible; }
 .canvas-toolbar button { min-width: 30px; height: 30px; padding: 0 9px; border: 1px solid var(--line-subtle); border-radius: 6px; background: var(--bg-input); color: var(--text-muted); font: 500 10px var(--font-mono); transition: border-color .15s ease, background .15s ease, color .15s ease; }
@@ -489,7 +518,7 @@
 .frame-name-input, .node-name-input { min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; caret-color: var(--acid); }
 .frame-name-input { width: min(260px, calc(100% - 58px)); }
 .canvas-frame p { margin: 5px 0 0 55px; color: var(--text-muted); font-size: 10px; }
-.vue-flow__node-frame { z-index: 0 !important; }
+.vue-flow__node-frame { z-index: 2 !important; }
 .vue-flow__node-canvas { z-index: 1 !important; }
 .canvas-node { position: relative; width: 260px; padding: 13px 14px 11px; border: 1px solid var(--node-accent); border-radius: 10px; background: color-mix(in srgb, var(--bg-input) 97%, transparent); box-shadow: var(--shadow-lg); transition: border-color .15s ease, box-shadow .15s ease; }
 .canvas-node:hover { border-color: color-mix(in srgb, var(--node-accent) 72%, var(--line-strong)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--node-accent) 28%, transparent), var(--shadow-lg); }
@@ -503,7 +532,12 @@
 .node-status.failed { border-color: var(--status-failed); background: var(--status-failed); box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-failed) 16%, transparent); }
 .node-status.waiting_review { border-color: #a78bfa; background: #a78bfa; box-shadow: 0 0 0 3px color-mix(in srgb, #a78bfa 16%, transparent); }
 .canvas-node.is-running { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--node-accent) 45%, transparent), var(--shadow-lg); }
-.canvas-node.is-executing { border-color: var(--node-accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--node-accent) 65%, transparent), 0 0 0 3px color-mix(in srgb, var(--node-accent) 18%, transparent), var(--shadow-lg); }
+.canvas-node.is-executing { border-color: transparent; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--node-accent) 18%, transparent), 0 0 12px color-mix(in srgb, var(--node-accent) 18%, transparent), var(--shadow-lg); }
+.node-execution-border { position: absolute; z-index: 8; inset: -7px; width: calc(100% + 14px); height: calc(100% + 14px); overflow: visible; pointer-events: none; }
+.node-execution-border rect { x: 7px; y: 7px; width: calc(100% - 14px); height: calc(100% - 14px); rx: 10px; fill: none; stroke: var(--node-accent); stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.node-execution-border-base { stroke: color-mix(in srgb, var(--node-accent) 48%, white 52%) !important; stroke-width: 1.5; opacity: .72; filter: drop-shadow(0 0 3px color-mix(in srgb, var(--node-accent) 30%, transparent)); }
+.node-execution-border-glow { stroke: white !important; stroke-width: 9; stroke-dasharray: 2.5 197.5; opacity: .55; filter: blur(5px); animation: node-execution-border 2.4s linear infinite; }
+.node-execution-border-point { stroke: white !important; stroke-width: 4; stroke-dasharray: 1.2 198.8; filter: drop-shadow(0 0 2px white) drop-shadow(0 0 6px white) drop-shadow(0 0 10px var(--node-accent)); animation: node-execution-border 2.4s linear infinite; }
 .canvas-node.is-executing .node-status { animation: node-executing-pulse 1s ease-in-out infinite; }
 .canvas-node.is-failed { border-color: var(--status-failed); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-failed) 30%, transparent), var(--shadow-lg), 0 0 22px color-mix(in srgb, var(--status-failed) 14%, transparent); }
 .canvas-node.is-failed::after { position: absolute; z-index: 3; top: -7px; right: -7px; display: grid; width: 18px; height: 18px; place-items: center; border: 2px solid var(--bg-primary); border-radius: 50%; background: var(--status-failed); color: var(--bg-primary); content: '!'; font: 700 11px/1 var(--font-mono); }
@@ -557,6 +591,7 @@
 .approve-check.approved { border-color: var(--status-succeeded); background: color-mix(in srgb, var(--status-succeeded) 14%, var(--bg-input)); color: var(--status-succeeded); }
 @keyframes node-running { to { transform: rotate(360deg); } }
 @keyframes node-executing-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--status-running) 4%, transparent); transform: scale(1.1); } }
+@keyframes node-execution-border { to { stroke-dashoffset: -200; } }
 @keyframes node-output-scan { 50% { inset: 15px; opacity: .45; } }
 @keyframes node-progress-indeterminate { from { transform: translateX(-110%); } to { transform: translateX(340%); } }
 .node-editor { display: grid; gap: 9px; margin-bottom: 12px; padding: 10px; border: 1px solid var(--line-subtle); border-radius: 8px; background: var(--bg-input); transition: border-color .15s ease; }
@@ -648,7 +683,7 @@
 .node-pulse { width: 5px; height: 5px; border-radius: 50%; background: var(--node-accent); }
 .canvas-node.is-running .node-pulse { animation: node-pulse 1s ease-in-out infinite; }
 @keyframes node-pulse { 50% { opacity: .25; transform: scale(.7); } }
-@media (prefers-reduced-motion: reduce) { .node-run-state.running .node-run-indicator, .canvas-node.is-running .node-pulse, .node-progress.indeterminate > span::after, .canvas-node.is-executing .vue-flow__handle.canvas-handle.output-handle::before, .canvas-node.is-executing .vue-flow__handle.canvas-handle.output-handle::after { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .node-run-state.running .node-run-indicator, .canvas-node.is-running .node-pulse, .node-progress.indeterminate > span::after, .node-execution-border rect, .canvas-node.is-executing .vue-flow__handle.canvas-handle.output-handle::before, .canvas-node.is-executing .vue-flow__handle.canvas-handle.output-handle::after, .execution-edge-flow { animation: none; } }
 .vue-flow__handle.canvas-handle { z-index: 6; width: 36px; height: 36px; border: 0; background: transparent; }
 /* Vue Flow adds a `vue-flow__handle-<id>` class per handle, so ports named left/right
    collide with its own position classes. Pin the side by our own input/output class. */
@@ -684,6 +719,8 @@
 .node-next-menu button:hover { border-color: var(--line-strong); background: var(--bg-input-hover); }
 .node-next-menu span { font: 500 10px var(--font-sans); }.node-next-menu small { margin-top: 2px; color: var(--text-muted); font: 400 8px var(--font-mono); }
 .vue-flow__edge-path { stroke: #535a56; stroke-width: 1.6; transition: stroke .15s ease, stroke-width .15s ease; }
+.execution-edge-flow { fill: none; stroke: var(--acid); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 10 58; filter: drop-shadow(0 0 4px var(--acid)) drop-shadow(0 0 9px color-mix(in srgb, var(--acid) 65%, transparent)); animation: execution-edge-flow 1.05s linear infinite; pointer-events: none; }
+@keyframes execution-edge-flow { to { stroke-dashoffset: -68; } }
 .vue-flow__edge { cursor: pointer; }
 .vue-flow__edge:hover .vue-flow__edge-path { stroke: color-mix(in srgb, var(--acid) 70%, #535a56); stroke-width: 2.6; }
 .vue-flow__edge.selected .vue-flow__edge-path { stroke: var(--acid); stroke-width: 3; }

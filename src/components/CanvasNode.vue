@@ -170,6 +170,11 @@ function loadMockImage(file: File) {
 
 <template>
   <article class="canvas-node" :class="[`tone-${data.tone}`, `is-${runtimeStatus}`, { selected, 'is-executing': isExecuting }]">
+    <svg v-if="isExecuting" class="node-execution-border" aria-hidden="true">
+      <rect class="node-execution-border-base" pathLength="200" />
+      <rect class="node-execution-border-glow" pathLength="200" />
+      <rect class="node-execution-border-point" pathLength="200" />
+    </svg>
     <div class="node-external-title">
       <span class="node-icon">{{ data.kind.slice(0, 1) }}</span>
       <input v-if="editingName" ref="nameInput" v-model="draftName" class="node-name-input nodrag nopan" aria-label="Node name" @click.stop @dblclick.stop @pointerdown.stop @keydown.enter.prevent="saveName" @keydown.esc.prevent="cancelNameEdit" @blur="saveName" />

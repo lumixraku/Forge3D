@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { toCanvasGraph, toDomainCanvas } from './canvas-graph.js'
+import { reconcileCanvasGraph, toCanvasGraph, toDomainCanvas } from './canvas-graph.js'
 
 const node = (id, type) => ({ id, type, name: id, config: {}, ui: { position: { x: 0, y: 0 } } })
 
@@ -60,4 +60,45 @@ test('does not render connections from a terminal node', () => {
   }
 
   assert.deepEqual(toCanvasGraph(canvas).edges, [])
+})
+
+test('patches parameter-only updates without replacing positioned graph objects', () => {
+  const canvas = {
+    id: 'canvas',
+    name: 'Canvas',
+    nodes: [
+      { ...node('frame', 'frame'), config: { description: 'before' }, ui: { position: { x: 10, y: 20 }, size: { width: 900, height: 600 } } },
+      { ...node('model', 'generate-model'), config: { texture: true }, ui: { position: { x: 30, y: 40 }, parentFrameId: 'frame' } },
+    ],
+    edges: [],
+  }
+  const graph = toCanvasGraph(canvas)
+  const frame = graph.nodes[0]
+  const model = graph.nodes[1]
+  frame.dimensions = { width: 900, height: 600 }
+  const updated = structuredClone(canvas)
+  updated.nodes[1].config.texture = false
+
+  const reconciled = reconcileCanvasGraph(graph.nodes, graph.edges, toCanvasGraph(updated))
+  assert.equal(reconciled.nodes[0], frame)
+  assert.equal(reconciled.nodes[1], model)
+  assert.equal(model.data.config.texture, false)
+  assert.deepEqual(model.position, { x: 30, y: 40 })
+})
+
+test('reconciles additions and moves without replacing existing nodes', () => {
+  const canvas = { id: 'canvas', name: 'Canvas', nodes: [node('model', 'generate-model')], edges: [] }
+  const graph = toCanvasGraph(canvas)
+  const model = graph.nodes[0]
+  model.dimensions = { width: 320, height: 240 }
+  const updated = structuredClone(canvas)
+  updated.nodes[0].ui.position.x = 10
+  updated.nodes.push(node('export', 'export-model'))
+
+  const reconciled = reconcileCanvasGraph(graph.nodes, graph.edges, toCanvasGraph(updated))
+
+  assert.equal(reconciled.nodes[0], model)
+  assert.deepEqual(model.position, { x: 10, y: 0 })
+  assert.deepEqual(model.dimensions, { width: 320, height: 240 })
+  assert.equal(reconciled.nodes[1].id, 'export')
 })

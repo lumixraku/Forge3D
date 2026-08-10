@@ -4,16 +4,17 @@ import { frameComponentGap, frameInsets, layoutSelection } from '../canvas-layou
 
 // Frames (sections) are plain Vue Flow parent nodes, so their size and their
 // children's parentage are maintained here in response to canvas interaction.
-export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowCoordinate, updateNodeInternals, scheduleSave, frameableSelectedNodes, nextNodeId, focusNode }) {
+export function useCanvasFrames({ nodes, edges, fitView, screenToFlowCoordinate, updateNodeInternals, scheduleSave, scheduleLayoutSave, frameableSelectedNodes, nextNodeId, focusNode }) {
   let frameFitQueued = false
   let frameFitShouldSave = false
+  let frameFitSuppressed = false
   let dragging = false
   let resizingFrameId = null
   let marqueeSelecting = false
   let marqueeStartedInFrame = false
 
   function fitFrames() {
-    const fitted = fitFrameNodes(nodes.value, frameInsets(viewport.value.zoom))
+    const fitted = fitFrameNodes(nodes.value, frameInsets())
     if (fitted.changed) nodes.value = fitted.nodes
     return fitted.changed
   }
@@ -28,7 +29,7 @@ export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowC
       frameFitShouldSave = false
       await new Promise((resolve) => requestAnimationFrame(resolve))
       await nextTick()
-      if (fitFrames() && shouldSave) scheduleSave()
+      if (fitFrames() && shouldSave) scheduleLayoutSave()
     })
   }
 
@@ -40,7 +41,7 @@ export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowC
     // Handles use dynamic per-port positions, so refresh their measured bounds
     // after the DOM settles or edges connect to stale points.
     updateNodeInternals()
-    if (changed && persist) scheduleSave()
+    if (changed && persist) scheduleLayoutSave()
     return changed
   }
 
@@ -49,7 +50,7 @@ export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowC
     if (!selected.length) return
 
     const frameId = nextNodeId('frame')
-    nodes.value = buildSelectionFrame(nodes.value, selected, { insets: frameInsets(viewport.value.zoom), frameId })
+    nodes.value = buildSelectionFrame(nodes.value, selected, { insets: frameInsets(), frameId })
     edges.value = edges.value.map((edge) => ({ ...edge, selected: false }))
     scheduleSave()
     focusNode(frameId)
@@ -81,6 +82,7 @@ export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowC
         })
       }
     }
+    if (frameFitSuppressed) return
     const hasDimensions = changes.some((change) => change.type === 'dimensions' && change.id !== resizingFrameId)
     // Resize frames to their children only once settled: on a node's own size change,
     // or on a position change that is NOT part of an in-flight drag. While the mouse is
@@ -91,6 +93,14 @@ export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowC
     if (changes.some((change) => change.type === 'remove')) scheduleSave()
   }
 
+  function suppressFrameFit(value) {
+    frameFitSuppressed = value
+    if (value) {
+      frameFitQueued = false
+      frameFitShouldSave = false
+    }
+  }
+
   function onFrameResizeStart(id) {
     resizingFrameId = id
     nodes.value = nodes.value.map((node) => node.id === id ? { ...node, data: { ...node.data, manualSize: true } } : node)
@@ -98,7 +108,7 @@ export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowC
 
   function onFrameResizeEnd() {
     resizingFrameId = null
-    scheduleSave()
+    scheduleLayoutSave()
   }
 
   function onNodeDragStart() {
@@ -112,26 +122,28 @@ export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowC
     if (adopted.changed) nodes.value = adopted.nodes
     dragging = false
     fitFrames()
-    scheduleSave()
+    if (reparented.changed || adopted.changed) scheduleSave()
+    else scheduleLayoutSave()
   }
 
   async function autoLayout({ persist = true } = {}) {
     const { positions, fitFrameIds } = await layoutSelection(nodes.value, edges.value, {
-      componentGap: frameComponentGap(viewport.value.zoom),
+      componentGap: frameComponentGap(),
     })
     nodes.value = nodes.value.map((node) => positions.has(node.id) ? { ...node, position: positions.get(node.id) } : node)
     if (fitFrameIds.size) {
-      const fitted = fitFrameNodes(nodes.value, frameInsets(viewport.value.zoom), fitFrameIds)
+      const fitted = fitFrameNodes(nodes.value, frameInsets(), fitFrameIds)
       if (fitted.changed) nodes.value = fitted.nodes
     }
     await nextTick()
     updateNodeInternals()
     fitView({ padding: 0.18, duration: 500 })
-    if (persist) scheduleSave()
+    if (persist) scheduleLayoutSave()
   }
 
   return {
     fitFramesAfterRender,
+    suppressFrameFit,
     makeSelectionFrame,
     onCanvasPointerDown,
     onSelectionStart,

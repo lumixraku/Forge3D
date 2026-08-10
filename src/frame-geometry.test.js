@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { adoptNodesCoveredByDraggedFrames, applyLayoutPositions, buildSelectionFrame, fitFrameNodes, pointInAnyFrame, reparentDraggedNodes } from './frame-geometry.js'
+import { frameInsets } from './canvas-layout.js'
 
 const insets = { left: 10, right: 20, top: 30, bottom: 40 }
 
@@ -124,4 +125,21 @@ test('anchors frames to their laid out children and keeps children local', () =>
   assert.equal(laidOutFrame.style.width, '290px')
   assert.deepEqual(child.position, { x: 10, y: 30 })
   assert.deepEqual(root.position, { x: 40, y: 60 })
+})
+
+// A client that receives another client's canvas refits it locally. That refit
+// must agree with what arrived, or `changed` is true, the receiver saves, the
+// sender refits and saves back, and the canvas ping-pongs forever. Insets are
+// zoom-independent (see canvas-layout) precisely so this holds.
+test('refitting geometry another client already fitted reports no change', () => {
+  const sent = fitFrameNodes(
+    [frame('f', { x: 0, y: 0 }, 900, 600), node('child', { x: 100, y: 100 }, {}, { parentNode: 'f' })],
+    frameInsets(),
+  )
+  assert.equal(sent.changed, true)
+
+  const received = fitFrameNodes(structuredClone(sent.nodes), frameInsets())
+
+  assert.equal(received.changed, false)
+  assert.deepEqual(received.nodes[1].position, sent.nodes[1].position)
 })

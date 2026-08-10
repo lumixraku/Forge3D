@@ -1,4 +1,22 @@
+import { decode, encode } from '@msgpack/msgpack'
 import { nodeSize } from './frame-geometry'
+
+export const CLIPBOARD_MIME = 'web application/vnd.forge3d.canvas-fragment+msgpack'
+
+export function serializeFragment(fragment) {
+  return encode(fragment)
+}
+
+export function parseFragment(bytes) {
+  try {
+    const fragment = decode(bytes)
+    if (fragment?.kind !== 'canvas-fragment' || fragment?.schemaVersion !== '1.0' || !Array.isArray(fragment.nodes) || !Array.isArray(fragment.edges)) return null
+    validateImportedCanvas(fragment)
+    return fragment.nodes.length ? fragment : null
+  } catch {
+    return null
+  }
+}
 
 // A fragment is a self-contained, position-normalized slice of a canvas: the
 // selected nodes, the edges between them, and the ports that crossed the cut.

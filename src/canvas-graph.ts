@@ -1,7 +1,7 @@
 import { canConnectNodeTypes, canConnectPorts, nodeCatalog, nodeDefinition, nodeDisplayName, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
 import { normalizeNodeConfig } from './canvas-schema'
 
-export const edgeDefaults = { selectable: true }
+export const edgeDefaults = { selectable: true, type: 'execution' }
 export const nodePresentation = Object.fromEntries(nodeCatalog.map((node) => [node.type, [node.presentation.kind, node.presentation.detail, node.presentation.tone]]))
 
 // Turn a stored canvas document into the { nodes, edges } pair Vue Flow renders.
@@ -73,6 +73,33 @@ export function toCanvasGraph(canvas) {
     })
     .filter(Boolean)
 
+  return { nodes, edges }
+}
+
+export function reconcileCanvasGraph(currentNodes, currentEdges, nextGraph) {
+  const currentNodeById = new Map(currentNodes.map((node) => [node.id, node]))
+  const currentEdgeById = new Map(currentEdges.map((edge) => [edge.id, edge]))
+  const nodes = nextGraph.nodes.map((next) => {
+    const current = currentNodeById.get(next.id)
+    if (!current || current.type !== next.type) return next
+    current.position = next.position
+    current.parentNode = next.parentNode
+    current.width = next.width
+    current.height = next.height
+    current.style = next.style
+    current.data = next.data
+    return current
+  })
+  const edges = nextGraph.edges.map((next) => {
+    const current = currentEdgeById.get(next.id)
+    if (!current) return next
+    current.source = next.source
+    current.target = next.target
+    current.sourceHandle = next.sourceHandle
+    current.targetHandle = next.targetHandle
+    current.data = next.data
+    return current
+  })
   return { nodes, edges }
 }
 
