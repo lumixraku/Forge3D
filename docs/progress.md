@@ -1,5 +1,12 @@
 # Progress
 
+## 2026-08-10 - feat/style
+
+- Added a custom Vue Flow execution edge that overlays a bright, animated dash stream on every dependency feeding the currently running node.
+- Matched the Flora treatment by keeping a subtle pale node-colored border stationary and moving a compact white glowing point clockwise along the rounded panel perimeter, while preserving the existing card and port indicators.
+- Verification: `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. Browser inspection used the existing Chrome session at `http://localhost:5176`; a mock execution confirmed the running panel renders without the previous oversized rotating wash. The build retains the existing large-chunk warning.
+- Remaining issues: None.
+
 ## 2026-08-10 - main
 
 - Fixed the light-theme refresh flash by resolving the saved theme in `index.html` before the stylesheet and Vue application load, so the `data-theme` attribute is present for the first paint.

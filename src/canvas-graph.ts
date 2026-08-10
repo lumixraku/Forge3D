@@ -1,7 +1,7 @@
 import { canConnectNodeTypes, canConnectPorts, nodeCatalog, nodeDefinition, nodeDisplayName, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
 import { normalizeNodeConfig } from './canvas-schema'
 
-export const edgeDefaults = { selectable: true }
+export const edgeDefaults = { selectable: true, type: 'execution' }
 export const nodePresentation = Object.fromEntries(nodeCatalog.map((node) => [node.type, [node.presentation.kind, node.presentation.detail, node.presentation.tone]]))
 
 // Turn a stored canvas document into the { nodes, edges } pair Vue Flow renders.
