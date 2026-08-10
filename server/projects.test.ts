@@ -34,7 +34,7 @@ test('canvas replacement preserves project-owned metadata', () => {
     description: 'Stale description',
     createdAt: '2000-01-01T00:00:00.000Z',
     updatedAt: '2000-01-01T00:00:00.000Z',
-    revision: 4,
+    revision: 99,
     nodes: [{ id: 'next' }],
     edges: [],
     viewport: { x: 10, y: 20, zoom: 2 },

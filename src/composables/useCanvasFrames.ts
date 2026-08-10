@@ -4,7 +4,7 @@ import { frameComponentGap, frameInsets, layoutSelection } from '../canvas-layou
 
 // Frames (sections) are plain Vue Flow parent nodes, so their size and their
 // children's parentage are maintained here in response to canvas interaction.
-export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowCoordinate, updateNodeInternals, scheduleSave, frameableSelectedNodes, nextNodeId, focusNode }) {
+export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowCoordinate, updateNodeInternals, scheduleSave, scheduleLayoutSave, frameableSelectedNodes, nextNodeId, focusNode }) {
   let frameFitQueued = false
   let frameFitShouldSave = false
   let dragging = false
@@ -28,7 +28,7 @@ export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowC
       frameFitShouldSave = false
       await new Promise((resolve) => requestAnimationFrame(resolve))
       await nextTick()
-      if (fitFrames() && shouldSave) scheduleSave()
+      if (fitFrames() && shouldSave) scheduleLayoutSave()
     })
   }
 
@@ -40,7 +40,7 @@ export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowC
     // Handles use dynamic per-port positions, so refresh their measured bounds
     // after the DOM settles or edges connect to stale points.
     updateNodeInternals()
-    if (changed && persist) scheduleSave()
+    if (changed && persist) scheduleLayoutSave()
     return changed
   }
 
@@ -98,7 +98,7 @@ export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowC
 
   function onFrameResizeEnd() {
     resizingFrameId = null
-    scheduleSave()
+    scheduleLayoutSave()
   }
 
   function onNodeDragStart() {
@@ -112,7 +112,8 @@ export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowC
     if (adopted.changed) nodes.value = adopted.nodes
     dragging = false
     fitFrames()
-    scheduleSave()
+    if (reparented.changed || adopted.changed) scheduleSave()
+    else scheduleLayoutSave()
   }
 
   async function autoLayout({ persist = true } = {}) {
@@ -127,7 +128,7 @@ export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowC
     await nextTick()
     updateNodeInternals()
     fitView({ padding: 0.18, duration: 500 })
-    if (persist) scheduleSave()
+    if (persist) scheduleLayoutSave()
   }
 
   return {

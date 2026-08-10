@@ -269,7 +269,10 @@ test('PUT keeps the project identity and overwrites only the document', async ()
   const saved = await api(`/api/canvases/${created.body.id}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ ...before.canvas, name: 'ignored', description: 'ignored', nodes: [], edges: [] }),
+    body: JSON.stringify({
+      baseRevision: before.canvas.revision,
+      canvas: { ...before.canvas, name: 'ignored', description: 'ignored', nodes: [], edges: [] },
+    }),
   })
   assert.equal(saved.status, 200)
   // Name and description live on the project, so a canvas save cannot change them.
@@ -277,6 +280,15 @@ test('PUT keeps the project identity and overwrites only the document', async ()
   assert.equal(saved.body.description, before.canvas.description)
   assert.equal(saved.body.nodes.length, 0)
   assert.equal(saved.body.createdAt, before.canvas.createdAt)
+  assert.equal(saved.body.revision, before.canvas.revision + 1)
+
+  const conflict = await api(`/api/canvases/${created.body.id}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ baseRevision: before.canvas.revision, canvas: before.canvas }),
+  })
+  assert.equal(conflict.status, 409)
+  assert.equal(conflict.body.canvas.revision, saved.body.revision)
 })
 
 test('duplicating a project copies the graph and resets the revision', async () => {

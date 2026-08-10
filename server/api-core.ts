@@ -472,7 +472,13 @@ export function createApi({ createContext }) {
     if (method === 'PUT' && parts[1] === 'canvases' && parts.length === 3) {
       const index = state.canvases.findIndex((canvas) => canvas.id === parts[2])
       if (index < 0) return json({ error: 'Canvas not found' }, 404)
-      state.canvases[index] = replaceCanvasDocument(state.canvases[index], await parseJson(request), parts[2], new Date().toISOString())
+      const input = await parseJson(request)
+      if (!Number.isInteger(input.baseRevision)) return json({ error: 'baseRevision is required' }, 400)
+      if (!input.canvas || typeof input.canvas !== 'object') return json({ error: 'canvas is required' }, 400)
+      if (input.baseRevision !== state.canvases[index].revision) {
+        return json({ error: 'Canvas was updated elsewhere', canvas: state.canvases[index] }, 409)
+      }
+      state.canvases[index] = replaceCanvasDocument(state.canvases[index], input.canvas, parts[2], new Date().toISOString())
       await store.persist(['canvases'])
       return json(state.canvases[index])
     }

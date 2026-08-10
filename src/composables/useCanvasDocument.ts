@@ -2,6 +2,10 @@ import { ref } from 'vue'
 import { request } from '../api'
 import { toCanvasGraph, toDomainCanvas } from '../canvas-graph'
 import { importPlacementOffset, validateImportedCanvas } from '../canvas-fragment'
+import { deleteWorkflowDraft, readWorkflowDraft, writeWorkflowDraft } from '../workflow-draft'
+
+const WORKFLOW_SAVE_DELAY_MS = 700
+const LAYOUT_SAVE_DELAY_MS = 10000
 
 // Owns the loaded canvas document: hydrating it onto the canvas, folding the
 // canvas back into it, the debounced save queue, and the canvas library CRUD.
@@ -13,7 +17,6 @@ export function useCanvasDocument({
   edges,
   run,
   nodeRuns,
-  busy,
   error,
   saving,
   savedState,
@@ -31,9 +34,12 @@ export function useCanvasDocument({
   closeCanvasSwitcher,
 }) {
   const hydrating = ref(false)
-  let saveTimer
+  const workflowDirty = ref(false)
+  let workflowSaveTimer
+  let layoutSaveTimer
   let savePromise = null
   let pendingSaveSnapshot = null
+  let localSequence = 0
   let openToken = 0
 
   async function toCanvas(canvas) {
@@ -49,6 +55,20 @@ export function useCanvasDocument({
 
   function fromCanvas() {
     return toDomainCanvas(activeCanvas.value, nodes.value, edges.value)
+  }
+
+  async function restoreWorkflowDraft(remoteCanvas) {
+    const draft = await readWorkflowDraft(remoteCanvas.id).catch(() => null)
+    if (!draft) return remoteCanvas
+    if (draft.baseRevision !== remoteCanvas.revision) {
+      await deleteWorkflowDraft(remoteCanvas.id).catch(() => {})
+      return remoteCanvas
+    }
+    localSequence = Math.max(localSequence, draft.localSequence || 0)
+    workflowDirty.value = true
+    pendingSaveSnapshot = { ...draft.canvas, revision: remoteCanvas.revision }
+    savedState.value = 'Unsaved changes'
+    return { ...draft.canvas, revision: remoteCanvas.revision }
   }
 
   async function loadCanvasList() {
@@ -76,9 +96,9 @@ export function useCanvasDocument({
 
   async function openCanvas(id, { replaceHistory = false } = {}) {
     const token = ++openToken
-    resetWorkspace()
     if (activeCanvas.value && activeCanvas.value.id !== id) await flushPendingSave()
     if (token !== openToken) return
+    resetWorkspace()
     closeCanvasEvents()
     runToken.value += 1
     error.value = ''
@@ -88,11 +108,12 @@ export function useCanvasDocument({
       loadSessions(id),
     ])
     if (token !== openToken) return
-    activeCanvas.value = data.canvas
+    activeCanvas.value = await restoreWorkflowDraft(data.canvas)
     activeSession.value = session
     run.value = null
     nodeRuns.value = data.nodeRuns || {}
-    await toCanvas(data.canvas)
+    await toCanvas(activeCanvas.value)
+    if (workflowDirty.value) await flushPendingSave()
     if (token !== openToken) return
     await restoreTurns()
     if (token !== openToken) return
@@ -105,56 +126,112 @@ export function useCanvasDocument({
     window.history[replaceHistory ? 'replaceState' : 'pushState']({}, '', path)
   }
 
-  function scheduleSave() {
-    if (!activeCanvas.value || busy.value || hydrating.value) return
+  function markWorkflowDirty() {
+    if (!activeCanvas.value || hydrating.value) return false
     recordHistory()
+    workflowDirty.value = true
     savedState.value = 'Unsaved changes'
-    clearTimeout(saveTimer)
-    saveTimer = setTimeout(() => {
-      saveTimer = null
-      saveCanvas(fromCanvas())
-    }, 700)
+    pendingSaveSnapshot = { ...fromCanvas(), revision: activeCanvas.value.revision }
+    writeWorkflowDraft({
+      schemaVersion: 1,
+      canvasId: activeCanvas.value.id,
+      baseRevision: activeCanvas.value.revision,
+      localSequence: ++localSequence,
+      updatedAt: new Date().toISOString(),
+      canvas: pendingSaveSnapshot,
+    }).catch(() => {})
+    return true
   }
 
-  async function flushPendingSave() {
-    if (saveTimer) {
-      clearTimeout(saveTimer)
-      saveTimer = null
-      await saveCanvas(fromCanvas())
-    } else if (savePromise) {
-      await savePromise
-    }
+  function scheduleWorkflowSave() {
+    if (!markWorkflowDirty()) return
+    clearTimeout(workflowSaveTimer)
+    workflowSaveTimer = setTimeout(() => {
+      workflowSaveTimer = null
+      saveCanvas()
+    }, WORKFLOW_SAVE_DELAY_MS)
   }
 
-  async function saveCanvas(canvas = fromCanvas()) {
-    if (!canvas) return
+  function scheduleLayoutSave() {
+    if (!markWorkflowDirty() || layoutSaveTimer) return
+    layoutSaveTimer = setTimeout(() => {
+      layoutSaveTimer = null
+      saveCanvas()
+    }, LAYOUT_SAVE_DELAY_MS)
+  }
+
+  function hasUnsavedCanvasChanges() {
+    if (!activeCanvas.value || hydrating.value) return false
+    const current = fromCanvas()
+    return JSON.stringify(current.nodes) !== JSON.stringify(activeCanvas.value.nodes)
+      || JSON.stringify(current.edges) !== JSON.stringify(activeCanvas.value.edges)
+      || JSON.stringify(current.viewport) !== JSON.stringify(activeCanvas.value.viewport)
+  }
+
+  async function flushPendingSave({ detectChanges = false, keepalive = false } = {}) {
+    if (detectChanges && !workflowDirty.value && hasUnsavedCanvasChanges()) markWorkflowDirty()
+    if (!workflowDirty.value && !savePromise) return
+    clearTimeout(workflowSaveTimer)
+    clearTimeout(layoutSaveTimer)
+    workflowSaveTimer = null
+    layoutSaveTimer = null
+    if (workflowDirty.value) pendingSaveSnapshot = { ...fromCanvas(), revision: activeCanvas.value.revision }
+    await saveCanvas({ keepalive })
+  }
+
+  async function saveCanvas({ keepalive = false } = {}) {
+    if (!workflowDirty.value) return savePromise
     if (saving.value) {
-      pendingSaveSnapshot = canvas
       return savePromise
     }
     saving.value = true
     savedState.value = 'Saving…'
     savePromise = (async () => {
-      let nextCanvas = canvas
-      while (nextCanvas) {
-        const savingCanvas = nextCanvas
-        pendingSaveSnapshot = null
+      while (workflowDirty.value && pendingSaveSnapshot) {
+        const savingCanvas = pendingSaveSnapshot
+        const savingSequence = localSequence
         const savedCanvas = await request(`/api/canvases/${savingCanvas.id}`, {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(savingCanvas),
+          body: JSON.stringify({ baseRevision: activeCanvas.value.revision, canvas: savingCanvas }),
+          keepalive,
         })
-        if (activeCanvas.value?.id === savedCanvas.id) activeCanvas.value = savedCanvas
+        if (activeCanvas.value?.id !== savedCanvas.id) return
+        activeCanvas.value = savedCanvas
         syncCanvasSummary(savedCanvas)
-        nextCanvas = pendingSaveSnapshot
+        if (savingSequence === localSequence) {
+          workflowDirty.value = false
+          pendingSaveSnapshot = null
+          await deleteWorkflowDraft(savedCanvas.id).catch(() => {})
+        } else {
+          pendingSaveSnapshot = { ...fromCanvas(), revision: savedCanvas.revision }
+          await writeWorkflowDraft({
+            schemaVersion: 1,
+            canvasId: savedCanvas.id,
+            baseRevision: savedCanvas.revision,
+            localSequence,
+            updatedAt: new Date().toISOString(),
+            canvas: pendingSaveSnapshot,
+          }).catch(() => {})
+        }
       }
     })()
     try {
       await savePromise
-      savedState.value = 'Saved'
+      if (!workflowDirty.value) savedState.value = 'Saved'
     } catch (caught) {
-      error.value = caught.message
-      savedState.value = 'Save failed'
+      if (caught.status === 409 && caught.data?.canvas && activeCanvas.value?.id === caught.data.canvas.id) {
+        await deleteWorkflowDraft(caught.data.canvas.id).catch(() => {})
+        workflowDirty.value = false
+        pendingSaveSnapshot = null
+        activeCanvas.value = caught.data.canvas
+        await toCanvas(caught.data.canvas)
+        syncCanvasSummary(caught.data.canvas)
+        savedState.value = 'Updated elsewhere'
+      } else {
+        error.value = caught.message
+        savedState.value = 'Save failed'
+      }
     } finally {
       saving.value = false
       savePromise = null
@@ -162,7 +239,33 @@ export function useCanvasDocument({
   }
 
   function stopPendingSave() {
-    clearTimeout(saveTimer)
+    clearTimeout(workflowSaveTimer)
+    clearTimeout(layoutSaveTimer)
+  }
+
+  async function refreshCanvasFromServer() {
+    const canvasId = activeCanvas.value?.id
+    if (!canvasId) return
+    if (savePromise) await savePromise
+    const { canvas: remoteCanvas } = await request(`/api/canvases/${canvasId}`)
+    if (activeCanvas.value?.id !== canvasId) return
+    if (remoteCanvas.revision === activeCanvas.value.revision) {
+      if (workflowDirty.value) await flushPendingSave()
+      return
+    }
+    if (workflowDirty.value) {
+      await deleteWorkflowDraft(canvasId).catch(() => {})
+      workflowDirty.value = false
+      pendingSaveSnapshot = null
+      clearTimeout(workflowSaveTimer)
+      clearTimeout(layoutSaveTimer)
+      workflowSaveTimer = null
+      layoutSaveTimer = null
+      savedState.value = 'Updated elsewhere'
+    }
+    activeCanvas.value = remoteCanvas
+    await toCanvas(remoteCanvas)
+    syncCanvasSummary(remoteCanvas)
   }
 
   async function duplicateCanvas(canvasId = activeCanvas.value?.id) {
@@ -272,10 +375,14 @@ export function useCanvasDocument({
     syncCanvasSummary,
     loadCanvass,
     openCanvas,
-    scheduleSave,
+    scheduleSave: scheduleWorkflowSave,
+    scheduleWorkflowSave,
+    scheduleLayoutSave,
+    workflowDirty,
     flushPendingSave,
     saveCanvas,
     stopPendingSave,
+    refreshCanvasFromServer,
     duplicateCanvas,
     deleteCanvas,
     createCanvas,

@@ -2,6 +2,15 @@
 
 ## 2026-08-10 - main
 
+- Added server-owned canvas revision increments and conditional snapshot replacement using `baseRevision`; stale writes now receive `409` with the current remote canvas instead of overwriting it.
+- Added durable browser workflow drafts with an immediate localStorage mirror and IndexedDB persistence, restoring and uploading a draft only when its base revision still matches the remote canvas.
+- Split saving into 700ms workflow and 10s layout schedules, retained Agent and execution flushes, and added blur flush plus focus-time remote reconciliation. Remote updates win on an actual revision conflict.
+- Fixed blur/page-hide flushing to detect an unsaved graph even if a mutation event was missed, added keepalive page-exit writes, prevented canvas switching from clearing state before flushing it, and converted Vue reactive snapshots to plain data before IndexedDB storage.
+- Verification: `pnpm test` passed 218 tests, `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. Browser verification in the existing Chrome session deleted a node, dispatched blur before the debounce completed, and confirmed a `PUT /api/canvases/:id` request; undo plus a second blur also issued the matching restore request. The build retains the existing large-chunk warning.
+- Remaining issues: None.
+
+## 2026-08-10 - main
+
 - Replaced the readable JSON canvas clipboard payload with MessagePack bytes stored only under the `web application/vnd.forge3d.canvas-fragment+msgpack` custom clipboard format, without a `text/plain` fallback.
 - Added binary decoding with the existing fragment schema and graph validation, while leaving editor paste and unrelated clipboard content unchanged.
 - Added regression coverage for binary round trips, non-readable JSON output, malformed bytes, empty fragments, and unsupported schema versions.

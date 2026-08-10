@@ -97,6 +97,7 @@ const {
   screenToFlowCoordinate,
   updateNodeInternals,
   scheduleSave: () => scheduleSave(),
+  scheduleLayoutSave: () => scheduleLayoutSave(),
   frameableSelectedNodes,
   nextNodeId,
   focusNode,
@@ -112,9 +113,9 @@ const { syncHistoryCanvas, recordHistory, undo, redo } = useCanvasHistory({
 })
 
 const {
-  hydrating, toCanvas, fromCanvas, syncCanvasSummary, loadCanvass, openCanvas, scheduleSave,
+  hydrating, toCanvas, fromCanvas, syncCanvasSummary, loadCanvass, openCanvas, scheduleSave, scheduleLayoutSave,
   flushPendingSave, saveCanvas, stopPendingSave, duplicateCanvas, deleteCanvas, createCanvas,
-  renameCanvas, exportCanvas, importCanvasFile,
+  renameCanvas, exportCanvas, importCanvasFile, refreshCanvasFromServer,
 } = useCanvasDocument({
   canvases,
   activeCanvas,
@@ -648,9 +649,29 @@ function preventPageTrackpadPinchZoom(event: WheelEvent) {
   if (event.ctrlKey && !(event.target instanceof Element && event.target.closest('.flow-canvas'))) event.preventDefault()
 }
 
+function flushOnBlur() {
+  flushPendingSave({ detectChanges: true })
+}
+
+function flushOnPageHide() {
+  flushPendingSave({ detectChanges: true, keepalive: true })
+}
+
+function flushWhenHidden() {
+  if (document.visibilityState === 'hidden') flushOnPageHide()
+}
+
+function refreshOnFocus() {
+  refreshCanvasFromServer().catch((caught) => { error.value = caught.message })
+}
+
 onMounted(async () => {
   window.addEventListener('pointerdown', closeCanvasMenu)
   window.addEventListener('popstate', handleProjectNavigation)
+  window.addEventListener('blur', flushOnBlur)
+  window.addEventListener('focus', refreshOnFocus)
+  window.addEventListener('pagehide', flushOnPageHide)
+  document.addEventListener('visibilitychange', flushWhenHidden)
   document.addEventListener('gesturestart', preventNativePinchZoom, { passive: false })
   document.addEventListener('wheel', preventPageTrackpadPinchZoom, { capture: true, passive: false })
   try {
@@ -663,6 +684,10 @@ onUnmounted(() => {
   stopPendingSave()
   window.removeEventListener('pointerdown', closeCanvasMenu)
   window.removeEventListener('popstate', handleProjectNavigation)
+  window.removeEventListener('blur', flushOnBlur)
+  window.removeEventListener('focus', refreshOnFocus)
+  window.removeEventListener('pagehide', flushOnPageHide)
+  document.removeEventListener('visibilitychange', flushWhenHidden)
   document.removeEventListener('gesturestart', preventNativePinchZoom)
   document.removeEventListener('wheel', preventPageTrackpadPinchZoom, true)
 })
