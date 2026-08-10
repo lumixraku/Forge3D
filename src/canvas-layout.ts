@@ -100,6 +100,39 @@ function sizeOf(node: LayoutNode) {
   }
 }
 
+function linearComponents(nodes: LayoutNode[], edges: LayoutEdge[]) {
+  const nodeMap = new Map(nodes.map((node) => [node.id, node]))
+  const incoming = new Map(nodes.map((node) => [node.id, new Set<string>()]))
+  const outgoing = new Map(nodes.map((node) => [node.id, new Set<string>()]))
+  for (const edge of edges) {
+    if (!nodeMap.has(edge.source) || !nodeMap.has(edge.target) || edge.source === edge.target) continue
+    outgoing.get(edge.source)!.add(edge.target)
+    incoming.get(edge.target)!.add(edge.source)
+  }
+
+  const visited = new Set<string>()
+  const components: LayoutNode[][] = []
+  for (const node of nodes) {
+    if (visited.has(node.id)) continue
+    const component: LayoutNode[] = []
+    const pending = [node.id]
+    while (pending.length) {
+      const id = pending.pop()!
+      if (visited.has(id)) continue
+      visited.add(id)
+      component.push(nodeMap.get(id)!)
+      pending.push(...incoming.get(id)!, ...outgoing.get(id)!)
+    }
+
+    const edgeCount = component.reduce((count, item) => count + outgoing.get(item.id)!.size, 0)
+    const isLinear = edgeCount === component.length - 1 && component.every((item) =>
+      incoming.get(item.id)!.size <= 1 && outgoing.get(item.id)!.size <= 1
+    )
+    if (isLinear) components.push(component)
+  }
+  return components
+}
+
 export function frameInsets(zoom = 1) {
   const safeZoom = Math.max(Number(zoom) || 1, 0.01)
   return {
@@ -177,5 +210,11 @@ export async function layoutCanvas(nodes: LayoutNode[], edges: LayoutEdge[], { o
 
   const elk = await getElk()
   const result = await elk.layout(graph)
-  return new Map(result.children.map((node) => [node.id, { x: originX + node.x, y: originY + node.y }]))
+  const positions = new Map(result.children.map((node) => [node.id, { x: originX + node.x, y: originY + node.y }]))
+  for (const component of linearComponents(nodes, edges)) {
+    const tallest = component.reduce((current, node) => sizeOf(node).height > sizeOf(current).height ? node : current)
+    const rowY = positions.get(tallest.id)!.y
+    for (const node of component) positions.get(node.id)!.y = rowY
+  }
+  return positions
 }
