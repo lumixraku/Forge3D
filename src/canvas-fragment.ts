@@ -1,15 +1,15 @@
+import { decode, encode } from '@msgpack/msgpack'
 import { nodeSize } from './frame-geometry'
 
-const CLIPBOARD_HEADER = 'FORGE3D_CANVAS_FRAGMENT/1\n'
+export const CLIPBOARD_MIME = 'web application/vnd.forge3d.canvas-fragment+msgpack'
 
 export function serializeFragment(fragment) {
-  return `${CLIPBOARD_HEADER}${JSON.stringify(fragment)}`
+  return encode(fragment)
 }
 
-export function parseFragment(text) {
-  if (typeof text !== 'string' || !text.startsWith(CLIPBOARD_HEADER)) return null
+export function parseFragment(bytes) {
   try {
-    const fragment = JSON.parse(text.slice(CLIPBOARD_HEADER.length))
+    const fragment = decode(bytes)
     if (fragment?.kind !== 'canvas-fragment' || fragment?.schemaVersion !== '1.0' || !Array.isArray(fragment.nodes) || !Array.isArray(fragment.edges)) return null
     validateImportedCanvas(fragment)
     return fragment.nodes.length ? fragment : null

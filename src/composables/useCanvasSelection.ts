@@ -1,6 +1,6 @@
 import { computed, nextTick } from 'vue'
 import { request } from '../api'
-import { buildFragment, remapFragment, serializeFragment } from '../canvas-fragment'
+import { buildFragment, CLIPBOARD_MIME, remapFragment, serializeFragment } from '../canvas-fragment'
 import { toCanvasGraph } from '../canvas-graph'
 import { removeSelectedElements } from '../canvas-selection'
 
@@ -60,7 +60,9 @@ export function useCanvasSelection({ nodes, edges, activeCanvas, error, schedule
     const fragment = selectedFragmentData('Copied selection')
     if (!fragment) return
     try {
-      await navigator.clipboard.writeText(serializeFragment(fragment))
+      const bytes = serializeFragment(fragment)
+      const blob = new Blob([bytes], { type: CLIPBOARD_MIME.slice(4) })
+      await navigator.clipboard.write([new ClipboardItem({ [CLIPBOARD_MIME]: blob })])
     } catch {
       error.value = 'Could not copy the selection to the system clipboard'
     }

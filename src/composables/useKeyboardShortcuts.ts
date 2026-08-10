@@ -1,5 +1,5 @@
 import { onMounted, onUnmounted } from 'vue'
-import { parseFragment } from '../canvas-fragment'
+import { CLIPBOARD_MIME, parseFragment } from '../canvas-fragment'
 
 // Global canvas shortcuts. Registered in the capture phase so an open overlay can
 // claim Escape before the canvas sees it.
@@ -90,12 +90,20 @@ export function useKeyboardShortcuts({
     }
   }
 
-  function handlePaste(event: ClipboardEvent) {
+  async function handlePaste(event: ClipboardEvent) {
     if (isEditing(event.target) || workspaceMode.value !== 'canvas') return
-    const fragment = parseFragment(event.clipboardData?.getData('text/plain'))
-    if (!fragment) return
-    event.preventDefault()
-    pasteFragment(fragment, { selectInserted: true })
+    try {
+      const items = await navigator.clipboard.read()
+      const item = items.find((candidate) => candidate.types.includes(CLIPBOARD_MIME))
+      if (!item) return
+      const blob = await item.getType(CLIPBOARD_MIME)
+      const fragment = parseFragment(await blob.arrayBuffer())
+      if (!fragment) return
+      event.preventDefault()
+      pasteFragment(fragment, { selectInserted: true })
+    } catch {
+      // Leave unsupported and non-Forge3D clipboard content to the browser.
+    }
   }
 
   onMounted(() => {

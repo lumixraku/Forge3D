@@ -53,7 +53,7 @@ test('copying root nodes offsets the roots without changing their relative layou
   )
 })
 
-test('clipboard fragments round-trip through the system clipboard format', () => {
+test('clipboard fragments round-trip through the binary system clipboard format', () => {
   const canvas = {
     id: 'canvas',
     revision: 1,
@@ -63,10 +63,16 @@ test('clipboard fragments round-trip through the system clipboard format', () =>
   }
   const fragment = buildFragment(canvas, new Set(['first', 'second']), 'Nodes')
 
-  assert.deepEqual(parseFragment(serializeFragment(fragment)), fragment)
+  const serialized = serializeFragment(fragment)
+
+  assert.ok(serialized instanceof Uint8Array)
+  assert.equal(new TextDecoder().decode(serialized).includes('"kind":"canvas-fragment"'), false)
+  assert.deepEqual(parseFragment(serialized), fragment)
 })
 
 test('clipboard parsing ignores ordinary or invalid clipboard content', () => {
-  assert.equal(parseFragment('ordinary text'), null)
-  assert.equal(parseFragment('FORGE3D_CANVAS_FRAGMENT/1\n{"kind":"canvas-fragment"}'), null)
+  assert.equal(parseFragment(new TextEncoder().encode('ordinary text')), null)
+  assert.equal(parseFragment(Uint8Array.from([0xde, 0xad, 0xbe, 0xef])), null)
+  assert.equal(parseFragment(serializeFragment({ kind: 'canvas-fragment', schemaVersion: '1.0', nodes: [], edges: [] })), null)
+  assert.equal(parseFragment(serializeFragment({ kind: 'canvas-fragment', schemaVersion: '2.0', nodes: [node('first', 0, 0)], edges: [] })), null)
 })

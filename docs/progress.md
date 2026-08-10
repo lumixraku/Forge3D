@@ -2,6 +2,14 @@
 
 ## 2026-08-10 - main
 
+- Replaced the readable JSON canvas clipboard payload with MessagePack bytes stored only under the `web application/vnd.forge3d.canvas-fragment+msgpack` custom clipboard format, without a `text/plain` fallback.
+- Added binary decoding with the existing fragment schema and graph validation, while leaving editor paste and unrelated clipboard content unchanged.
+- Added regression coverage for binary round trips, non-readable JSON output, malformed bytes, empty fragments, and unsupported schema versions.
+- Verification: `pnpm test` passed 218 tests, `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. Browser verification in the existing Chrome session confirmed the clipboard exposed only the custom MessagePack type, contained no `text/plain`, and pasted one encoded node successfully; no console warnings or errors were reported. The build retains the existing large-chunk warning.
+- Remaining issues: Web custom clipboard formats require a supporting modern browser; this encoding hides readable structure but is intentionally not encryption.
+
+## 2026-08-10 - main
+
 - Replaced the per-tab canvas clipboard with a versioned system-clipboard fragment format, so the most recently copied selection is the single source used across browser tabs and canvases.
 - Added native paste-event parsing and validation, fresh node/edge ID remapping, inserted-selection behavior, and safeguards that leave ordinary text and editor paste unchanged.
 - Added clipboard serialization/parsing regression coverage.
