@@ -100,19 +100,23 @@ function sizeOf(node: LayoutNode) {
   }
 }
 
-export function frameInsets(zoom = 1) {
-  const safeZoom = Math.max(Number(zoom) || 1, 0.01)
+// Insets are persisted through the frame's size and its children's positions, so
+// they must not depend on zoom: two clients at different zoom levels would each
+// refit the frame to their own answer, re-save it, and bounce it back forever.
+// The title renders outside the frame at a screen-constant scale; the clearance
+// it needs is reserved here as a fixed flow-space amount.
+export function frameInsets() {
   return {
     left: FRAME_PADDING,
     right: FRAME_PADDING,
-    top: FRAME_PADDING + FRAME_TITLE_SCREEN_HEIGHT / safeZoom,
+    top: FRAME_PADDING + FRAME_TITLE_SCREEN_HEIGHT,
     bottom: FRAME_PADDING,
   }
 }
 
-export function frameComponentGap(zoom = 1, spacing = 32) {
-  const insets = frameInsets(zoom)
-  return insets.bottom + insets.top + FRAME_TITLE_SCREEN_HEIGHT / Math.max(Number(zoom) || 1, 0.01) + spacing
+export function frameComponentGap(spacing = 32) {
+  const insets = frameInsets()
+  return insets.bottom + insets.top + FRAME_TITLE_SCREEN_HEIGHT + spacing
 }
 
 export async function layoutCanvas(nodes: LayoutNode[], edges: LayoutEdge[], { originX = 0, originY = 120, columnGap = 100, rowGap = 80, componentGap = rowGap * 1.5 }: LayoutOptions = {}) {

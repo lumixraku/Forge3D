@@ -4,16 +4,17 @@ import { frameComponentGap, frameInsets, layoutSelection } from '../canvas-layou
 
 // Frames (sections) are plain Vue Flow parent nodes, so their size and their
 // children's parentage are maintained here in response to canvas interaction.
-export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowCoordinate, updateNodeInternals, scheduleSave, scheduleLayoutSave, frameableSelectedNodes, nextNodeId, focusNode }) {
+export function useCanvasFrames({ nodes, edges, fitView, screenToFlowCoordinate, updateNodeInternals, scheduleSave, scheduleLayoutSave, frameableSelectedNodes, nextNodeId, focusNode }) {
   let frameFitQueued = false
   let frameFitShouldSave = false
+  let frameFitSuppressed = false
   let dragging = false
   let resizingFrameId = null
   let marqueeSelecting = false
   let marqueeStartedInFrame = false
 
   function fitFrames() {
-    const fitted = fitFrameNodes(nodes.value, frameInsets(viewport.value.zoom))
+    const fitted = fitFrameNodes(nodes.value, frameInsets())
     if (fitted.changed) nodes.value = fitted.nodes
     return fitted.changed
   }
@@ -49,7 +50,7 @@ export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowC
     if (!selected.length) return
 
     const frameId = nextNodeId('frame')
-    nodes.value = buildSelectionFrame(nodes.value, selected, { insets: frameInsets(viewport.value.zoom), frameId })
+    nodes.value = buildSelectionFrame(nodes.value, selected, { insets: frameInsets(), frameId })
     edges.value = edges.value.map((edge) => ({ ...edge, selected: false }))
     scheduleSave()
     focusNode(frameId)
@@ -81,6 +82,7 @@ export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowC
         })
       }
     }
+    if (frameFitSuppressed) return
     const hasDimensions = changes.some((change) => change.type === 'dimensions' && change.id !== resizingFrameId)
     // Resize frames to their children only once settled: on a node's own size change,
     // or on a position change that is NOT part of an in-flight drag. While the mouse is
@@ -89,6 +91,14 @@ export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowC
       queueFrameFit({ persist: hasDimensions })
     }
     if (changes.some((change) => change.type === 'remove')) scheduleSave()
+  }
+
+  function suppressFrameFit(value) {
+    frameFitSuppressed = value
+    if (value) {
+      frameFitQueued = false
+      frameFitShouldSave = false
+    }
   }
 
   function onFrameResizeStart(id) {
@@ -118,11 +128,11 @@ export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowC
 
   async function autoLayout({ persist = true } = {}) {
     const { positions, fitFrameIds } = await layoutSelection(nodes.value, edges.value, {
-      componentGap: frameComponentGap(viewport.value.zoom),
+      componentGap: frameComponentGap(),
     })
     nodes.value = nodes.value.map((node) => positions.has(node.id) ? { ...node, position: positions.get(node.id) } : node)
     if (fitFrameIds.size) {
-      const fitted = fitFrameNodes(nodes.value, frameInsets(viewport.value.zoom), fitFrameIds)
+      const fitted = fitFrameNodes(nodes.value, frameInsets(), fitFrameIds)
       if (fitted.changed) nodes.value = fitted.nodes
     }
     await nextTick()
@@ -133,6 +143,7 @@ export function useCanvasFrames({ nodes, edges, viewport, fitView, screenToFlowC
 
   return {
     fitFramesAfterRender,
+    suppressFrameFit,
     makeSelectionFrame,
     onCanvasPointerDown,
     onSelectionStart,

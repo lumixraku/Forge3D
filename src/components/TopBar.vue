@@ -10,6 +10,8 @@ const props = defineProps<{
   theme: string
   busy: boolean
   switcherOpen: boolean
+  editorName?: string
+  canEdit?: boolean
 }>()
 const emit = defineEmits<{
   rename: [name: string]
@@ -148,7 +150,7 @@ onUnmounted(() => window.removeEventListener('pointerdown', dismissSwitcher, tru
         <button type="button" :class="{ active: canvasView === 'canvas' }" :aria-pressed="canvasView === 'canvas'" title="Canvas canvas" @click="emit('update:canvasView', 'canvas')"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5.2" height="5.2" rx="1.2" /><rect x="8.8" y="2" width="5.2" height="5.2" rx="1.2" /><rect x="2" y="8.8" width="5.2" height="5.2" rx="1.2" /><rect x="8.8" y="8.8" width="5.2" height="5.2" rx="1.2" /></svg><span>Canvas</span></button>
         <button type="button" :class="{ active: canvasView === 'assets' }" :aria-pressed="canvasView === 'assets'" title="Asset library" @click="emit('update:canvasView', 'assets')"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3.5" width="9" height="7" rx="1.4" /><rect x="5" y="6" width="9" height="7" rx="1.4" opacity=".5" /></svg><span>Assets</span></button>
       </div>
-      <span class="save-state w-[15ch] truncate text-right text-text-muted font-mono text-[9px]">{{ savedState }}</span>
+      <span class="save-state w-[15ch] truncate text-right text-text-muted font-mono text-[9px]" :title="editorName ? `${editorName} is editing` : savedState">{{ editorName ? `${editorName} editing` : canEdit ? `Editing · ${savedState}` : savedState }}</span>
       <div class="theme-switcher" aria-label="Theme">
         <button v-for="option in ['light', 'dark', 'system']" :key="option" :class="{ active: theme === option }" :aria-pressed="theme === option" @click="emit('set-theme', option)">{{ option }}</button>
       </div>

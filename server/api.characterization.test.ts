@@ -266,10 +266,13 @@ test('PUT keeps the project identity and overwrites only the document', async ()
     edges: canvasFixture('z', { prefix: 'put' }).edges,
   })
   const { body: before } = await api(`/api/canvases/${created.body.id}`)
+  const clientId = 'document-test-client'
+  assert.equal((await postJson(`/api/canvases/${created.body.id}/presence`, { clientId, displayName: 'Document test' })).status, 200)
   const saved = await api(`/api/canvases/${created.body.id}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
+      clientId,
       baseRevision: before.canvas.revision,
       canvas: { ...before.canvas, name: 'ignored', description: 'ignored', nodes: [], edges: [] },
     }),
@@ -285,10 +288,72 @@ test('PUT keeps the project identity and overwrites only the document', async ()
   const conflict = await api(`/api/canvases/${created.body.id}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ baseRevision: before.canvas.revision, canvas: before.canvas }),
+    body: JSON.stringify({ clientId, baseRevision: before.canvas.revision, canvas: before.canvas }),
   })
   assert.equal(conflict.status, 409)
   assert.equal(conflict.body.canvas.revision, saved.body.revision)
+})
+
+test('canvas saves notify other subscribers after persistence', async () => {
+  const created = await postJson('/api/projects', { name: 'Notification target', nodes: [], edges: [] })
+  const canvasId = created.body.id
+  const { body: document } = await api(`/api/canvases/${canvasId}`)
+  const controller = new AbortController()
+  const events = await fetch(new URL(`/api/canvases/${canvasId}/events`, baseUrl), { signal: controller.signal })
+  const reader = events.body.getReader()
+  const decoder = new TextDecoder()
+  let stream = ''
+
+  try {
+    const saved = await api(`/api/canvases/${canvasId}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ clientId: 'saving-tab', baseRevision: document.canvas.revision, canvas: document.canvas }),
+    })
+    assert.equal(saved.status, 200)
+
+    const event = await Promise.race([
+      (async () => {
+        while (!stream.includes('"type":"canvas-updated"')) {
+          const chunk = await reader.read()
+          if (chunk.done) throw new Error('Canvas event stream closed before the update')
+          stream += decoder.decode(chunk.value, { stream: true })
+        }
+        const data = stream.split('\n').find((line) => line.startsWith('data: ') && line.includes('"type":"canvas-updated"'))
+        return JSON.parse(data.slice(6))
+      })(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out waiting for canvas update')), 1000)),
+    ])
+    assert.equal(event.canvas_id, canvasId)
+    assert.equal(event.revision, saved.body.revision)
+    assert.equal(event.source_client_id, 'saving-tab')
+  } finally {
+    controller.abort()
+  }
+})
+
+test('canvas presence is exclusive but does not block saves', async () => {
+  const created = await postJson('/api/projects', { name: 'Lease target', nodes: [], edges: [] })
+  const canvasId = created.body.id
+  const { body: document } = await api(`/api/canvases/${canvasId}`)
+
+  const first = await postJson(`/api/canvases/${canvasId}/presence`, { clientId: 'client-a', displayName: 'Guest A' })
+  assert.equal(first.status, 200)
+  assert.equal((await postJson(`/api/canvases/${canvasId}/presence`, { clientId: 'client-b', displayName: 'Guest B' })).status, 423)
+  assert.equal((await api(`/api/canvases/${canvasId}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ clientId: 'client-b', baseRevision: document.canvas.revision, canvas: document.canvas }),
+  })).status, 200)
+
+  assert.equal((await api(`/api/canvases/${canvasId}/presence?clientId=client-a`, { method: 'DELETE' })).status, 204)
+  assert.equal((await postJson(`/api/canvases/${canvasId}/presence`, { clientId: 'client-b', displayName: 'Guest B' })).status, 200)
+  const saved = await api(`/api/canvases/${canvasId}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ clientId: 'client-b', baseRevision: document.canvas.revision + 1, canvas: document.canvas }),
+  })
+  assert.equal(saved.status, 200)
 })
 
 test('duplicating a project copies the graph and resets the revision', async () => {

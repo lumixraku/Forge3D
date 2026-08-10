@@ -8,7 +8,7 @@ import { Attachment } from '../editor/attachment'
 
 // The copilot side of the app: the tiptap composer, the SSE agent stream, and the
 // in-flight turns (including user-selection follow-ups) attached to a canvas.
-export function useAgentChat({ activeCanvas, activeSession, busy, error, runToken, toCanvas, syncCanvasSummary, flushPendingSave }) {
+export function useAgentChat({ activeCanvas, activeSession, busy, error, runToken, toCanvas, syncCanvasSummary, flushPendingSave, onCanvasEvent, onCanvasDocumentEvent, clientId, acquireEditLease, markEditActivity }) {
   const composerVersion = ref(0)
   const selectedOptions = ref({})
   const continuingTurnId = ref(null)
@@ -169,6 +169,11 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
       // reconnects on its own, so a transport failure needs nothing from us.
       if (!message.data || token !== runToken.value) return
       const event = JSON.parse(message.data)
+      onCanvasEvent?.(event)
+      if (event.type === 'canvas-updated' && !event.session_id) {
+        if (event.source_client_id !== clientId) await onCanvasDocumentEvent?.(event)
+        return
+      }
       if (event.session_id !== activeSession.value?.id) return
       applyAgentEvent(event)
       if (event.type === 'canvas-updated') await refreshCanvas(event.canvas_id, event.turn_id)
@@ -250,6 +255,8 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
   async function sendMessage() {
     const message = composerMessage()
     if (!message) return
+    acquireEditLease()
+    markEditActivity()
     const previousSession = activeSession.value
     const canvasId = activeCanvas.value?.id
     if (!canvasId || !previousSession || previousSession.canvasId !== canvasId) {
@@ -282,7 +289,7 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
       const turn = await request(`/api/sessions/${sessionId}/turns`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ message, attachments }),
+        body: JSON.stringify({ clientId, message, attachments }),
       })
       const current = activeSession.value?.messages.find((item) => item.id === pendingAssistantId)
       if (current) current.turnId = turn.id

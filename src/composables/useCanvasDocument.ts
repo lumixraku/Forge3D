@@ -1,6 +1,6 @@
-import { ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import { request } from '../api'
-import { toCanvasGraph, toDomainCanvas } from '../canvas-graph'
+import { reconcileCanvasGraph, toCanvasGraph, toDomainCanvas } from '../canvas-graph'
 import { importPlacementOffset, validateImportedCanvas } from '../canvas-fragment'
 import { deleteWorkflowDraft, readWorkflowDraft, writeWorkflowDraft } from '../workflow-draft'
 
@@ -25,6 +25,7 @@ export function useCanvasDocument({
   recordHistory,
   syncHistoryCanvas,
   fitFramesAfterRender,
+  suppressFrameFit,
   loadSessions,
   restoreTurns,
   subscribeCanvasEvents,
@@ -32,6 +33,11 @@ export function useCanvasDocument({
   pasteFragment,
   resetWorkspace,
   closeCanvasSwitcher,
+  clientId,
+  canvasOpened,
+  releasePresence,
+  acquireEditLease,
+  markEditActivity,
 }) {
   const hydrating = ref(false)
   const workflowDirty = ref(false)
@@ -42,14 +48,33 @@ export function useCanvasDocument({
   let localSequence = 0
   let openToken = 0
 
-  async function toCanvas(canvas) {
+  async function toCanvas(canvas, { repairFrames = true, reconcile = false, suppressLayout = false } = {}) {
     hydrating.value = true
     const graph = toCanvasGraph(canvas)
+    if (suppressLayout) suppressFrameFit(true)
+    if (reconcile) {
+      const reconciled = reconcileCanvasGraph(nodes.value, edges.value, graph)
+      nodes.value = reconciled.nodes
+      edges.value = reconciled.edges
+      await nextTick()
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+      await nextTick()
+      hydrating.value = false
+      suppressFrameFit(false)
+      syncHistoryCanvas(canvas.id)
+      return
+    }
     nodes.value = graph.nodes
     edges.value = graph.edges
     // Repair canvases whose views were materialized before they were wired to the model node.
-    await fitFramesAfterRender({ persist: true })
+    if (repairFrames) await fitFramesAfterRender({ persist: true })
+    else {
+      await nextTick()
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+      await nextTick()
+    }
     hydrating.value = false
+    if (suppressLayout) suppressFrameFit(false)
     syncHistoryCanvas(canvas.id)
   }
 
@@ -96,7 +121,11 @@ export function useCanvasDocument({
 
   async function openCanvas(id, { replaceHistory = false } = {}) {
     const token = ++openToken
-    if (activeCanvas.value && activeCanvas.value.id !== id) await flushPendingSave()
+    const previousCanvasId = activeCanvas.value?.id
+    if (activeCanvas.value && activeCanvas.value.id !== id) {
+      await flushPendingSave()
+      await releasePresence(previousCanvasId)
+    }
     if (token !== openToken) return
     resetWorkspace()
     closeCanvasEvents()
@@ -109,11 +138,15 @@ export function useCanvasDocument({
     ])
     if (token !== openToken) return
     activeCanvas.value = await restoreWorkflowDraft(data.canvas)
+    await canvasOpened(id)
     activeSession.value = session
     run.value = null
     nodeRuns.value = data.nodeRuns || {}
     await toCanvas(activeCanvas.value)
-    if (workflowDirty.value) await flushPendingSave()
+    if (workflowDirty.value) {
+      acquireEditLease()
+      await flushPendingSave()
+    }
     if (token !== openToken) return
     await restoreTurns()
     if (token !== openToken) return
@@ -128,6 +161,7 @@ export function useCanvasDocument({
 
   function markWorkflowDirty() {
     if (!activeCanvas.value || hydrating.value) return false
+    markEditActivity()
     recordHistory()
     workflowDirty.value = true
     savedState.value = 'Unsaved changes'
@@ -153,6 +187,11 @@ export function useCanvasDocument({
   }
 
   function scheduleLayoutSave() {
+    // A layout save is only ours to make when local geometry actually differs from
+    // the document we loaded. Applying a collaborator's canvas re-measures the DOM
+    // and can queue a fit; without this check that fit would save and broadcast a
+    // canvas we only received, and the two clients would trade revisions forever.
+    if (!hasUnsavedCanvasChanges()) return
     if (!markWorkflowDirty() || layoutSaveTimer) return
     layoutSaveTimer = setTimeout(() => {
       layoutSaveTimer = null
@@ -184,6 +223,7 @@ export function useCanvasDocument({
     if (saving.value) {
       return savePromise
     }
+    acquireEditLease()
     saving.value = true
     savedState.value = 'Saving…'
     savePromise = (async () => {
@@ -193,7 +233,7 @@ export function useCanvasDocument({
         const savedCanvas = await request(`/api/canvases/${savingCanvas.id}`, {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ baseRevision: activeCanvas.value.revision, canvas: savingCanvas }),
+          body: JSON.stringify({ clientId, baseRevision: activeCanvas.value.revision, canvas: savingCanvas }),
           keepalive,
         })
         if (activeCanvas.value?.id !== savedCanvas.id) return
@@ -225,7 +265,7 @@ export function useCanvasDocument({
         workflowDirty.value = false
         pendingSaveSnapshot = null
         activeCanvas.value = caught.data.canvas
-        await toCanvas(caught.data.canvas)
+        await toCanvas(caught.data.canvas, { repairFrames: false, reconcile: true, suppressLayout: true })
         syncCanvasSummary(caught.data.canvas)
         savedState.value = 'Updated elsewhere'
       } else {
@@ -264,7 +304,7 @@ export function useCanvasDocument({
       savedState.value = 'Updated elsewhere'
     }
     activeCanvas.value = remoteCanvas
-    await toCanvas(remoteCanvas)
+    await toCanvas(remoteCanvas, { repairFrames: false, reconcile: true, suppressLayout: true })
     syncCanvasSummary(remoteCanvas)
   }
 

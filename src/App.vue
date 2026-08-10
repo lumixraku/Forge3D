@@ -20,6 +20,7 @@ import { useAgentChat } from './composables/useAgentChat'
 import { useAssetLibrary } from './composables/useAssetLibrary'
 import { useCanvasFrames } from './composables/useCanvasFrames'
 import { useCanvasHistory } from './composables/useCanvasHistory'
+import { useCanvasPresence } from './composables/useCanvasPresence'
 import { useCanvasSelection } from './composables/useCanvasSelection'
 import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
 import { useTheme } from './composables/useTheme'
@@ -60,7 +61,10 @@ const canvasView = ref('canvas')
 const modelEditorNodeId = ref(null)
 const imagePreview = ref(null)
 const runSummaryOpen = ref(false)
+const editLockedNoticeOpen = ref(false)
+const editLockedNoticeName = ref('')
 let pendingConnection = null
+let editLockedNoticeTimer
 
 const executionEdges = computed(() => edges.value.map((edge) => ({
   ...edge,
@@ -70,6 +74,33 @@ const executionEdges = computed(() => edges.value.map((edge) => ({
 
 const { fitView, screenToFlowCoordinate, updateNodeInternals, viewport } = useVueFlow()
 const { theme, resolvedTheme, setTheme } = useTheme()
+const {
+  clientId, canEdit, editorName, acquireEditLease, markEditActivity, configureIdleRelease,
+  applyPresenceEvent, canvasOpened, releasePresence,
+} = useCanvasPresence({ activeCanvas, error })
+
+function ensureEditAccess(event?: Event) {
+  if (!canEdit.value) {
+    if (editorName.value) showEditLockedNotice()
+    acquireEditLease()
+  }
+  return true
+}
+
+function showEditLockedNotice() {
+  if (!editorName.value) return
+  editLockedNoticeName.value = editorName.value
+  editLockedNoticeOpen.value = true
+  clearTimeout(editLockedNoticeTimer)
+  editLockedNoticeTimer = setTimeout(() => {
+    editLockedNoticeOpen.value = false
+    editLockedNoticeName.value = ''
+  }, 3000)
+}
+
+watch(editorName, (name) => {
+  if (name) showEditLockedNotice()
+})
 
 const {
   selectedNodes, frameableSelectedNodes, canFrameSelection, canDissolveSelection,
@@ -87,12 +118,11 @@ const {
 })
 
 const {
-  fitFramesAfterRender, makeSelectionFrame, onCanvasPointerDown, onSelectionStart, onSelectionEnd,
+  fitFramesAfterRender, suppressFrameFit, makeSelectionFrame, onCanvasPointerDown, onSelectionStart, onSelectionEnd,
   onElementsChange, onFrameResizeStart, onFrameResizeEnd, onNodeDragStart, onNodeDragStop, autoLayout,
 } = useCanvasFrames({
   nodes,
   edges,
-  viewport,
   fitView,
   screenToFlowCoordinate,
   updateNodeInternals,
@@ -133,6 +163,7 @@ const {
   recordHistory,
   syncHistoryCanvas,
   fitFramesAfterRender,
+  suppressFrameFit,
   loadSessions: (id) => loadSessions(id),
   restoreTurns: () => restoreTurns(),
   subscribeCanvasEvents: (id) => subscribeCanvasEvents(id),
@@ -140,6 +171,11 @@ const {
   pasteFragment,
   resetWorkspace,
   closeCanvasSwitcher,
+  clientId,
+  canvasOpened,
+  releasePresence,
+  acquireEditLease,
+  markEditActivity,
 })
 
 const {
@@ -155,6 +191,16 @@ const {
   toCanvas: (canvas) => toCanvas(canvas),
   syncCanvasSummary: (canvas) => syncCanvasSummary(canvas),
   flushPendingSave: () => flushPendingSave(),
+  onCanvasEvent: applyPresenceEvent,
+  onCanvasDocumentEvent: () => refreshCanvasFromServer(),
+  clientId,
+  acquireEditLease,
+  markEditActivity,
+})
+
+configureIdleRelease({
+  flush: () => flushPendingSave({ detectChanges: true }),
+  isBusy: () => saving.value || busy.value || isRunning.value || Boolean(runningTurnId.value),
 })
 
 const { capabilitiesError, debugPanelOpen, selectedProvider, activeProvider, tripoAvailable, tripoNodeTypes, setProvider } = useDebugSettings()
@@ -628,6 +674,7 @@ useKeyboardShortcuts({
   pasteFragment,
   duplicateSelected,
   deleteSelected,
+  ensureEditAccess,
 })
 
 async function handleProjectNavigation() {
@@ -649,16 +696,17 @@ function preventPageTrackpadPinchZoom(event: WheelEvent) {
   if (event.ctrlKey && !(event.target instanceof Element && event.target.closest('.flow-canvas'))) event.preventDefault()
 }
 
-function flushOnBlur() {
-  flushPendingSave({ detectChanges: true })
-}
-
-function flushOnPageHide() {
-  flushPendingSave({ detectChanges: true, keepalive: true })
+async function releaseOnBlur() {
+  try {
+    await flushPendingSave({ detectChanges: true, keepalive: true })
+  } finally {
+    await releasePresence(undefined, { keepalive: true })
+  }
 }
 
 function flushWhenHidden() {
-  if (document.visibilityState === 'hidden') flushOnPageHide()
+  if (document.visibilityState === 'hidden') releaseOnBlur()
+  else refreshOnFocus()
 }
 
 function refreshOnFocus() {
@@ -668,9 +716,9 @@ function refreshOnFocus() {
 onMounted(async () => {
   window.addEventListener('pointerdown', closeCanvasMenu)
   window.addEventListener('popstate', handleProjectNavigation)
-  window.addEventListener('blur', flushOnBlur)
+  window.addEventListener('blur', releaseOnBlur)
   window.addEventListener('focus', refreshOnFocus)
-  window.addEventListener('pagehide', flushOnPageHide)
+  window.addEventListener('pagehide', releaseOnBlur)
   document.addEventListener('visibilitychange', flushWhenHidden)
   document.addEventListener('gesturestart', preventNativePinchZoom, { passive: false })
   document.addEventListener('wheel', preventPageTrackpadPinchZoom, { capture: true, passive: false })
@@ -682,11 +730,12 @@ onMounted(async () => {
 })
 onUnmounted(() => {
   stopPendingSave()
+  clearTimeout(editLockedNoticeTimer)
   window.removeEventListener('pointerdown', closeCanvasMenu)
   window.removeEventListener('popstate', handleProjectNavigation)
-  window.removeEventListener('blur', flushOnBlur)
+  window.removeEventListener('blur', releaseOnBlur)
   window.removeEventListener('focus', refreshOnFocus)
-  window.removeEventListener('pagehide', flushOnPageHide)
+  window.removeEventListener('pagehide', releaseOnBlur)
   document.removeEventListener('visibilitychange', flushWhenHidden)
   document.removeEventListener('gesturestart', preventNativePinchZoom)
   document.removeEventListener('wheel', preventPageTrackpadPinchZoom, true)
@@ -697,6 +746,9 @@ onUnmounted(() => {
 
 <template>
   <main class="app-shell">
+    <div v-if="editLockedNoticeOpen" class="edit-lock-notice" role="alert">
+      <span><strong>{{ editLockedNoticeName }}</strong> 正在编辑此画布</span>
+    </div>
     <TopBar
       v-model:switcher-open="canvasSwitcherOpen"
       :active-canvas="activeCanvas"

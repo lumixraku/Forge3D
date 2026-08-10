@@ -23,6 +23,7 @@ export function useKeyboardShortcuts({
   pasteFragment,
   duplicateSelected,
   deleteSelected,
+  ensureEditAccess,
 }) {
   function isEditing(target: EventTarget | null) {
     return target instanceof Element && Boolean(target.closest('input, textarea, [contenteditable="true"]'))
@@ -54,23 +55,27 @@ export function useKeyboardShortcuts({
     }
     if (modifier && event.code === 'KeyD') {
       event.preventDefault()
+      if (!ensureEditAccess()) return
       if (hasSelection.value) duplicateSelected()
       return
     }
     if (isEditing(event.target)) return
     if (modifier && event.key.toLowerCase() === 'z') {
       event.preventDefault()
+      if (!ensureEditAccess()) return
       if (event.shiftKey) redo()
       else undo()
       return
     }
     if (modifier && event.key.toLowerCase() === 'y') {
       event.preventDefault()
+      if (!ensureEditAccess()) return
       redo()
       return
     }
     if (['Backspace', 'Delete'].includes(event.key) && hasSelection.value) {
       event.preventDefault()
+      if (!ensureEditAccess()) return
       deleteSelected()
       return
     }
@@ -100,6 +105,7 @@ export function useKeyboardShortcuts({
       const fragment = parseFragment(await blob.arrayBuffer())
       if (!fragment) return
       event.preventDefault()
+      if (!ensureEditAccess()) return
       pasteFragment(fragment, { selectInserted: true })
     } catch {
       // Leave unsupported and non-Forge3D clipboard content to the browser.

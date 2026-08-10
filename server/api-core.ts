@@ -63,6 +63,11 @@ function createChannels() {
         data: { type, canvas_id: turn.canvasId, session_id: turn.sessionId, turn_id: turn.id, ...fields },
       }
     },
+    notification(canvasId, type, fields = {}) {
+      const seq = (sequences.get(canvasId) || 0) + 1
+      sequences.set(canvasId, seq)
+      return { id: `${seq}-0`, data: { type, canvas_id: canvasId, ...fields } }
+    },
     broadcast(canvasId, event) {
       const frame = `event: ${event.data.type === 'error' ? 'error' : 'message'}\ndata: ${JSON.stringify(event.data)}\nid: ${event.id}\n\n`
       for (const sink of subscribers.get(canvasId) || []) sink(frame)
@@ -116,6 +121,34 @@ function sseResponse(canvasId, signal, channels) {
 
 export function createApi({ createContext }) {
   const channels = createChannels()
+  const canvasLeases = new Map()
+  const leaseExpiryTimers = new Map()
+  const LEASE_DURATION_MS = 30000
+
+  function currentLease(canvasId) {
+    const lease = canvasLeases.get(canvasId)
+    if (lease && lease.expiresAt > Date.now()) return lease
+    if (lease) {
+      canvasLeases.delete(canvasId)
+      clearTimeout(leaseExpiryTimers.get(canvasId))
+      leaseExpiryTimers.delete(canvasId)
+    }
+    return null
+  }
+
+  function broadcastLease(canvasId) {
+    channels.broadcast(canvasId, channels.notification(canvasId, 'presence', { lease: currentLease(canvasId) }))
+  }
+
+  function scheduleLeaseExpiry(canvasId, lease) {
+    clearTimeout(leaseExpiryTimers.get(canvasId))
+    leaseExpiryTimers.set(canvasId, setTimeout(() => {
+      if (canvasLeases.get(canvasId) !== lease) return
+      canvasLeases.delete(canvasId)
+      leaseExpiryTimers.delete(canvasId)
+      broadcastLease(canvasId)
+    }, LEASE_DURATION_MS + 10))
+  }
   // In-flight bookkeeping, deliberately outside the per-request context so it
   // survives for the life of the process (or isolate).
   const canvasTurnQueues = new Map()
@@ -480,7 +513,44 @@ export function createApi({ createContext }) {
       }
       state.canvases[index] = replaceCanvasDocument(state.canvases[index], input.canvas, parts[2], new Date().toISOString())
       await store.persist(['canvases'])
+      channels.broadcast(parts[2], channels.notification(parts[2], 'canvas-updated', {
+        revision: state.canvases[index].revision,
+        source_client_id: input.clientId,
+      }))
       return json(state.canvases[index])
+    }
+
+    if (method === 'GET' && parts[1] === 'canvases' && parts[2] && parts[3] === 'presence' && parts.length === 4) {
+      if (!canvasById(parts[2])) return json({ error: 'Canvas not found' }, 404)
+      return json({ lease: currentLease(parts[2]) })
+    }
+
+    if (method === 'POST' && parts[1] === 'canvases' && parts[2] && parts[3] === 'presence' && parts.length === 4) {
+      if (!canvasById(parts[2])) return json({ error: 'Canvas not found' }, 404)
+      const input = await parseJson(request)
+      if (typeof input.clientId !== 'string' || !input.clientId) return json({ error: 'clientId is required' }, 400)
+      const lease = currentLease(parts[2])
+      if (lease && lease.clientId !== input.clientId) return json({ error: `${lease.displayName} is editing this canvas`, lease }, 423)
+      const nextLease = {
+        clientId: input.clientId,
+        displayName: typeof input.displayName === 'string' && input.displayName.trim() ? input.displayName.trim() : 'Another user',
+        expiresAt: Date.now() + LEASE_DURATION_MS,
+      }
+      canvasLeases.set(parts[2], nextLease)
+      scheduleLeaseExpiry(parts[2], nextLease)
+      broadcastLease(parts[2])
+      return json({ lease: nextLease })
+    }
+
+    if (method === 'DELETE' && parts[1] === 'canvases' && parts[2] && parts[3] === 'presence' && parts.length === 4) {
+      const clientId = url.searchParams.get('clientId')
+      if (currentLease(parts[2])?.clientId === clientId) {
+        canvasLeases.delete(parts[2])
+        clearTimeout(leaseExpiryTimers.get(parts[2]))
+        leaseExpiryTimers.delete(parts[2])
+        broadcastLease(parts[2])
+      }
+      return json(null, 204)
     }
 
     if (method === 'GET' && parts[1] === 'canvases' && parts[2] && parts[3] === 'sessions' && parts.length === 4) {
