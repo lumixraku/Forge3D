@@ -20,6 +20,23 @@ test('lays out a linear canvas from left to right', async () => {
   assert.equal(positions.size, nodes.length)
 })
 
+test('top-aligns differently sized nodes in a linear canvas', async () => {
+  const nodes = [
+    { id: 'a', width: 290, height: 200 },
+    { id: 'b', width: 290, height: 430 },
+    { id: 'c', width: 290, height: 260 },
+  ]
+  const positions = await layoutCanvas(nodes, [
+    { source: 'a', target: 'b' },
+    { source: 'b', target: 'c' },
+  ])
+
+  assert.ok(positions.get('a').x < positions.get('b').x)
+  assert.ok(positions.get('b').x < positions.get('c').x)
+  assert.equal(positions.get('a').y, positions.get('b').y)
+  assert.equal(positions.get('b').y, positions.get('c').y)
+})
+
 test('lays out multiple inputs and outputs around a merge and split', async () => {
   const nodes = [
     { id: 'input-a', width: 260, height: 240 },
