@@ -15,6 +15,7 @@ import DebugPanel from './components/DebugPanel.vue'
 import RunLogPanel from './components/RunLogPanel.vue'
 import TopBar from './components/TopBar.vue'
 import CanvasNode from './components/CanvasNode.vue'
+import ExecutionEdge from './components/ExecutionEdge.vue'
 import { useAgentChat } from './composables/useAgentChat'
 import { useAssetLibrary } from './composables/useAssetLibrary'
 import { useCanvasFrames } from './composables/useCanvasFrames'
@@ -60,6 +61,12 @@ const modelEditorNodeId = ref(null)
 const imagePreview = ref(null)
 const runSummaryOpen = ref(false)
 let pendingConnection = null
+
+const executionEdges = computed(() => edges.value.map((edge) => ({
+  ...edge,
+  type: 'execution',
+  data: { ...edge.data, running: nodeRuns.value[edge.target]?.status === 'running' },
+})))
 
 const { fitView, screenToFlowCoordinate, updateNodeInternals, viewport } = useVueFlow()
 const { theme, resolvedTheme, setTheme } = useTheme()
@@ -751,9 +758,10 @@ onUnmounted(() => {
           @select-node-type="selectNodeType"
           @drag-node-type="startNodeDrag($event.event, $event.type)"
         />
-        <VueFlow v-show="canvasView === 'canvas'" v-model:nodes="nodes" v-model:edges="edges" :class="['flow-canvas', `canvas-mode-${canvasMode}`]" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="canvasMode === 'select' ? true : null" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @viewport-change-start="dismissCanvasPopups" @pointerdown.capture="onCanvasPointerDown" @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
+        <VueFlow v-show="canvasView === 'canvas'" v-model:nodes="nodes" :edges="executionEdges" @update:edges="edges = $event" :class="['flow-canvas', `canvas-mode-${canvasMode}`]" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="canvasMode === 'select' ? true : null" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @viewport-change-start="dismissCanvasPopups" @pointerdown.capture="onCanvasPointerDown" @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
           <template #node-frame="props"><FrameNode v-bind="props" :zoom="viewport.zoom" :running="sectionIsRunning(props.id)" @update-name="updateNodeName(props.id, $event)" @resize-start="onFrameResizeStart(props.id)" @resize-end="onFrameResizeEnd" @run="runSection(props.id)" @stop-run="cancelRun" /></template>
           <template #node-canvas="props"><CanvasNode v-bind="props" :node-run="nodeRuns[props.id] || null" :run-id="run?.id || null" :run-entry-node-id="run?.entryNodeId || null" :run-mode="run?.mode || null" :run-status="run?.status || null" :inbound-type="inboundExportTarget(props.id)" :inbound-image="inboundImage(props.id)" :node-catalog="compatibleNodeTypes(props.data.canvasType)" :viewport-dismiss-version="viewportDismissVersion" @update-config="updateNodeConfig(props.id, $event)" @update-name="updateNodeName(props.id, $event)" @open-model-editor="openModelEditor(props.id)" @preview-image="openImagePreview" @add-next="addNode($event, props.id)" @run-canvas="runCanvas($event, 'node')" @run-downstream="runCanvas($event, 'downstream')" @stop-run="cancelRun" /></template>
+          <template #edge-execution="props"><ExecutionEdge v-bind="props" /></template>
           <Background :gap="24" :size="1.2" :pattern-color="resolvedTheme === 'dark' ? '#252b2c' : '#cdd2cf'" />
           <MiniMap position="bottom-right" :width="160" :height="100" :pannable="true" :zoomable="true" :mask-color="resolvedTheme === 'dark' ? 'rgba(10, 12, 12, .7)' : 'rgba(238, 241, 238, .72)'" :node-color="resolvedTheme === 'dark' ? '#606a63' : '#a6afa9'" :node-stroke-color="resolvedTheme === 'dark' ? '#929a94' : '#737d76'" :node-stroke-width="1" :node-border-radius="4" />
           <Controls position="bottom-right" />
