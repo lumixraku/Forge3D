@@ -2,6 +2,13 @@
 
 ## 2026-08-10 - main
 
+- Fixed canvas stacking so the page top bar and canvas toolbar establish positioned UI layers above all Vue Flow content, with opaque toolbar chrome preventing nodes from showing through button regions.
+- Raised Section nodes above regular canvas nodes so their title and Run controls remain visible and interactive when node content overlaps the Section header.
+- Verification: `pnpm test` passed 218 tests, `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. Browser verification in the existing Chrome session confirmed the top bar and canvas toolbar have effective positioned z-index layers, hit testing resolves to their controls, and Section nodes render above regular nodes. The build retains the existing large-chunk warning; the only browser console error was an unrelated blocked Google Fonts request (`ERR_CONNECTION_CLOSED`).
+- Remaining issues: None.
+
+## 2026-08-10 - main
+
 - Added server-owned canvas revision increments and conditional snapshot replacement using `baseRevision`; stale writes now receive `409` with the current remote canvas instead of overwriting it.
 - Added durable browser workflow drafts with an immediate localStorage mirror and IndexedDB persistence, restoring and uploading a draft only when its base revision still matches the remote canvas.
 - Split saving into 700ms workflow and 10s layout schedules, retained Agent and execution flushes, and added blur flush plus focus-time remote reconciliation. Remote updates win on an actual revision conflict.

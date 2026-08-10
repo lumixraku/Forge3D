@@ -224,7 +224,7 @@
 }
 
 .app-shell { display: grid; grid-template-rows: 68px minmax(0, 1fr); width: 100%; height: 100%; background: var(--bg-primary); transition: background .2s ease; }
-.topbar { z-index: 10; display: grid; grid-template-columns: 350px 1fr auto; align-items: center; border-bottom: 1px solid var(--line); background: var(--bg-tertiary); transition: background .2s ease, border-color .2s ease; }
+.topbar { position: relative; z-index: 10; display: grid; grid-template-columns: 350px 1fr auto; align-items: center; border-bottom: 1px solid var(--line); background: var(--bg-tertiary); transition: background .2s ease, border-color .2s ease; }
 .brand-lockup { display: flex; align-items: center; gap: 12px; height: 100%; padding: 0 18px; border-right: 1px solid var(--line); }
 .brand-mark { display: grid; width: 35px; height: 35px; place-items: center; border-radius: 10px; background: var(--acid); color: var(--text-inverse); font: 600 12px var(--font-mono); transition: transform .15s ease, box-shadow .15s ease; }
 .brand-lockup:hover .brand-mark { transform: scale(1.04); box-shadow: 0 0 0 3px color-mix(in srgb, var(--acid) 20%, transparent); }
@@ -404,7 +404,7 @@
 .composer-attachment img, .composer-attachment-icon { display: grid; width: 19px; height: 19px; margin-right: 5px; place-items: center; border-radius: 5px; object-fit: cover; background: var(--bg-active); font-size: 11px; }
 .composer-attachment-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .canvas-panel { display: grid; grid-template-rows: 62px minmax(0, 1fr) auto 27px; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg-secondary); transition: background .2s ease; }
-.canvas-toolbar { z-index: 5; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.canvas-toolbar { position: relative; z-index: 5; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--bg-secondary); }
 .canvas-toolbar b { display: block; margin-top: 3px; color: var(--text-secondary); font: 500 10px var(--font-mono); }
 .canvas-toolbar > div:last-child { display: flex; gap: 5px; overflow: visible; }
 .canvas-toolbar button { min-width: 30px; height: 30px; padding: 0 9px; border: 1px solid var(--line-subtle); border-radius: 6px; background: var(--bg-input); color: var(--text-muted); font: 500 10px var(--font-mono); transition: border-color .15s ease, background .15s ease, color .15s ease; }
@@ -489,7 +489,7 @@
 .frame-name-input, .node-name-input { min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; caret-color: var(--acid); }
 .frame-name-input { width: min(260px, calc(100% - 58px)); }
 .canvas-frame p { margin: 5px 0 0 55px; color: var(--text-muted); font-size: 10px; }
-.vue-flow__node-frame { z-index: 0 !important; }
+.vue-flow__node-frame { z-index: 2 !important; }
 .vue-flow__node-canvas { z-index: 1 !important; }
 .canvas-node { position: relative; width: 260px; padding: 13px 14px 11px; border: 1px solid var(--node-accent); border-radius: 10px; background: color-mix(in srgb, var(--bg-input) 97%, transparent); box-shadow: var(--shadow-lg); transition: border-color .15s ease, box-shadow .15s ease; }
 .canvas-node:hover { border-color: color-mix(in srgb, var(--node-accent) 72%, var(--line-strong)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--node-accent) 28%, transparent), var(--shadow-lg); }
