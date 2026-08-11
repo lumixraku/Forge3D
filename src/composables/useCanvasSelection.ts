@@ -6,7 +6,7 @@ import { removeSelectedElements } from '../canvas-selection'
 
 // Everything derived from, or acting on, the current canvas selection: the
 // selection computeds, deletion, and fragment copy/paste/duplicate.
-export function useCanvasSelection({ nodes, edges, activeCanvas, error, scheduleSave, fromCanvas, toCanvas, loadCanvass }) {
+export function useCanvasSelection({ nodes, edges, activeCanvas, error, scheduleSave, fromCanvas, toCanvas, loadCanvass, focusNodes }) {
   const selectedNodes = computed(() => nodes.value.filter((node) => node.selected))
   const selectedEdges = computed(() => edges.value.filter((edge) => edge.selected))
   const frameableSelectedNodes = computed(() => selectedNodes.value.filter((node) => node.type !== 'frame' && !node.parentNode))
@@ -97,6 +97,7 @@ export function useCanvasSelection({ nodes, edges, activeCanvas, error, schedule
       nodes.value = nodes.value.map((node) => ({ ...node, selected: insertedIds.has(node.id) }))
     }
     scheduleSave()
+    focusNodes(domainNodes.map((node) => node.id))
   }
 
   async function duplicateSelected() {

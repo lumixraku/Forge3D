@@ -117,6 +117,7 @@ const {
   fromCanvas: () => fromCanvas(),
   toCanvas: (canvas) => toCanvas(canvas),
   loadCanvass: (preferredId) => loadCanvass(preferredId),
+  focusNodes,
 })
 
 const {
@@ -422,8 +423,16 @@ function canvasCenterPosition() {
   return screenToFlowCoordinate({ x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 })
 }
 
+async function focusNodes(ids, padding = 0.25) {
+  if (!ids.length) return
+  await nextTick()
+  await new Promise((resolve) => requestAnimationFrame(resolve))
+  await nextTick()
+  fitView({ nodes: ids, padding, maxZoom: 1, duration: 350 })
+}
+
 function focusNode(id, padding = 0.25) {
-  nextTick(() => fitView({ nodes: [id], padding, maxZoom: 1, duration: 350 }))
+  focusNodes([id], padding)
 }
 
 function fitCanvasView() {
