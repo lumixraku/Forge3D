@@ -2,9 +2,17 @@
 
 ## 2026-08-11 - main
 
-- Added `focusNodes`, a reusable canvas focus operation that waits for inserted nodes to render and then animates their collective bounding box into the viewport center with Vue Flow's `fitView`.
-- Wired fragment paste to focus all newly inserted node IDs, including cross-canvas pastes and local duplicates; existing single-node focus actions now use the shared capability.
-- Verification: `pnpm test`, `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. The build retains the existing large-chunk warning.
+- Fixed the canvas execution-history endpoint, which referenced an undefined `user` and returned HTTP 500; the Task List therefore only retained the active run instead of loading prior executions.
+- The Task List now renders every execution as a separate record keyed by its unique run ID, displays that Task ID, and preserves the entry node name in execution DTOs.
+- Added an API regression test that executes the same node three times and requires all three unique execution IDs to appear in canvas history.
+- Verification: `pnpm test` passed 227 tests, `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. Browser verification on the running app returned 21 execution records and rendered 21 Task List cards with distinct Task IDs and no console errors. The build retains the existing large-chunk warning.
+- Remaining issues: None.
+
+## 2026-08-11 - main
+
+- Cherry-picked and adapted the reference project's execution-isolation and floating Task List commits. The right-side drawer now shows the active run and canvas execution history, tracks task progress, and downloads generated outputs while the bottom panel remains dedicated to run logs.
+- Added the canvas-scoped execution creation and history routes, updated the duplicate-node characterization test to use the scoped route, and kept Agent and canvas-run invalidation independent.
+- Verification: `pnpm test` passed 227 tests. `pnpm typecheck`, `pnpm build`, and `git diff --check` also passed; the build retains the existing large-chunk warning.
 - Remaining issues: None.
 
 ## 2026-08-10 - main

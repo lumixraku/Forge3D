@@ -44,11 +44,13 @@ const nodeRuns = ref({})
 const agentBusy = ref(false)
 const canvasBusy = ref(false)
 const error = ref('')
+const canvasError = ref('')
 const saving = ref(false)
 const savedState = ref('Saved')
-// Bumped whenever the active canvas changes or a run starts, so in-flight agent
-// streams and run polls belonging to the previous context abandon themselves.
-const runToken = ref(0)
+// A canvas switch invalidates both independently-running domains. A node run and
+// an Agent turn never invalidate or block one another.
+const agentToken = ref(0)
+const canvasRunToken = ref(0)
 
 // Canvas chrome: menus, overlays and the two view/mode switches.
 const contextMenu = ref(null)
@@ -63,6 +65,7 @@ const canvasView = ref('canvas')
 const modelEditorNodeId = ref(null)
 const imagePreview = ref(null)
 const runSummaryOpen = ref(false)
+const taskQueueOpen = ref(false)
 const editLockedNoticeOpen = ref(false)
 const editLockedNoticeName = ref('')
 let pendingConnection = null
@@ -204,12 +207,12 @@ const {
 
 configureIdleRelease({
   flush: () => flushPendingSave({ detectChanges: true }),
-  isBusy: () => saving.value || busy.value || isRunning.value || Boolean(runningTurnId.value),
+  isBusy: () => saving.value || agentBusy.value || isRunning.value || Boolean(runningTurnId.value),
 })
 
 const { capabilitiesError, debugPanelOpen, selectedProvider, activeProvider, tripoAvailable, tripoNodeTypes, setProvider } = useDebugSettings()
 
-const { isRunning, runDetails, runSummary, runCanvas, cancelRun } = useCanvasRun({
+const { isRunning, runDetails, runSummary, runCanvas, cancelRun, executions, executionsLoading, loadExecutions } = useCanvasRun({
   activeCanvas,
   nodes,
   edges,
@@ -864,6 +867,11 @@ onUnmounted(() => {
         <RunLogPanel v-if="runDetails && runSummaryOpen" :details="runDetails" @close="runSummaryOpen = false" />
         <footer><div class="run-status"><span><i />{{ runSummary }}</span><button v-if="runDetails" type="button" :aria-expanded="runSummaryOpen" @click="runSummaryOpen = !runSummaryOpen">{{ runSummaryOpen ? 'Hide logs' : 'Logs' }} <b>{{ runSummaryOpen ? '↓' : '↑' }}</b></button></div><span>Click or drag a node from Add node · Drop a connection on empty canvas to create a compatible node · Press / to add</span></footer>
       </section>
+      <button class="task-queue-toggle" type="button" :aria-expanded="taskQueueOpen" aria-controls="task-queue-panel" @click="taskQueueOpen = !taskQueueOpen">
+        <span aria-hidden="true">{{ taskQueueOpen ? '→' : '←' }}</span>
+        <b>{{ executions.length + (run?.id && !executions.some((execution) => execution.id === run.id) ? 1 : 0) }}</b>
+      </button>
+      <ExecutionOutputPanel id="task-queue-panel" :class="{ 'is-open': taskQueueOpen }" :executions="executions" :active-execution="run" :loading="executionsLoading" />
     </section>
     <ModelEditor v-else-if="modelEditorNode" :node="modelEditorNode" @back="closeModelEditor" @update-config="updateNodeConfig(modelEditorNode.id, $event)" />
     <ImagePreviewOverlay :preview="imagePreview" @close="closeImagePreview" />
