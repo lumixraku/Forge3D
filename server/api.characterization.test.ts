@@ -539,7 +539,7 @@ test('a node ID present on more than one canvas is resolved within the requested
     edges: canvasFixture('y', { prefix: 'ambiguous' }).edges,
   })
 
-  const started = await postJson('/api/nodes/ambiguous-generate-image/executions', { mode: 'node', canvasId: duplicate.body.id })
+  const started = await postJson(`/api/canvases/${duplicate.body.id}/nodes/ambiguous-generate-image/executions`, { mode: 'node' })
   assert.equal(started.status, 202)
   assert.equal(started.body.canvasId, duplicate.body.id)
   assert.notEqual(started.body.canvasId, source.body.id)
@@ -573,6 +573,19 @@ test('reading and cancelling executions', async () => {
   assert.equal(cancelled.status, 202)
   // Cancelling is a request; a run that already finished keeps its own status.
   assert.ok(['cancelling', 'cancelled', 'succeeded'].includes(cancelled.body.status))
+})
+
+test('lists every execution of the same node as a distinct task', async () => {
+  const started = await Promise.all(Array.from({ length: 3 }, () => (
+    postJson('/api/canvases/canvas-fixture/nodes/canvas-fixture-generate-image/executions', { mode: 'node' })
+  )))
+  assert.ok(started.every(({ status }) => status === 202))
+
+  const history = await api('/api/canvases/canvas-fixture/executions')
+  assert.equal(history.status, 200)
+  const startedIds = new Set(started.map(({ body }) => body.id))
+  assert.equal(startedIds.size, 3)
+  assert.ok([...startedIds].every((id) => history.body.some((execution) => execution.id === id)))
 })
 
 test('lists the assets a run produced, paginated', async () => {

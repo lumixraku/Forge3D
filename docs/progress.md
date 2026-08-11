@@ -1,5 +1,22 @@
 # Progress
 
+## 2026-08-11 - main
+
+- Fixed the canvas execution-history endpoint, which referenced an undefined `user` and returned HTTP 500; the Task List therefore only retained the active run instead of loading prior executions.
+- The Task List now renders every execution as a separate record keyed by its unique run ID, displays that Task ID, and preserves the entry node name in execution DTOs.
+- Added an API regression test that executes the same node three times and requires all three unique execution IDs to appear in canvas history.
+- Verification: `pnpm test` passed 227 tests, `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. Browser verification on the running app returned 21 execution records and rendered 21 Task List cards with distinct Task IDs and no console errors. The build retains the existing large-chunk warning.
+- Remaining issues: None.
+
+## 2026-08-11 - main
+
+- Cherry-picked and adapted the reference project's execution-isolation and floating Task List commits. The right-side drawer now shows the active run and canvas execution history, tracks task progress, and downloads generated outputs while the bottom panel remains dedicated to run logs.
+- Added the canvas-scoped execution creation and history routes, updated the duplicate-node characterization test to use the scoped route, and kept Agent and canvas-run invalidation independent.
+- Added `focusNodes`, a reusable canvas focus operation that waits for inserted nodes to render and then animates their collective bounding box into the viewport center with Vue Flow's `fitView`.
+- Wired fragment paste to focus all newly inserted node IDs, including cross-canvas pastes and local duplicates; existing single-node focus actions now use the shared capability.
+- Verification: `pnpm test` passed 226 tests. `pnpm typecheck`, `pnpm build`, and `git diff --check` also passed; the build retains the existing large-chunk warning.
+- Remaining issues: None.
+
 ## 2026-08-10 - main
 
 - Fixed the collaborative canvas save loop that shifted node positions whenever a collaborator refocused their tab. `frameInsets` folded `FRAME_TITLE_SCREEN_HEIGHT / zoom` into frame sizes and child positions, which are persisted, so two clients at different zoom levels each refit the received geometry to their own answer and saved it back. Insets and `frameComponentGap` are now zoom-independent and take no zoom argument; the four call sites in `useCanvasFrames` were updated and the now-unused `viewport` dependency was dropped from that composable and its `App.vue` call site.
