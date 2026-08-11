@@ -4,6 +4,18 @@ import { isExecutableNodeType } from '../src/canvas-schema.js'
 
 const modelProducingTypes = new Set(['generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'bake', 'texture', 'rigging', 'segments', 'model-preview'])
 
+// The bundled demo images this simulation hands back. They belong to the
+// simulation rather than to a node's defaults: an untouched node has produced
+// nothing yet, so its result area stays empty until a run fills it in.
+const demoConceptImages = ['/shark-concept-front.png', '/shark-concept-left.png', '/shark-concept-right.png', '/shark-concept-back.png']
+const demoViewImages = { front: '/shark-concept-front.png', back: '/shark-concept-back.png', left: '/shark-concept-left.png', right: '/shark-concept-right.png' }
+const demoModelImages = { retopology: '/shark-retopology.png', texture: '/shark-textured.png', 'model-preview': '/shark-review.png' }
+const demoModelUrl = '/models/shark-gardener.glb'
+
+function demoModelImage(type) {
+  return demoModelImages[type] || '/shark-model.png'
+}
+
 function inboundSources(node, canvas) {
   const nodesById = new Map(canvas.nodes.map((item) => [item.id, item]))
   return (canvas.edges || [])
@@ -76,17 +88,17 @@ export function nodeOutput(node, canvas) {
   if (['generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'bake', 'texture', 'rigging', 'segments', 'model-preview'].includes(node.type)) {
     if (node.type === 'generate-model') {
       const inputImages = resolveInputImages(node, canvas)
-      return { message: `${node.name} generated from ${inputImages.length > 1 ? `${inputImages.length} images` : inputImages.length === 1 ? '1 image' : 'text'}`, preview: node.config?.preview || null, inputMode: inputImages.length > 1 ? 'multi-image' : inputImages.length === 1 ? 'single-image' : 'text', inputImages }
+      return { message: `${node.name} generated from ${inputImages.length > 1 ? `${inputImages.length} images` : inputImages.length === 1 ? '1 image' : 'text'}`, preview: node.config?.preview || demoModelImage(node.type), modelUrl: demoModelUrl, inputMode: inputImages.length > 1 ? 'multi-image' : inputImages.length === 1 ? 'single-image' : 'text', inputImages }
     }
     return node.type === 'texture'
-      ? { message: 'UV texture generated', preview: node.config?.preview || null, textureQuality: node.config?.textureQuality || 'detailed' }
-      : { message: `${node.name} generated`, preview: node.config?.preview || null }
+      ? { message: 'UV texture generated', preview: node.config?.preview || demoModelImage(node.type), modelUrl: demoModelUrl, textureQuality: node.config?.textureQuality || 'detailed' }
+      : { message: `${node.name} generated`, preview: node.config?.preview || demoModelImage(node.type), modelUrl: demoModelUrl }
   }
   if (node.type === 'export-model') {
     const format = ['usdz', 'fbx', 'obj', 'stl', 'gltf', '3mf'].includes(node.config?.modelFormat) ? node.config.modelFormat : 'gltf'
     const fileName = node.config?.fileName || 'shark-gardener'
     const outputs = [{ destination: 'dcc', format, filename: `${fileName}.${format === 'gltf' ? 'glb' : format}`, downloadUrl: '/models/shark-gardener.glb', mock: format !== 'gltf' }]
-    return { message: `${node.name} ready`, target: exportTarget(node, canvas), format, outputs, preview: node.config?.preview || '/shark-model.png' }
+    return { message: `${node.name} ready`, target: exportTarget(node, canvas), format, outputs, preview: node.config?.preview || '/shark-model.png', modelUrl: outputs[0].downloadUrl }
   }
   return { message: `Mock ${node.type} result` }
 }

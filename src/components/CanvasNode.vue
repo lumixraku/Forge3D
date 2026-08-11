@@ -69,7 +69,7 @@ const runStateDetail = computed(() => {
   // A real task reports progress and can take tens of seconds; a simulated one cannot.
   return runProgress.value === null ? 'Execution is in progress' : `Tripo task in progress · ${runProgress.value}%`
 })
-const runtimePreview = computed(() => props.nodeRun?.output?.preview || props.data.config.preview)
+const runtimePreview = computed(() => props.nodeRun?.output?.preview || (!isExecutableNode.value ? props.data.config.preview : ''))
 // The run downloads the export once as it finishes, which is no help after a
 // reload, so a finished export also offers the file directly.
 const exportDownloads = computed(() => {
@@ -77,9 +77,9 @@ const exportDownloads = computed(() => {
   if (!output) return []
   return (output.outputs || (output.downloadUrl ? [output] : [])).filter((item) => item.downloadUrl)
 })
-const reviewImage = computed(() => props.inboundImage || props.nodeRun?.output?.preview || props.data.config.preview)
-const runtimePreviews = computed(() => props.nodeRun?.output?.previews || props.data.config.previews || [])
-const runtimeViewPreviews = computed(() => props.nodeRun?.output?.viewPreviews || props.data.config.viewPreviews || {})
+const reviewImage = computed(() => props.nodeRun?.output?.preview || '')
+const runtimePreviews = computed(() => props.nodeRun?.output?.previews || (!isExecutableNode.value ? props.data.config.previews : []) || [])
+const runtimeViewPreviews = computed(() => props.nodeRun?.output?.viewPreviews || (!isExecutableNode.value ? props.data.config.viewPreviews : {}) || {})
 const viewPorts = ['front', 'back', 'left', 'right']
 const visibleInputPorts = computed(() => props.data.inputPorts?.length ? [{ id: 'input', label: 'Input' }] : [])
 const visibleOutputPorts = computed(() => props.data.outputPorts?.length ? [{ id: 'output', label: 'Output' }] : [])

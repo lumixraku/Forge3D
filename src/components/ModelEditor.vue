@@ -2,13 +2,25 @@
 import { computed } from 'vue'
 import NodeSelect from './NodeSelect.vue'
 import Model3D from './Model3D.vue'
+import type { NodeRun } from '../node-runs'
 
 type ModelConfig = Record<string, unknown> & { wireframe?: boolean; autoRotate?: boolean; preview?: string; environment?: string }
 interface ModelNode { data: { label: string; canvasType: string; config: ModelConfig } }
 
-const props = defineProps<{ node: ModelNode }>()
+const props = defineProps<{ node: ModelNode; nodeRun?: NodeRun | null }>()
 const emit = defineEmits<{ back: []; 'update-config': [config: ModelConfig] }>()
-const modelUrl = '/models/shark-gardener.glb'
+const modelUrl = computed(() => {
+  const output = props.nodeRun?.output
+  if (typeof output?.modelUrl === 'string') return output.modelUrl
+  const download = Array.isArray(output?.outputs) ? output.outputs.find((item) => item?.downloadUrl) : null
+  return typeof download?.downloadUrl === 'string' ? download.downloadUrl : ''
+})
+const segmentedUrl = computed(() => modelUrl.value)
+const downloadName = computed(() => modelUrl.value.split('/').pop()?.split('?')[0] || 'model.glb')
+const previewImage = computed(() => props.nodeRun?.output?.preview || '')
+// Names the provider that actually produced the file, so a simulated result is
+// not passed off as a real one.
+const assetSummary = computed(() => `${props.nodeRun?.tripoTaskId ? 'Tripo' : 'Mock'} result · GLB`)
 
 const editorMode = computed(() => {
   const type = props.node.data.canvasType
@@ -45,12 +57,13 @@ function update(key: string, value: unknown) {
         <div class="stage-actions">
           <button>Compare</button>
           <button>Snapshot</button>
-          <a class="button primary" :href="modelUrl" download="shark-gardener.glb">Download GLB</a>
+          <a v-if="modelUrl" class="button primary" :href="modelUrl" :download="downloadName">Download GLB</a>
         </div>
       </header>
 
       <div class="model-viewport">
-        <Model3D :mode="editorMode" :auto-rotate="node.data.config.autoRotate !== false" />
+        <Model3D v-if="modelUrl" :mode="editorMode" :src="modelUrl" :seg-src="segmentedUrl" :auto-rotate="node.data.config.autoRotate !== false" />
+        <div v-else class="model-viewport-empty">This run did not produce a model file.</div>
         <div class="viewport-status"><i /> REALTIME · GLB · {{ editorMode === 'split' ? 'SEGMENTS' : editorMode === 'rig' ? 'RIG' : 'PBR' }}</div>
         <div class="viewport-hint">Drag to orbit · Scroll to zoom · Double-click to focus</div>
         <div class="axis-widget"><b>Z</b><span>X</span><i>Y</i></div>
@@ -67,8 +80,8 @@ function update(key: string, value: unknown) {
     <aside class="model-inspector">
       <header><span>INSPECTOR</span><b>Asset properties</b></header>
       <section class="asset-summary">
-        <img :src="node.data.config.preview || '/shark-review.png'" alt="Model preview" />
-        <div><strong>Shark Gardener</strong><span>Meshy export · GLB</span></div>
+        <img v-if="previewImage" :src="previewImage" alt="Model preview" />
+        <div><strong>{{ node.data.label }}</strong><span>{{ assetSummary }}</span></div>
       </section>
       <section class="inspector-section">
         <div class="section-heading"><span>SCENE</span><b>01 object</b></div>

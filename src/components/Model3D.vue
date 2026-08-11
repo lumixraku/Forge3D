@@ -12,11 +12,11 @@ type ViewerMode = 'model' | 'wireframe' | 'rig' | 'split'
 
 const props = withDefaults(defineProps<{
   mode?: ViewerMode
-  src?: string
+  src: string
   // Tripo AI part-segmentation result: each node is a real semantic part.
   segSrc?: string
   autoRotate?: boolean
-}>(), { mode: 'model', src: '/models/shark-gardener.glb', segSrc: '/models/shark-gardener-segmented.glb', autoRotate: true })
+}>(), { mode: 'model', segSrc: undefined, autoRotate: true })
 
 const host = ref<HTMLElement | null>(null)
 let renderer: THREE.WebGLRenderer | undefined
@@ -196,7 +196,8 @@ function init() {
 }
 
 function loadContent() {
-  const url = props.mode === 'split' ? props.segSrc : props.src
+  const url = props.mode === 'split' ? props.segSrc || props.src : props.src
+  if (!url) return
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
   loader.load(url, (gltf) => {
     if (disposed || !pivot) return

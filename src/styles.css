@@ -774,6 +774,7 @@
 .model-viewport { position: relative; min-width: 0; min-height: 0; overflow: hidden; background-color: #202322; background-image: linear-gradient(rgba(255, 255, 255, .018) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, .018) 1px, transparent 1px), radial-gradient(circle at 50% 45%, rgba(108, 122, 109, .18), transparent 52%); background-size: 32px 32px, 32px 32px, auto; }
 .model-viewport::after { position: absolute; right: 0; bottom: 15%; left: 0; height: 1px; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--acid) 20%, transparent), transparent); content: ''; pointer-events: none; }
 .model-viewport model-viewer { width: 100%; height: 100%; --poster-color: transparent; }
+.model-viewport-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-muted); font: 500 9px var(--font-mono); }
 .viewport-status, .viewport-hint { position: absolute; z-index: 2; bottom: 14px; color: var(--text-muted); font: 500 8px var(--font-mono); pointer-events: none; }
 .viewport-status { left: 16px; display: flex; align-items: center; gap: 7px; }
 .viewport-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--acid); box-shadow: 0 0 8px color-mix(in srgb, var(--acid) 70%, transparent); }

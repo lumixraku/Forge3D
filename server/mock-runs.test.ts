@@ -23,7 +23,7 @@ test('executes one node and returns its runtime preview output', async () => {
   assert.equal(result.nodeId, 'model')
   assert.equal(result.status, 'succeeded')
   assert.equal(typeof result.durationMs, 'number')
-  assert.deepEqual(result.output, { message: 'Text to 3D generated', preview: '/model.png' })
+  assert.deepEqual(result.output, { message: 'Text to 3D generated', preview: '/model.png', modelUrl: '/models/shark-gardener.glb' })
 })
 
 test('derives execution order from canvas edges', () => {
