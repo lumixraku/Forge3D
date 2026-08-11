@@ -158,8 +158,17 @@ export function tripoNodeOutput(node, task, { preview = null, modelUrl = null, f
   }
 
   if (node.type === 'texture') {
-    return { ...shared, message: 'UV texture generated', textureQuality: node.config?.textureQuality || 'standard' }
+    return {
+      ...shared,
+      message: 'UV texture generated',
+      textureQuality: node.config?.textureQuality || 'standard',
+      outputs: taskId && resolvedModel ? [{ format: 'glb', filename: 'textured-model.glb', downloadUrl: `/api/tripo/tasks/${encodeURIComponent(taskId)}/download` }] : [],
+    }
   }
 
-  return { ...shared, message: `${node.name || node.type} generated` }
+  return {
+    ...shared,
+    message: `${node.name || node.type} generated`,
+    outputs: taskId && resolvedModel ? [{ format: 'glb', filename: 'model.glb', downloadUrl: `/api/tripo/tasks/${encodeURIComponent(taskId)}/download` }] : [],
+  }
 }

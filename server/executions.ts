@@ -4,6 +4,52 @@ import { downstreamCanvas, executeNode, executionNodes } from './mock-runs.js'
 import { randomUUID } from './ids.js'
 import { recordNodeExecution } from './run-log.js'
 import { latestNodeRuns } from './node-state.js'
+import { tripoNodeOutput } from './tripo-mapping.js'
+
+const TRIPO_FAILURE_STATUSES = new Set(['failed', 'banned', 'expired', 'cancelled'])
+
+export async function syncExecutionWithTripo(run, getTripoTask) {
+  if (!run || !getTripoTask) return run
+  const remoteNodes = Object.entries(run.nodeRuns || {}).filter(([, nodeRun]) => nodeRun.tripoTaskId)
+  if (!remoteNodes.length) return run
+
+  let changed = false
+  await Promise.all(remoteNodes.map(async ([nodeId, nodeRun]) => {
+    let task
+    try {
+      task = await getTripoTask(nodeRun.tripoTaskId)
+    } catch {
+      // An unavailable status endpoint cannot change the task's known state.
+      return
+    }
+
+    const nextStatus = task.status === 'success'
+      ? 'succeeded'
+      : TRIPO_FAILURE_STATUSES.has(task.status) ? (task.status === 'cancelled' ? 'cancelled' : 'failed') : 'running'
+    const nextError = TRIPO_FAILURE_STATUSES.has(task.status)
+      ? task.message || task.error || `Tripo task ${task.status}`
+      : null
+    const nextProgress = task.progress ?? nodeRun.progress
+    const node = run.input?.nodes?.find((candidate) => candidate.id === nodeId)
+      || { type: nodeRun.nodeType, name: nodeRun.nodeName, config: {} }
+    const nextOutput = task.status === 'success' ? tripoNodeOutput(node, task) : nodeRun.output
+    if (nodeRun.status === nextStatus && nodeRun.error === nextError && nodeRun.progress === nextProgress && JSON.stringify(nodeRun.output) === JSON.stringify(nextOutput)) return
+    nodeRun.status = nextStatus
+    nodeRun.error = nextError
+    nodeRun.output = nextOutput
+    if (nextProgress !== undefined) nodeRun.progress = nextProgress
+    changed = true
+  }))
+
+  if (!changed) return run
+  const statuses = Object.values(run.nodeRuns || {}).map((nodeRun) => nodeRun.status)
+  if (statuses.includes('failed')) run.status = 'failed'
+  else if (statuses.includes('cancelled')) run.status = 'cancelled'
+  else if (statuses.some((status) => ['queued', 'running'].includes(status))) run.status = 'running'
+  else run.status = 'succeeded'
+  run.completedAt = ['succeeded', 'failed', 'cancelled'].includes(run.status) ? new Date().toISOString() : null
+  return run
+}
 
 export function executionById(runs, executionId) {
   return runs.find((run) => run.id === executionId) || null

@@ -10,6 +10,13 @@
 
 ## 2026-08-11 - main
 
+- Made persisted execution status and output reconcile from the recorded Tripo task on execution/history reads, so local request or asset-cache timeouts cannot leave a remotely successful generation marked failed.
+- Successful Tripo model-producing nodes now retain the task ID, current OSS model/preview URLs, credits, and a stable same-origin task download URL; local asset-cache failures preserve the remote success and fall back to that task-backed download.
+- Verification from the source commit: 51 focused execution/Tripo tests passed; `pnpm run typecheck` and `git diff --check` passed.
+- Remaining issues: None.
+
+## 2026-08-11 - main
+
 - Cherry-picked and adapted the reference project's execution-isolation and floating Task List commits. The right-side drawer now shows the active run and canvas execution history, tracks task progress, and downloads generated outputs while the bottom panel remains dedicated to run logs.
 - Added the canvas-scoped execution creation and history routes, updated the duplicate-node characterization test to use the scoped route, and kept Agent and canvas-run invalidation independent.
 - Verification: `pnpm test` passed 227 tests. `pnpm typecheck`, `pnpm build`, and `git diff --check` also passed; the build retains the existing large-chunk warning.

@@ -15,7 +15,7 @@
 import { randomUUID } from './ids.js'
 import { latestNodeRuns } from './node-state.js'
 import { executionAssets } from './run-assets.js'
-import { cancelExecution, canvasExecutions, createExecution, executeExecution, executionById, executionDto, paginateAssets } from './executions.js'
+import { cancelExecution, canvasExecutions, createExecution, executeExecution, executionById, executionDto, paginateAssets, syncExecutionWithTripo } from './executions.js'
 import { createInitialSession, createCanvas, createSession, duplicateCanvas } from './canvases.js'
 import { runDeepSeekAgent } from './deepseek.js'
 import { cancelAgentViaService, runAgentViaService } from './agent-client.js'
@@ -734,12 +734,21 @@ export function createApi({ createContext }) {
 
     if (method === 'GET' && parts[1] === 'executions' && parts.length === 3) {
       const execution = executionById(state.runs, parts[2])
-      return execution ? json(executionDto(execution)) : json({ error: 'Execution not found' }, 404)
+      if (!execution) return json({ error: 'Execution not found' }, 404)
+      const before = JSON.stringify(execution)
+      await syncExecutionWithTripo(execution, config.getTripoTask)
+      if (JSON.stringify(execution) !== before) await store.persist(['runs'])
+      return json(executionDto(execution))
     }
 
     if (method === 'GET' && parts[1] === 'canvases' && parts[2] && parts[3] === 'executions' && parts.length === 4) {
       const canvas = canvasById(parts[2])
-      return canvas ? json(canvasExecutions(state.runs, canvas.id)) : json({ error: 'Canvas not found' }, 404)
+      if (!canvas) return json({ error: 'Canvas not found' }, 404)
+      const runs = state.runs.filter((run) => run.canvasId === canvas.id)
+      const before = JSON.stringify(runs)
+      await Promise.all(runs.map((run) => syncExecutionWithTripo(run, config.getTripoTask)))
+      if (JSON.stringify(runs) !== before) await store.persist(['runs'])
+      return json(canvasExecutions(runs, canvas.id))
     }
 
     if (method === 'GET' && parts[1] === 'tripo' && parts[2] === 'tasks' && parts[3] && parts[4] === 'download' && parts.length === 5) {

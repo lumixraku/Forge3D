@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { cancelExecution, canvasExecutions, createExecution, executeExecution, executionDto, paginateAssets } from './executions.js'
+import { cancelExecution, canvasExecutions, createExecution, executeExecution, executionDto, paginateAssets, syncExecutionWithTripo } from './executions.js'
 
 const canvas = {
   id: 'canvas-1',
@@ -106,4 +106,47 @@ test('keeps a submitted Tripo task traceable on the recorded failure', async () 
   assert.equal(execution.nodeExecutions.entry.status, 'failed')
   assert.equal(execution.nodeExecutions.entry.tripoTaskId, 'task_abc')
   assert.equal(execution.nodeExecutions.entry.progress, 40)
+})
+
+test('uses the remote Tripo task as the source of truth for execution status', async () => {
+  const run = {
+    id: 'run-1',
+    status: 'failed',
+    completedAt: '2026-08-11T00:00:00.000Z',
+    nodeRuns: {
+      model: {
+        status: 'failed',
+        error: 'The operation was aborted due to timeout',
+        progress: 100,
+        tripoTaskId: 'task-1',
+      },
+    },
+  }
+
+  await syncExecutionWithTripo(run, async () => ({
+    task_id: 'task-1',
+    status: 'success',
+    progress: 100,
+    output: { model_url: 'https://cdn.tripo3d.ai/model.glb', rendered_image_url: 'https://cdn.tripo3d.ai/preview.webp' },
+  }))
+
+  assert.equal(run.status, 'succeeded')
+  assert.equal(run.nodeRuns.model.status, 'succeeded')
+  assert.equal(run.nodeRuns.model.error, null)
+  assert.equal(run.nodeRuns.model.output.modelUrl, 'https://cdn.tripo3d.ai/model.glb')
+  assert.equal(run.nodeRuns.model.output.preview, 'https://cdn.tripo3d.ai/preview.webp')
+  assert.equal(run.nodeRuns.model.output.outputs[0].downloadUrl, '/api/tripo/tasks/task-1/download')
+})
+
+test('does not replace a Tripo task status when the remote lookup is unavailable', async () => {
+  const run = {
+    status: 'running',
+    completedAt: null,
+    nodeRuns: { model: { status: 'running', error: null, progress: 50, tripoTaskId: 'task-1' } },
+  }
+
+  await syncExecutionWithTripo(run, async () => { throw new Error('network timeout') })
+
+  assert.equal(run.status, 'running')
+  assert.equal(run.nodeRuns.model.status, 'running')
 })
