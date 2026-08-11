@@ -15,7 +15,7 @@
 import { randomUUID } from './ids.js'
 import { latestNodeRuns } from './node-state.js'
 import { executionAssets } from './run-assets.js'
-import { cancelExecution, canvasExecutions, createExecution, executeExecution, executionById, executionDto, paginateAssets } from './executions.js'
+import { cancelExecution, createExecution, executeExecution, executionById, executionDto, findNode, paginateAssets } from './executions.js'
 import { createInitialSession, createCanvas, createSession, duplicateCanvas } from './canvases.js'
 import { runDeepSeekAgent } from './deepseek.js'
 import { cancelAgentViaService, runAgentViaService } from './agent-client.js'
@@ -739,7 +739,7 @@ export function createApi({ createContext }) {
 
     if (method === 'GET' && parts[1] === 'canvases' && parts[2] && parts[3] === 'executions' && parts.length === 4) {
       const canvas = canvasById(parts[2])
-      return canvas ? json(canvasExecutions(state.runs, canvas.id)) : json({ error: 'Canvas not found' }, 404)
+      return canvas ? json(canvasExecutions(state.runs.filter((run) => run.ownerId === user.id), canvas.id)) : json({ error: 'Canvas not found' }, 404)
     }
 
     if (method === 'GET' && parts[1] === 'tripo' && parts[2] === 'tasks' && parts[3] && parts[4] === 'download' && parts.length === 5) {
@@ -762,12 +762,12 @@ export function createApi({ createContext }) {
       return json(executionDto(execution), 202)
     }
 
-    if (method === 'POST' && parts[1] === 'canvases' && parts[2] && parts[3] === 'nodes' && parts[4] && parts[5] === 'executions' && parts.length === 6) {
-      const canvas = canvasById(parts[2])
-      if (!canvas) return json({ error: 'Canvas not found' }, 404)
-      const node = canvas.nodes.find((candidate) => candidate.id === parts[4])
-      if (!node) return json({ error: 'Node not found' }, 404)
-      const { mode = 'downstream', provider: requestedProvider } = await parseJson(request)
+    if (method === 'POST' && parts[1] === 'nodes' && parts[2] && parts[3] === 'executions' && parts.length === 4) {
+      const input = await parseJson(request)
+      const searchableCanvases = input.canvasId ? state.canvases.filter((canvas) => canvas.id === input.canvasId) : state.canvases
+      const match = findNode(searchableCanvases, parts[2])
+      if (!match) return json({ error: 'Node not found' }, 404)
+      const { mode = 'downstream', provider: requestedProvider } = input
       if (requestedProvider && !['mock', 'tripo'].includes(requestedProvider)) {
         return json({ error: 'provider must be "mock" or "tripo"' }, 400)
       }

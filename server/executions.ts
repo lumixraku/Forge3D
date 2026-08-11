@@ -14,7 +14,6 @@ export function executionDto(run) {
   return {
     id: run.id,
     entryNodeId: run.entryNodeId || Object.keys(run.nodeRuns || {})[0] || null,
-    entryNodeName: run.entryNodeName || null,
     canvasId: run.canvasId,
     canvasRevision: run.canvasRevision,
     mode: run.mode || 'node',

@@ -55,7 +55,6 @@ function progress(execution: any) {
     <div v-else class="execution-output-list">
       <section v-for="execution in taskRuns" :key="execution.id" class="execution-output-run">
         <div class="execution-output-run-head"><strong>{{ execution.entryNodeName || 'Workflow run' }}</strong><time :datetime="execution.createdAt">{{ runLabel(execution) }}</time></div>
-        <code class="execution-task-id" :title="execution.id">Task ID: {{ execution.id }}</code>
         <div class="execution-task-status" :class="statusClass(execution.status)"><i aria-hidden="true" /><span>{{ statusLabel(execution.status) }}</span><b>{{ progress(execution) }}%</b></div>
         <div class="execution-task-progress"><span :style="{ width: `${progress(execution)}%` }" /></div>
         <p v-if="execution.status === 'failed'" class="execution-task-error">{{ Object.values(execution.nodeExecutions || {}).find((nodeRun: any) => nodeRun.error)?.error || 'Task failed' }}</p>
