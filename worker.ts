@@ -8,8 +8,9 @@
 
 import { migrateCanvasRefs, migrateTurns } from './server/migrations.js'
 import { createApi } from './server/api-core.js'
+import { defaultAccount } from './server/credits.js'
 
-const collections = ['canvases', 'sessions', 'runs', 'turns', 'agentTraces']
+const collections = ['canvases', 'sessions', 'runs', 'turns', 'agentTraces', 'accounts', 'creditLedger']
 
 async function readCollection(env, collection) {
   const value = await env.DB.prepare('SELECT value FROM app_state WHERE collection = ?1').bind(collection).first('value')
@@ -38,6 +39,10 @@ async function loadState(env) {
     Promise.all(renamedCollections.map(([name]) => collectionExists(env, name))),
   ])
   const state = Object.fromEntries(collections.map((name, index) => [name, values[index]]))
+  if (!state.accounts.length) {
+    state.accounts = [defaultAccount()]
+    await writeCollections(env, state, ['accounts'])
+  }
   const seeded = []
   for (const [index, [name, legacyName]] of renamedCollections.entries()) {
     if (present[index]) continue

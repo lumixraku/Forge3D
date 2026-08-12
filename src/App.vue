@@ -28,6 +28,7 @@ import { useTheme } from './composables/useTheme'
 import { useCanvasDocument } from './composables/useCanvasDocument'
 import { useCanvasRun } from './composables/useCanvasRun'
 import { useDebugSettings } from './composables/useDebugSettings'
+import { request } from './api'
 import { edgeDefaults, nodePresentation } from './canvas-graph'
 import { canConnectNodeTypes, compatibleNodeTypes, hasModelEditor, isExecutableNodeType, nodeCatalog, nodeCategories, nodeDefaults, nodeDefinition, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
 
@@ -51,6 +52,11 @@ const savedState = ref('Saved')
 // an Agent turn never invalidate or block one another.
 const agentToken = ref(0)
 const canvasRunToken = ref(0)
+const account = ref(null)
+
+async function loadAccount() {
+  account.value = await request('/api/account')
+}
 
 // Canvas chrome: menus, overlays and the two view/mode switches.
 const contextMenu = ref(null)
@@ -199,7 +205,7 @@ const {
   syncCanvasSummary: (canvas) => syncCanvasSummary(canvas),
   flushPendingSave: () => flushPendingSave(),
   onCanvasEvent: applyPresenceEvent,
-  onCanvasDocumentEvent: () => refreshCanvasFromServer(),
+  onCanvasDocumentEvent: () => Promise.all([refreshCanvasFromServer(), loadAccount()]),
   clientId,
   acquireEditLease,
   markEditActivity,
@@ -223,6 +229,7 @@ const { isRunning, runDetails, runSummary, runCanvas, cancelRun, executions, exe
   runToken: canvasRunToken,
   saveCanvas: () => saveCanvas(),
   materializeRunBatch: (sourceId, runId, previews) => materializeRunBatch(sourceId, runId, previews),
+  onAccountChanged: loadAccount,
   // Null lets the server pick; the debug panel forces one backend.
   provider: selectedProvider,
 })
@@ -744,7 +751,7 @@ onMounted(async () => {
   document.addEventListener('gesturestart', preventNativePinchZoom, { passive: false })
   document.addEventListener('wheel', preventPageTrackpadPinchZoom, { capture: true, passive: false })
   try {
-    await loadCanvass()
+    await Promise.all([loadCanvass(), loadAccount()])
   } catch (caught) {
     error.value = caught.message
   }
@@ -778,6 +785,7 @@ onUnmounted(() => {
       :canvas-view="canvasView"
       :saved-state="savedState"
       :theme="theme"
+      :account="account"
       :busy="agentBusy"
       @rename="renameCanvas"
       @open-canvas="openCanvas"

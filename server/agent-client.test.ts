@@ -14,10 +14,11 @@ test('passes the turn id to the agent service and surfaces cancellation', async 
 
   try {
     await assert.rejects(
-      runAgentViaService({ serviceUrl: 'http://agent.test/agent', turnId: 'turn-1', apiKey: 'secret', message: 'stop', canvas: { id: 'canvas-1' } }),
+      runAgentViaService({ serviceUrl: 'http://agent.test/agent', turnId: 'turn-1', apiKey: 'secret', message: 'stop', canvas: { id: 'canvas-1' }, account: { balance: 1000, executionCost: 10 } }),
       (error: any) => error.name === 'AbortError',
     )
     assert.equal(body.turnId, 'turn-1')
+    assert.deepEqual(body.account, { balance: 1000, executionCost: 10 })
   } finally {
     globalThis.fetch = originalFetch
   }

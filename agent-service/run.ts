@@ -29,6 +29,7 @@ export interface AgentPlan {
   changedNodeIds: string[]
   structureChanged: boolean
   userSelectionRequest?: UserSelectionRequest
+  executionRequest?: { nodeId: string; mode: 'node' | 'downstream' }
 }
 
 export interface RunOptions {
@@ -39,6 +40,7 @@ export interface RunOptions {
   timeoutMs?: number
   message: string
   canvas: any
+  account: { id: string; name: string; balance: number; executionCost: number }
   checkpoint?: any
   onProgress?: (event: ProgressEvent) => void | Promise<void>
   onTrace?: (event: any) => void | Promise<void>
@@ -50,11 +52,13 @@ export interface RunOptions {
 const progressLabelByTool: Record<string, string> = {
   get_canvas_structure: 'Pi · Inspecting canvas structure',
   list_available_node_types: 'Pi · Listing available node types',
+  get_credit_balance: 'Pi · Checking credit balance',
   get_canvas_parameters: 'Pi · Inspecting adjustable parameters',
   build_canvas: 'Pi · Building canvas',
   update_node_parameters: 'Pi · Updating node parameters',
   add_canvas_node: 'Pi · Adding canvas node',
   request_user_select: 'Pi · Requesting your selection',
+  execute_canvas_node: 'Pi · Requesting node execution',
 }
 
 const result = (text: string, details?: unknown) => ({ content: [{ type: 'text', text }], details })
@@ -91,6 +95,7 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     changes: { nodeId: string }[]
     structureChanged: boolean
     userSelectionRequest?: UserSelectionRequest
+    executionRequest?: { nodeId: string; mode: 'node' | 'downstream' }
     agent?: any
   } = {
     canvas: structuredClone(opts.checkpoint?.canvas || opts.canvas),
@@ -120,6 +125,16 @@ export function startPiAgent(opts: RunOptions): LiveRun {
       execute: async () => {
         await emit('list_available_node_types')
         return result(JSON.stringify({ nodeTypes: canvasNodeTypes }))
+      },
+    },
+    {
+      name: 'get_credit_balance',
+      label: 'Check credits',
+      description: canvasToolDefinition('get_credit_balance')!.description,
+      parameters: toolSchema('get_credit_balance'),
+      execute: async () => {
+        await emit('get_credit_balance')
+        return result(JSON.stringify(opts.account))
       },
     },
     {
@@ -206,6 +221,19 @@ export function startPiAgent(opts: RunOptions): LiveRun {
         return result('Selection requested; pausing for the user.')
       },
     },
+    {
+      name: 'execute_canvas_node',
+      label: 'Execute node',
+      description: canvasToolDefinition('execute_canvas_node')!.description,
+      parameters: toolSchema('execute_canvas_node'),
+      execute: async (_id: string, params: any) => {
+        await emit('execute_canvas_node')
+        const node = session.canvas.nodes.find((candidate: any) => candidate.id === params.nodeId)
+        if (!node || !['node', 'downstream'].includes(params.mode)) return errorResult('Invalid node execution requested.')
+        session.executionRequest = { nodeId: node.id, mode: params.mode }
+        return result(JSON.stringify({ accepted: true, ...session.executionRequest, cost: opts.account.executionCost }))
+      },
+    },
   ]
 
   const tools = toolImplementations.map((tool) => ({
@@ -288,7 +316,7 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     if (runError && !session.userSelectionRequest) throw new Error(runError)
 
     const changedNodeIds = [...new Set(session.changes.map((change) => change.nodeId))]
-    await opts.onCheckpoint?.({ phase: session.userSelectionRequest ? 'waiting_for_user' : 'complete', canvas: session.canvas, changes: session.changes, structureChanged: session.structureChanged })
+    await opts.onCheckpoint?.({ phase: session.userSelectionRequest ? 'waiting_for_user' : 'complete', canvas: session.canvas, changes: session.changes, structureChanged: session.structureChanged, executionRequest: session.executionRequest })
     if (session.userSelectionRequest) {
       return { canvas: session.canvas, reply, changedNodeIds, structureChanged: session.structureChanged, userSelectionRequest: session.userSelectionRequest }
     }
@@ -299,6 +327,7 @@ export function startPiAgent(opts: RunOptions): LiveRun {
       reply: reply || (session.changes.length ? 'Canvas updated.' : 'No canvas changes were made. Use the canvas tools to make a change.'),
       changedNodeIds,
       structureChanged: session.structureChanged,
+      ...(session.executionRequest ? { executionRequest: session.executionRequest } : {}),
     }
   })()
 

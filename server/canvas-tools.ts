@@ -15,6 +15,11 @@ export const canvasToolDefinitions = [
     parameters: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
+    name: 'get_credit_balance',
+    description: 'Read the current user name, credit balance, and fixed cost of one execution. This tool cannot change credits.',
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
     name: 'build_canvas',
     description: 'Append a canvas section from an ordered list of node types without replacing existing canvas content. All new nodes are placed inside one frame and compatible nodes are connected automatically.',
     parameters: {
@@ -83,6 +88,19 @@ export const canvasToolDefinitions = [
         max: { type: 'integer', minimum: 1 },
       },
       required: ['prompt', 'options', 'min', 'max'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'execute_canvas_node',
+    description: 'Request one paid execution for an executable node on the current canvas. The host validates the node, checks the balance, charges the fixed execution cost, and runs it through the normal execution API.',
+    parameters: {
+      type: 'object',
+      properties: {
+        nodeId: { type: 'string', description: 'Exact executable node ID returned by get_canvas_structure.' },
+        mode: { type: 'string', enum: ['node', 'downstream'] },
+      },
+      required: ['nodeId', 'mode'],
       additionalProperties: false,
     },
   },

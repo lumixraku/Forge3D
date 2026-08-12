@@ -12,6 +12,7 @@ const props = defineProps<{
   switcherOpen: boolean
   editorName?: string
   canEdit?: boolean
+  account?: { name: string; balance: number } | null
 }>()
 const emit = defineEmits<{
   rename: [name: string]
@@ -153,6 +154,11 @@ onUnmounted(() => window.removeEventListener('pointerdown', dismissSwitcher, tru
       <span class="save-state w-[15ch] truncate text-right text-text-muted font-mono text-[9px]" :title="editorName ? `${editorName} is editing` : savedState">{{ editorName ? `${editorName} editing` : canEdit ? `Editing · ${savedState}` : savedState }}</span>
       <div class="theme-switcher" aria-label="Theme">
         <button v-for="option in ['light', 'dark', 'system']" :key="option" :class="{ active: theme === option }" :aria-pressed="theme === option" @click="emit('set-theme', option)">{{ option }}</button>
+      </div>
+      <div v-if="account" class="account-summary" :title="`${account.name} · ${account.balance} credits`">
+        <span class="account-avatar" aria-hidden="true">{{ account.name.slice(0, 1).toUpperCase() }}</span>
+        <span class="account-name">{{ account.name }}</span>
+        <span class="account-balance"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.2 1.5 3.8 8.6h3.5L6.8 14.5l5.4-7.1H8.7l.5-5.9Z" fill="currentColor" /></svg>{{ account.balance }}</span>
       </div>
     </div>
   </header>

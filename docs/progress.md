@@ -2,6 +2,12 @@
 
 ## 2026-08-12 - main
 
+- Added a persistent `Demo User` credit account and append-only execution ledger. Executions now reserve a server-owned fixed cost of 10 credits, reject insufficient balances with HTTP 402 without retaining a run, retain successful charges, and refund failed or cancelled runs once by run ID.
+- Added the top-bar account avatar, username, and live balance; account refreshes follow execution creation, terminal polling, cancellation, and canvas events. Both Agent implementations can read the injected balance and request a node execution, while the main API remains the only path that creates and charges runs.
+- Added account and ledger seed/storage support for the Node and Worker runtimes plus unit, persistence, Agent, and HTTP regression coverage. Also serialized credit mutations across store reloads so concurrent requests cannot charge or refund from stale account state.
+- Verification: `pnpm typecheck`, `pnpm test` (239 passing), `pnpm build`, and `git diff --check` passed. Browser verification in the existing Chrome session confirmed `Demo User` and balance `1000` render as the rightmost top-bar account area on desktop and at an 820px viewport. The build retains the existing large-chunk warning.
+- Remaining issues: None.
+
 - Added a product-owned execution cost of 10 credits to every executable node's primary action, including export. The Generate/Export control displays its label beside a lightning icon and `10`; pending and stop states omit the cost because they do not start a new execution.
 - Verification: `pnpm typecheck`, `pnpm test` (231 passing), `pnpm build`, and `git diff --check` passed. Browser verification at `http://localhost:5176` confirmed `GENERATE 10` and `EXPORT 10` controls on the active canvas. The build retains the existing large-chunk warning.
 - Remaining issues: None.

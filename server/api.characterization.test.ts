@@ -165,6 +165,13 @@ test('reports which providers it can actually run', async () => {
   assert.ok(Array.isArray(body.tripoNodeTypes))
 })
 
+test('reports the persistent default account balance and execution cost', async () => {
+  assert.deepEqual(await api('/api/account'), {
+    status: 200,
+    body: { id: 'demo-user', name: 'Demo User', balance: 1000, executionCost: 10 },
+  })
+})
+
 test('lists projects as summaries without their graphs', async () => {
   const { status, body } = await api('/api/projects')
   assert.equal(status, 200)
@@ -514,6 +521,7 @@ test('running a node executes it and its downstream on the simulated producer', 
   assert.equal(execution.status, 'succeeded')
   assert.equal(execution.nodeExecutions['canvas-fixture-generate-image'].status, 'succeeded')
   assert.ok(execution.executedNodeCount >= 1)
+  assert.equal((await api('/api/account')).body.balance, 990)
 })
 
 // A node that carries no work of its own cannot be the entry point. This used to
@@ -568,11 +576,42 @@ test('reading and cancelling executions', async () => {
   assert.deepEqual(await api('/api/executions/missing'), { status: 404, body: { error: 'Execution not found' } })
   assert.deepEqual(await postJson('/api/executions/missing/cancel'), { status: 404, body: { error: 'Execution not found' } })
 
+  const balanceBefore = (await api('/api/account')).body.balance
   const started = await postJson('/api/canvases/canvas-fixture/nodes/canvas-fixture-generate-image/executions', { mode: 'node' })
   const cancelled = await postJson(`/api/executions/${started.body.id}/cancel`)
   assert.equal(cancelled.status, 202)
   // Cancelling is a request; a run that already finished keeps its own status.
   assert.ok(['cancelling', 'cancelled', 'succeeded'].includes(cancelled.body.status))
+
+  let execution = cancelled.body
+  for (let attempt = 0; attempt < 100 && ['queued', 'running', 'cancelling'].includes(execution.status); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    execution = (await api(`/api/executions/${started.body.id}`)).body
+  }
+  assert.equal(execution.status, 'cancelled')
+  assert.equal((await api('/api/account')).body.balance, balanceBefore)
+
+  await api(`/api/executions/${started.body.id}`)
+  await api(`/api/executions/${started.body.id}`)
+  assert.equal((await api('/api/account')).body.balance, balanceBefore)
+})
+
+test('rejects an execution without retaining a run when credits are insufficient', async () => {
+  const account = (await api('/api/account')).body
+  const historyBefore = (await api('/api/canvases/canvas-fixture/executions')).body.length
+  const accountsPath = path.join(dataDirectory, 'accounts.json')
+  await writeFile(accountsPath, JSON.stringify([{ id: account.id, name: account.name, balance: 0 }]))
+
+  const rejected = await postJson('/api/canvases/canvas-fixture/nodes/canvas-fixture-generate-image/executions', { mode: 'node' })
+  assert.deepEqual(rejected, {
+    status: 402,
+    body: { error: 'Insufficient credits. This execution costs 10 credits.' },
+  })
+  assert.equal((await api('/api/canvases/canvas-fixture/executions')).body.length, historyBefore)
+
+  await writeFile(accountsPath, JSON.stringify([{ id: account.id, name: account.name, balance: account.balance }]))
+  const restored = await postJson('/api/canvases/canvas-fixture/nodes/canvas-fixture-generate-image/executions', { mode: 'node' })
+  assert.equal(restored.status, 202)
 })
 
 test('lists every execution of the same node as a distinct task', async () => {

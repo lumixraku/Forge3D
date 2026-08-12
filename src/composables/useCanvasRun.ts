@@ -60,7 +60,7 @@ function toCanvasRun(execution: ExecutionDto): CanvasRun {
   }
 }
 
-export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvasBusy, error, runToken, saveCanvas, materializeRunBatch, provider = { value: null } }) {
+export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvasBusy, error, runToken, saveCanvas, materializeRunBatch, onAccountChanged = async () => {}, provider = { value: null } }) {
   const cancelRequested = ref(false)
   const executions = ref([])
   const executionsLoading = ref(false)
@@ -134,6 +134,7 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
           ...(provider.value ? { provider: provider.value } : {}),
         }),
       }) as ExecutionDto
+      await onAccountChanged()
       if (runToken.value !== pollToken || activeCanvas.value?.id !== canvasId) return
       const pollInterval = POLL_INTERVAL_MS[provider.value === 'mock' ? 'mock' : 'tripo']
       run.value = toCanvasRun(execution)
@@ -153,6 +154,7 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
         if (node.data?.canvasType === 'export-model') downloadExport(nodeRun)
       }
       await loadExecutions(canvasId)
+      await onAccountChanged()
     } catch (caught) {
       error.value = caught.message
       // Mark whichever node was mid-flight as failed so the canvas stops spinning.
@@ -177,6 +179,7 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
       const cancelled = await request(`/api/executions/${run.value.id}/cancel`, { method: 'POST' }) as ExecutionDto
       run.value = toCanvasRun(cancelled)
       nodeRuns.value = { ...nodeRuns.value, ...cancelled.nodeExecutions }
+      await onAccountChanged()
     } catch (caught) {
       error.value = caught.message
     }

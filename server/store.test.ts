@@ -30,6 +30,25 @@ test('does not infer turn state from session messages', async () => {
   }
 })
 
+test('seeds and persists the default credit account and ledger', async () => {
+  const dataDirectory = await mkdtemp(path.join(tmpdir(), 'forge3d-store-'))
+  try {
+    const store = await createStore({ dataDirectory })
+    assert.deepEqual(store.state.accounts, [{ id: 'demo-user', name: 'Demo User', balance: 1000 }])
+    assert.deepEqual(store.state.creditLedger, [])
+
+    store.state.accounts[0].balance = 990
+    store.state.creditLedger.push({ id: 'charge-run-1', runId: 'run-1', amount: -10 })
+    await Promise.all([store.persist('accounts'), store.persist('creditLedger')])
+
+    const reloaded = await createStore({ dataDirectory })
+    assert.equal(reloaded.state.accounts[0].balance, 990)
+    assert.deepEqual(reloaded.state.creditLedger, [{ id: 'charge-run-1', runId: 'run-1', amount: -10 }])
+  } finally {
+    await rm(dataDirectory, { recursive: true, force: true })
+  }
+})
+
 test('migrates split nodes to segments once', () => {
   const canvas = {
     revision: 1,

@@ -113,6 +113,31 @@ test('separates current canvas structure from available node types', async () =>
   assert.deepEqual(nodeTypesResult, { nodeTypes: canvasNodeTypes })
 })
 
+test('exposes a read-only balance and returns a controlled execution request', async () => {
+  const canvas = planCanvas('Create a text-to-3D canvas').canvas
+  const replies = [
+    response({ choices: [{ message: { role: 'assistant', tool_calls: [{ id: 'call-balance', type: 'function', function: { name: 'get_credit_balance', arguments: '{}' } }] } }] }),
+    response({ choices: [{ message: { role: 'assistant', tool_calls: [{ id: 'call-run', type: 'function', function: { name: 'execute_canvas_node', arguments: JSON.stringify({ nodeId: 'text-to-3d', mode: 'node' }) } }] } }] }),
+    response({ choices: [{ message: { role: 'assistant', content: 'Execution requested.' } }] }),
+  ]
+  const requests = []
+
+  const result = await runDeepSeekAgent({
+    apiKey: 'test-key',
+    message: 'Check my credits and run text-to-3d',
+    canvas,
+    account: { id: 'demo-user', name: 'Demo User', balance: 1000, executionCost: 10 },
+    fetchImpl: async (_url, options) => {
+      requests.push(JSON.parse(options.body))
+      return replies.shift()
+    },
+  })
+
+  const balance = JSON.parse(requests[1].messages.find((entry) => entry.tool_call_id === 'call-balance').content)
+  assert.equal(balance.balance, 1000)
+  assert.deepEqual(result.executionRequest, { nodeId: 'text-to-3d', mode: 'node' })
+})
+
 test('uses DeepSeek to append a framed canvas with nodes and connections', async () => {
   const canvas = planCanvas('Create a text-to-3D canvas').canvas
   const existingNodes = structuredClone(canvas.nodes)

@@ -86,6 +86,7 @@ const server = createServer(async (req, res) => {
       timeoutMs: Number(process.env.AGENT_TIMEOUT_MS || 120_000),
       message: input.message,
       canvas: input.canvas,
+      account: input.account,
       checkpoint: input.checkpoint,
       onProgress: (event) => write({ type: 'progress', event }),
       onTrace: (event) => write({ type: 'trace', event }),

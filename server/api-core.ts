@@ -22,8 +22,10 @@ import { cancelAgentViaService, runAgentViaService } from './agent-client.js'
 import { tripoNodeTypes } from './tripo-mapping.js'
 import { applyAgentCanvas, projectDto, replaceCanvasDocument } from './projects.js'
 import { appendAgentTrace, checkpointAgentTrace, createAgentTrace, sanitizeAgentError } from './agent-traces.js'
+import { accountDto, EXECUTION_CREDIT_COST, reserveExecutionCredits, settleExecutionCredits } from './credits.js'
 
 const AGENT_COLLECTIONS = ['canvases', 'sessions', 'turns', 'agentTraces']
+const CREDIT_COLLECTIONS = ['runs', 'accounts', 'creditLedger']
 
 function json(body, status = 200) {
   return new Response(body === null ? null : JSON.stringify(body), {
@@ -158,7 +160,51 @@ export function createApi({ createContext }) {
   // queue) so the agent service can steer it into the running run.
   const activeRuns = new Map()
   const activeTurnCancels = new Map()
+  let creditMutation = Promise.resolve()
   let recovered = false
+
+  function mutateCredits(operation) {
+    const pending = creditMutation.catch(() => {}).then(operation)
+    creditMutation = pending
+    return pending
+  }
+
+  async function settlePaidExecution(store, run) {
+    return mutateCredits(async () => {
+      await store.reload(['accounts', 'creditLedger'])
+      const refunded = settleExecutionCredits(store.state, run)
+      await store.persist(refunded ? CREDIT_COLLECTIONS : ['runs'])
+      return refunded
+    })
+  }
+
+  async function startPaidExecution(context, canvas, node, mode, createProvider = null) {
+    const { store, waitUntil } = context
+    const { state } = store
+    const pending = await mutateCredits(async () => {
+      await store.reload(['accounts', 'creditLedger'])
+      const created = createExecution(state.runs, canvas, node, mode)
+      try {
+        reserveExecutionCredits(state, created.run)
+        await store.persist(CREDIT_COLLECTIONS)
+        return created
+      } catch (error) {
+        state.runs.splice(state.runs.indexOf(created.run), 1)
+        throw error
+      }
+    })
+    waitUntil(executeExecution(
+      state.runs,
+      pending.run,
+      canvas,
+      pending.executionCanvas,
+      pending.nodes,
+      node,
+      () => settlePaidExecution(store, pending.run),
+      { createProvider },
+    ).catch(console.error))
+    return pending.run
+  }
 
   async function executeAgentTurn(context, turn) {
     const { store, config } = context
@@ -228,6 +274,7 @@ export function createApi({ createContext }) {
           model: config.deepseek.model,
           message: turn.selection ? `${turn.message}\n\nThe user selected: ${turn.selection.selected_option_ids.map((optionId) => turn.request.options.find((option) => option.id === optionId)?.label || optionId).join(', ')}. Continue the turn using this selection.` : turn.message,
           canvas,
+          account: { ...accountDto(state), executionCost: EXECUTION_CREDIT_COST },
           history: session.messages || [],
           checkpoint: ['tool_complete', 'waiting_for_user'].includes(trace?.checkpoint?.phase) ? trace.checkpoint : undefined,
           onTrace: (event) => recordTrace(event.type, event.payload),
@@ -304,6 +351,12 @@ export function createApi({ createContext }) {
       const canvasIndex = state.canvases.findIndex((item) => item.id === turn.canvasId)
       if (canvasIndex < 0) throw new Error('Project was deleted while this turn was running')
       state.canvases[canvasIndex] = applyAgentCanvas(state.canvases[canvasIndex], plan.canvas)
+      if (plan.executionRequest) {
+        const executionCanvas = state.canvases[canvasIndex]
+        const requestedNode = executionCanvas.nodes.find((node) => node.id === plan.executionRequest.nodeId)
+        if (!requestedNode) throw new Error('Agent requested a node outside this canvas')
+        plan.execution = executionDto(await startPaidExecution(context, executionCanvas, requestedNode, plan.executionRequest.mode))
+      }
 
       const nextSession = sessionById(turn.sessionId)
       if (!nextSession || !turnById(turn.id)) throw new Error('Session or turn was deleted while this turn was running')
@@ -419,6 +472,10 @@ export function createApi({ createContext }) {
     const turnById = (id) => state.turns.find((turn) => turn.id === id)
 
     if (parts[0] !== 'api') return json({ error: 'Not found' }, 404)
+
+    if (method === 'GET' && parts[1] === 'account' && parts.length === 2) {
+      return json({ ...accountDto(state), executionCost: EXECUTION_CREDIT_COST })
+    }
 
     if (method === 'GET' && parts[1] === 'turns' && parts[3] === 'trace' && parts.length === 4) {
       const turn = turnById(parts[2])
@@ -737,7 +794,9 @@ export function createApi({ createContext }) {
       if (!execution) return json({ error: 'Execution not found' }, 404)
       const before = JSON.stringify(execution)
       await syncExecutionWithTripo(execution, config.getTripoTask)
-      if (JSON.stringify(execution) !== before) await store.persist(['runs'])
+      if (JSON.stringify(execution) !== before) {
+        await settlePaidExecution(store, execution)
+      }
       return json(executionDto(execution))
     }
 
@@ -747,7 +806,9 @@ export function createApi({ createContext }) {
       const runs = state.runs.filter((run) => run.canvasId === canvas.id)
       const before = JSON.stringify(runs)
       await Promise.all(runs.map((run) => syncExecutionWithTripo(run, config.getTripoTask)))
-      if (JSON.stringify(runs) !== before) await store.persist(['runs'])
+      if (JSON.stringify(runs) !== before) {
+        await Promise.all(runs.map((run) => settlePaidExecution(store, run)))
+      }
       return json(canvasExecutions(runs, canvas.id))
     }
 
@@ -767,7 +828,7 @@ export function createApi({ createContext }) {
       const execution = executionById(state.runs, parts[2])
       if (!execution) return json({ error: 'Execution not found' }, 404)
       cancelExecution(execution)
-      await store.persist(['runs'])
+      await settlePaidExecution(store, execution)
       return json(executionDto(execution), 202)
     }
 
@@ -786,19 +847,8 @@ export function createApi({ createContext }) {
       // Default to Tripo whenever it is configured; the debug panel sends an
       // explicit provider to force one side or the other.
       const useTripo = requestedProvider ? requestedProvider === 'tripo' : Boolean(config.createTripoProvider)
-      const pending = createExecution(state.runs, canvas, node, mode)
-      await store.persist(['runs'])
-      waitUntil(executeExecution(
-        state.runs,
-        pending.run,
-        canvas,
-        pending.executionCanvas,
-        pending.nodes,
-        node,
-        () => store.persist(['runs']),
-        { createProvider: useTripo ? config.createTripoProvider : null },
-      ).catch(console.error))
-      return json(executionDto(pending.run), 202)
+      const execution = await startPaidExecution(context, canvas, node, mode, useTripo ? config.createTripoProvider : null)
+      return json(executionDto(execution), 202)
     }
 
     // Legacy assets from runs created before downloads switched to refreshed
