@@ -10,6 +10,7 @@ import type { NodeDefinition, NodeParameter, NodePort } from '../canvas-nodes'
 
 type NodeConfig = Record<string, unknown> & { preview?: string; previews?: string[]; viewPreviews?: Record<string, string>; exportTargets?: string[]; modelFormat?: string; approved?: boolean }
 interface CanvasNodeData { label: string; status?: string; canvasType: string; config: NodeConfig; inputPorts?: NodePort[]; outputPorts?: NodePort[] }
+const EXECUTION_CREDIT_COST = 10
 
 const props = withDefaults(defineProps<{ id: string; data: CanvasNodeData; selected?: boolean; nodeRun?: NodeRun | null; runId?: string | null; runEntryNodeId?: string | null; runMode?: string | null; runStatus?: string | null; inboundType?: string | null; inboundImage?: string | null; nodeCatalog?: NodeDefinition[]; viewportDismissVersion?: number }>(), { selected: false, nodeRun: null, runId: null, runEntryNodeId: null, runMode: null, runStatus: null, inboundType: null, inboundImage: null, nodeCatalog: () => [], viewportDismissVersion: 0 })
 const emit = defineEmits<{
@@ -244,11 +245,11 @@ function loadMockImage(file: File) {
     </div>
 
     <div v-if="data.canvasType === 'export-model'" class="node-run-actions nodrag" :class="{ single: !exportDownloads.length }">
-      <button type="button" :class="stopsNodeRun ? 'stop-run' : 'generate-node'" :disabled="isActiveEntry && !stopsNodeRun" @click.stop="stopsNodeRun ? emit('stop-run') : emit('run-canvas', props.id)">{{ stopsNodeRun ? 'Stop' : ['queued', 'running'].includes(runtimeStatus) ? 'Preparing…' : 'Export' }}</button>
+      <button type="button" :class="stopsNodeRun ? 'stop-run' : 'generate-node'" :disabled="isActiveEntry && !stopsNodeRun" @click.stop="stopsNodeRun ? emit('stop-run') : emit('run-canvas', props.id)"><span>{{ stopsNodeRun ? 'Stop' : ['queued', 'running'].includes(runtimeStatus) ? 'Preparing…' : 'Export' }}</span><span v-if="!stopsNodeRun && !['queued', 'running'].includes(runtimeStatus)" class="node-action-cost"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m13 2-9 12h7l-1 8 9-12h-7Z" /></svg>{{ EXECUTION_CREDIT_COST }}</span></button>
       <a v-for="download in exportDownloads" :key="download.downloadUrl" class="run-downstream download-export" :href="download.downloadUrl" :download="download.filename" @click.stop>Download {{ download.filename }}</a>
     </div>
     <div v-else-if="isExecutableNode" class="node-run-actions nodrag">
-      <button type="button" :class="stopsNodeRun ? 'stop-run' : 'generate-node'" :disabled="isActiveEntry && !stopsNodeRun" @click.stop="stopsNodeRun ? emit('stop-run') : emit('run-canvas', props.id)">{{ stopsNodeRun ? 'Stop' : actionLabel }}</button>
+      <button type="button" :class="stopsNodeRun ? 'stop-run' : 'generate-node'" :disabled="isActiveEntry && !stopsNodeRun" @click.stop="stopsNodeRun ? emit('stop-run') : emit('run-canvas', props.id)"><span>{{ stopsNodeRun ? 'Stop' : actionLabel }}</span><span v-if="!stopsNodeRun && !['queued', 'running'].includes(runtimeStatus)" class="node-action-cost"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m13 2-9 12h7l-1 8 9-12h-7Z" /></svg>{{ EXECUTION_CREDIT_COST }}</span></button>
       <button type="button" :class="stopsDownstreamRun ? 'stop-run' : 'run-downstream'" :disabled="isActiveEntry && !stopsDownstreamRun" @click.stop="stopsDownstreamRun ? emit('stop-run') : emit('run-downstream', props.id)">{{ stopsDownstreamRun ? 'Stop' : 'Run downstream' }}</button>
     </div>
     <section v-if="isExecutableNode" class="node-run-details nodrag">

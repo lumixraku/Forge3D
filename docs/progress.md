@@ -2,6 +2,10 @@
 
 ## 2026-08-12 - main
 
+- Added a product-owned execution cost of 10 credits to every executable node's primary action, including export. The Generate/Export control displays its label beside a lightning icon and `10`; pending and stop states omit the cost because they do not start a new execution.
+- Verification: `pnpm typecheck`, `pnpm test` (231 passing), `pnpm build`, and `git diff --check` passed. Browser verification at `http://localhost:5176` confirmed `GENERATE 10` and `EXPORT 10` controls on the active canvas. The build retains the existing large-chunk warning.
+- Remaining issues: None.
+
 - Replaced the chat failure retry text with an accessible retry icon and changed Section Run/Stop controls to accessible play/stop icons. These controls now have no visible border and gain only a subtle background on hover or keyboard focus.
 - Commented out the local `AGENT_TIMEOUT_MS=1000` test override so the agent service again uses its default 120-second timeout.
 - Verification: `pnpm typecheck`, `pnpm test` (231 passing), `pnpm build`, and `git diff --check` passed. The build retains the existing large-chunk warning.
