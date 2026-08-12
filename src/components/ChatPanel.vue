@@ -22,6 +22,7 @@ const emit = defineEmits<{
   'toggle-option': [payload: { message: any; optionId: string }]
   'continue-turn': [message: any]
   'stop-turn': [turnId: string]
+  retry: [message: any]
 }>()
 const fileInput = ref<HTMLInputElement | null>(null)
 
@@ -62,6 +63,7 @@ function userContent(message) {
           <div v-if="message.pending" class="thinking-progress"><b>{{ stoppingTurnId === message.turnId ? 'Stopping' : 'Thinking' }}</b><span>{{ message.progress.at(-1)?.label || 'Preparing canvas agent' }}</span></div>
           <details v-else-if="message.progress?.length" class="thought-process"><summary>Thought process <small>Tool activity</small></summary><span v-for="(event, index) in message.progress" :key="`${event.label}-${index}`">{{ event.label }}</span></details>
           <div v-if="message.content" class="message-content" v-html="renderAssistantMarkdown(message.content)" />
+          <button v-if="message.failed" class="message-retry" type="button" title="重试" aria-label="重试" :disabled="busy" @click="emit('retry', message)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5" /><path d="M19 12a7 7 0 1 0-2.05 4.95" /></svg></button>
           <section v-if="message.request" class="user-selection">
             <p>{{ message.request.prompt }}</p>
             <small>Select {{ message.request.min === message.request.max ? message.request.min : `${message.request.min}–${message.request.max}` }} option{{ message.request.max === 1 ? '' : 's' }}.</small>
@@ -73,13 +75,14 @@ function userContent(message) {
           </section>
         </template>
         <div v-else class="user-message-body">
-          <div v-if="message.attachments?.length" class="message-attachments">
+          <span v-if="message.attachments?.length" class="message-attachments">
             <a v-for="attachment in message.attachments" :key="attachment.id || attachment.name" class="message-attachment" :href="isImage(attachment) ? attachment.preview : undefined" :target="isImage(attachment) ? '_blank' : undefined" rel="noreferrer">
               <img v-if="isImage(attachment)" :src="attachment.preview" :alt="attachment.name" />
               <span v-else class="message-attachment-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6.5 3.5h7l4 4v13h-11zM13.5 3.5v4h4M9 12h6M9 16h6" /></svg></span>
-              <span class="message-attachment-copy"><b>{{ attachment.name }}</b><small>{{ attachment.type || 'File attachment' }}</small></span>
+              <span class="message-attachment-name">{{ attachment.name }}</span>
+              <img v-if="isImage(attachment)" class="message-attachment-preview" :src="attachment.preview" :alt="attachment.name" />
             </a>
-          </div>
+          </span>
           <p v-if="userContent(message)">{{ userContent(message) }}</p>
         </div>
       </article>

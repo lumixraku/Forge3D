@@ -188,7 +188,7 @@ const {
 const {
   composer, composerHasContent, messages, selectedOptions, continuingTurnId, runningTurnId, stoppingTurnId, addComposerFiles,
   loadSessions, restoreTurns, subscribeCanvasEvents, closeCanvasEvents, toggleSelectedOption,
-  continueTurn, stopTurn, sendMessage,
+  continueTurn, stopTurn, sendMessage, retryMessage,
 } = useAgentChat({
   activeCanvas,
   activeSession,
@@ -810,6 +810,7 @@ onUnmounted(() => {
         @toggle-option="toggleSelectedOption($event.message, $event.optionId)"
         @continue-turn="continueTurn"
         @stop-turn="stopTurn"
+        @retry="retryMessage"
       />
 
       <section class="canvas-panel bg-bg-secondary" @pointerdown.capture="selectCanvasEdge" @pointerdown="closeContextMenu">

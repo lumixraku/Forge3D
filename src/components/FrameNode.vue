@@ -46,8 +46,8 @@ function cancelNameEdit() {
       <span class="frame-icon">S</span>
       <input v-if="editingName" ref="nameInput" v-model="draftName" class="frame-name-input nodrag nopan" aria-label="Section name" @click.stop @dblclick.stop @pointerdown.stop @keydown.enter.prevent="saveName" @keydown.esc.prevent="cancelNameEdit" @blur="saveName" />
       <strong v-else title="Double-click to rename" @dblclick.stop="startNameEdit">{{ data.label }}</strong>
-      <button v-if="running" type="button" class="frame-stop nodrag nopan" @click.stop="emit('stop-run')">Stop</button>
-      <button v-else type="button" class="frame-run nodrag nopan" @click.stop="emit('run')">Run</button>
+      <button v-if="running" type="button" class="frame-stop nodrag nopan" title="Stop" aria-label="Stop" @click.stop="emit('stop-run')"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1" /></svg></button>
+      <button v-else type="button" class="frame-run nodrag nopan" title="Run" aria-label="Run" @click.stop="emit('run')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7Z" /></svg></button>
     </header>
     <p v-if="data.description">{{ data.description }}</p>
   </section>

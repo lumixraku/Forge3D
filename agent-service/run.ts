@@ -262,6 +262,10 @@ export function startPiAgent(opts: RunOptions): LiveRun {
 
   const done = (async (): Promise<AgentPlan> => {
     await opts.onProgress?.({ label: 'Pi · Reviewing your request', status: 'running' })
+    const timeout = setTimeout(() => {
+      timedOut = true
+      agent.abort()
+    }, timeoutMs)
     await opts.onTrace?.({ type: 'model_request_started', payload: { model: model.id } })
     try {
       const resumeContext = opts.checkpoint?.phase === 'tool_complete'

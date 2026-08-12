@@ -373,20 +373,23 @@
 .message-content td { color: var(--text-secondary); }
 .message-content th:last-child, .message-content td:last-child { border-right: 0; }
 .message-content tr:last-child td { border-bottom: 0; }
+.message-retry { display: grid; width: 28px; height: 28px; margin-top: 9px; padding: 0; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); transition: background .15s ease, color .15s ease; }
+.message-retry svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.message-retry:hover:not(:disabled), .message-retry:focus-visible { outline: 0; background: var(--bg-input-hover); color: var(--acid); }
+.message-retry:disabled { cursor: not-allowed; opacity: .55; }
 .message.user { width: min(100%, 360px); margin-inline-start: auto; padding: 13px; border: 1px solid var(--line-strong); border-radius: 14px 14px 3px 14px; background: var(--bg-input); box-shadow: var(--shadow-sm); }
 .message.user > span { margin-bottom: 9px; color: var(--acid); text-align: end; }
 .message.user p { color: var(--text-primary); }
 .user-message-body { min-width: 0; }
-.message-attachments { display: grid; gap: 7px; margin-bottom: 10px; min-width: 0; }
-.message-attachment { display: flex; min-width: 0; max-width: 100%; align-items: center; gap: 9px; padding: 7px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--bg-input-hover); color: inherit; text-decoration: none; }
+.message-attachments { display: inline; }
+.message-attachment { position: relative; display: inline-flex; min-width: 0; max-width: min(220px, 100%); align-items: center; height: 25px; margin: 0 3px 5px 0; padding: 0 8px 0 3px; vertical-align: middle; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-input-hover); color: var(--text-primary); line-height: 1; text-decoration: none; }
 .message-attachment:hover { border-color: color-mix(in srgb, var(--acid) 55%, var(--line-strong)); }
-.message-attachment img, .message-attachment-icon { flex: 0 0 38px; width: 38px; height: 38px; border-radius: 6px; object-fit: cover; background: var(--bg-active); }
+.message-attachment > img:not(.message-attachment-preview), .message-attachment-icon { flex: 0 0 19px; width: 19px; height: 19px; margin-right: 5px; border-radius: 5px; object-fit: cover; background: var(--bg-active); }
 .message-attachment-icon { display: grid; place-items: center; color: var(--acid); }
-.message-attachment-icon svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.6; }
-.message-attachment-copy { display: grid; min-width: 0; gap: 3px; }
-.message-attachment-copy b, .message-attachment-copy small { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.message-attachment-copy b { color: var(--text-primary); font-size: 11px; font-weight: 600; }
-.message-attachment-copy small { color: var(--text-muted); font: 9px var(--font-mono); }
+.message-attachment-icon svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.6; }
+.message-attachment-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 600; }
+.message-attachment-preview { position: absolute; z-index: 5; bottom: calc(100% + 10px); left: 0; display: block; width: min(260px, 60vw); max-height: 220px; border: 1px solid var(--line-strong); border-radius: 8px; object-fit: contain; background: var(--bg-panel); box-shadow: 0 10px 22px color-mix(in srgb, #000 25%, transparent); opacity: 0; pointer-events: none; transform: translateY(4px); transition: opacity 120ms ease, transform 120ms ease; }
+.message-attachment:hover .message-attachment-preview, .message-attachment:focus-visible .message-attachment-preview { opacity: 1; transform: translateY(0); }
 .message.assistant > span { color: var(--acid); }
 .message.pending p { color: var(--text-muted); }
 .thinking-progress { display: grid; gap: 5px; color: var(--text-secondary); font-size: 13px; }
@@ -660,10 +663,13 @@
 .stop-run { border: 1px solid #e05d5d; background: color-mix(in srgb, #e05d5d 12%, var(--bg-input)); color: #d94a4a; }
 .stop-run:hover:not(:disabled) { background: color-mix(in srgb, #e05d5d 22%, var(--bg-input)); box-shadow: 0 0 0 3px color-mix(in srgb, #e05d5d 15%, transparent); }
 .stop-run:disabled { border-color: var(--line-strong); background: var(--bg-input); color: var(--text-muted); opacity: .55; }
-.frame-stop, .frame-run { height: 22px; margin-left: 8px; padding: 0 8px; border-radius: 5px; font: 600 8px var(--font-mono); text-transform: uppercase; }
-.frame-stop { border: 1px solid #e05d5d; background: color-mix(in srgb, #e05d5d 12%, var(--bg-input)); color: #d94a4a; }
-.frame-run { border: 1px solid var(--node-accent, #86a72d); background: color-mix(in srgb, var(--node-accent, #86a72d) 12%, var(--bg-input)); color: var(--node-accent, #6f8e1f); }
-.frame-stop:disabled { border-color: var(--line-strong); color: var(--text-muted); opacity: .55; }
+.frame-stop, .frame-run { display: grid; width: 24px; height: 24px; margin-left: 2px; padding: 0; place-items: center; border: 0; border-radius: 5px; background: transparent; transition: background .15s ease; }
+.frame-stop { color: #d94a4a; }
+.frame-run { color: var(--node-accent, #6f8e1f); }
+.frame-stop:hover, .frame-stop:focus-visible { outline: 0; background: color-mix(in srgb, #e05d5d 15%, transparent); }
+.frame-run:hover, .frame-run:focus-visible { outline: 0; background: color-mix(in srgb, var(--node-accent, #86a72d) 15%, transparent); }
+.frame-stop svg, .frame-run svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.frame-stop svg rect, .frame-run svg path { fill: currentColor; stroke: none; }
 /* An anchor, so it needs the button box the sibling gets for free. */
 .download-export { display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 0 8px; text-decoration: none; white-space: nowrap; }
 .node-parameters-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; height: 38px; margin: 0 0 10px; padding: 0; border: 0; border-top: 1px solid var(--line-subtle); background: transparent; color: var(--text-muted); font: 500 9px var(--font-mono); text-align: left; transition: color .15s ease; }

@@ -15,6 +15,10 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
   const stoppingTurnId = ref(null)
   let events = null
   const messages = computed(() => activeSession.value?.messages || [])
+
+  function displayAgentError(message) {
+    return typeof message === 'string' && message.trim() ? message : '请求失败，请重试。'
+  }
   const runningTurnId = computed(() => messages.value.find((message) => message.role === 'assistant' && message.pending && message.turnId)?.turnId || null)
   const composer = useEditor({
     extensions: [
@@ -141,9 +145,9 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
       if (pending) {
         pending.pending = false
         pending.failed = true
-        pending.content = event.error || 'Agent turn failed'
+        pending.content = displayAgentError(event.error)
       }
-      error.value = event.error || 'Agent turn failed'
+      error.value = pending ? '' : displayAgentError(event.error)
     }
     if (event.type === 'finish' && pending) {
       pending.pending = false
@@ -252,8 +256,8 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
     }
   }
 
-  async function sendMessage() {
-    const message = composerMessage()
+  async function sendMessage(retryOf) {
+    const message = retryOf?.content || composerMessage()
     if (!message) return
     acquireEditLease()
     markEditActivity()
@@ -268,9 +272,9 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
     const pendingAssistantId = `pending-assistant-${Date.now()}`
     busy.value = true
     error.value = ''
-    const previousComposer = composer.value?.getJSON()
-    const attachments = composerAttachments()
-    clearComposer()
+    const previousComposer = retryOf ? null : composer.value?.getJSON()
+    const attachments = retryOf?.attachments || composerAttachments()
+    if (!retryOf) clearComposer()
     activeSession.value = {
       ...previousSession,
       messages: [
@@ -298,15 +302,21 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
       if (current) {
         current.pending = false
         current.failed = true
-        current.content = caught.message
+        current.content = displayAgentError(caught?.message)
       } else {
         activeSession.value = previousSession
         composer.value?.commands.setContent(previousComposer || { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: message }] }] })
       }
-      error.value = caught.message
+      error.value = current ? '' : displayAgentError(caught?.message)
     } finally {
       busy.value = false
     }
+  }
+
+  function retryMessage(failedMessage) {
+    const failedIndex = messages.value.findIndex((message) => message.id === failedMessage.id)
+    const userMessage = messages.value.slice(0, failedIndex).reverse().find((message) => message.role === 'user')
+    if (userMessage) sendMessage(userMessage)
   }
 
   onUnmounted(() => {
@@ -331,5 +341,6 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
     continueTurn,
     stopTurn,
     sendMessage,
+    retryMessage,
   }
 }

@@ -1,5 +1,23 @@
 # Progress
 
+## 2026-08-12 - main
+
+- Replaced the chat failure retry text with an accessible retry icon and changed Section Run/Stop controls to accessible play/stop icons. These controls now have no visible border and gain only a subtle background on hover or keyboard focus.
+- Commented out the local `AGENT_TIMEOUT_MS=1000` test override so the agent service again uses its default 120-second timeout.
+- Verification: `pnpm typecheck`, `pnpm test` (231 passing), `pnpm build`, and `git diff --check` passed. The build retains the existing large-chunk warning.
+- Remaining issues: None.
+
+- Fixed the Pi agent service crash caused by clearing an undeclared timeout timer. Agent runs now have a real 120-second timeout (`AGENT_TIMEOUT_MS` can override it) and abort cleanly when it expires.
+- Agent failures now retain a supplied error detail, fall back to `请求失败，请重试。` when no detail exists, and render a `重试` action that resubmits the preceding user message and its attachments.
+- Verification: `pnpm typecheck`, `pnpm test` (231 passing), and `git diff --check` passed. Browser verification set `AGENT_TIMEOUT_MS=1000`, restarted the `.env`-driven development stack, and confirmed the UI displayed `Agent run timed out after 1s` with a `重试` button. The 1-second override remains enabled for manual testing.
+- Remaining issues: None.
+
+- Unified sent user-message attachments with the composer: attachments now render as compact inline pills alongside message text rather than full-width file cards.
+- Added an above-pill image preview on hover and keyboard focus while retaining the image link for opening the asset.
+- Cherry-picked `e5713f9` from `/Users/nan/repos/tripo-forge3d-demo` as `5d16b06`, adding the missing `minmax(0, 1fr)` chat grid column that prevents wide message content from expanding the sidebar.
+- Verification: `pnpm typecheck` and `git diff --check` passed. Browser inspection at `http://localhost:5176` confirmed the chat panel is 350px wide, with `scrollWidth` equal to its `clientWidth` and a computed 349px grid track.
+- Remaining issues: None.
+
 ## 2026-08-11 - main
 
 - Fixed the canvas execution-history endpoint, which referenced an undefined `user` and returned HTTP 500; the Task List therefore only retained the active run instead of loading prior executions.
