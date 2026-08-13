@@ -1,8 +1,8 @@
-// The single input handle is untyped, so inbound media is read from what each
-// upstream node produces rather than from a named target port.
+// Inbound media is read through each node's declared input ports, so what a node
+// receives follows the graph rather than a guess about which upstream types
+// carry an image or a mesh.
 import { isExecutableNodeType } from '../src/canvas-schema.js'
-
-const modelProducingTypes = new Set(['generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'bake', 'texture', 'rigging', 'segments', 'model-preview'])
+import { resolveNodeInputs } from '../src/canvas-nodes.js'
 
 // The bundled demo images this simulation hands back. They belong to the
 // simulation rather than to a node's defaults: an untouched node has produced
@@ -16,50 +16,24 @@ function demoModelImage(type) {
   return demoModelImages[type] || '/shark-model.png'
 }
 
-function inboundSources(node, canvas) {
-  const nodesById = new Map(canvas.nodes.map((item) => [item.id, item]))
-  return (canvas.edges || [])
-    .filter((edge) => edge.target?.nodeId === node.id)
-    .map((edge) => nodesById.get(edge.source?.nodeId))
-    .filter(Boolean)
-}
-
-function exportTarget(node, canvas) {
-  const sources = inboundSources(node, canvas)
-  if (sources.some((source) => modelProducingTypes.has(source.type))) return '3D Model'
-  if (sources.length) return 'Image'
-  return '3D Model'
-}
-
 // Nodes are executed one request at a time, so an upstream result is read from
 // the config the canvas already saved rather than from a shared run record.
-function sourceOutputImage(sourceNode) {
-  return sourceNode.config?.selectedPreview || sourceNode.config?.preview || sourceNode.config?.previews?.[0] || null
-}
-
-function sourceOutputImages(sourceNode) {
-  const images = [
-    ...(Array.isArray(sourceNode.config?.previews) ? sourceNode.config.previews : []),
-    ...Object.values(sourceNode.config?.viewPreviews || {}),
-  ].filter(Boolean)
-  if (images.length) return [...new Set(images)]
-  const image = sourceOutputImage(sourceNode)
-  return image ? [image] : []
+function asList(value) {
+  return value == null ? [] : [...new Set([value].flat().filter(Boolean))]
 }
 
 function resolveInputImages(node, canvas) {
-  return [...new Set(inboundSources(node, canvas)
-    .filter((source) => !modelProducingTypes.has(source.type))
-    .flatMap((source) => sourceOutputImages(source)))]
+  return asList(resolveNodeInputs(node, canvas).image)
 }
 
 function resolveInputImage(node, canvas) {
-  for (const source of inboundSources(node, canvas)) {
-    if (modelProducingTypes.has(source.type)) continue
-    const image = sourceOutputImage(source)
-    if (image) return image
-  }
-  return null
+  return resolveInputImages(node, canvas)[0] || null
+}
+
+function exportTarget(node, canvas) {
+  const inputs = resolveNodeInputs(node, canvas)
+  if (inputs.model) return '3D Model'
+  return inputs.image ? 'Image' : '3D Model'
 }
 
 export function nodeOutput(node, canvas) {
@@ -79,13 +53,16 @@ export function nodeOutput(node, canvas) {
     return { message: 'Image assets extracted', previews, image: previews[0] || null }
   }
   if (node.type === 'generate-multiview-images') {
-    return { message: 'Front, back, left, and right views generated', viewPreviews: node.config?.viewPreviews || {} }
+    const viewPreviews = node.config?.viewPreviews || {}
+    // The four views are this node's four output ports, so they double as the
+    // port-keyed result downstream nodes resolve against.
+    return { message: 'Front, back, left, and right views generated', viewPreviews, ports: { ...viewPreviews } }
   }
   if (node.type === 'review') {
     const image = resolveInputImage(node, canvas) || node.config?.preview || null
     return { message: node.config?.approved ? 'Image approved' : 'Awaiting image approval', image, preview: image }
   }
-  if (['generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'bake', 'texture', 'rigging', 'segments', 'model-preview'].includes(node.type)) {
+  if (['generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'texture', 'rigging', 'segments', 'model-preview'].includes(node.type)) {
     if (node.type === 'generate-model') {
       const inputImages = resolveInputImages(node, canvas)
       return { message: `${node.name} generated from ${inputImages.length > 1 ? `${inputImages.length} images` : inputImages.length === 1 ? '1 image' : 'text'}`, preview: node.config?.preview || demoModelImage(node.type), modelUrl: demoModelUrl, inputMode: inputImages.length > 1 ? 'multi-image' : inputImages.length === 1 ? 'single-image' : 'text', inputImages }

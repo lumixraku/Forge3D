@@ -1,4 +1,4 @@
-import { canConnectNodeTypes, canConnectPorts, nodeCatalog, nodeDefinition, nodeDisplayName, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
+import { canConnectNodeTypes, canConnectPorts, nodeCatalog, nodeDisplayName, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
 import { normalizeNodeConfig } from './canvas-schema'
 
 export const edgeDefaults = { selectable: true, type: 'execution' }
@@ -41,8 +41,6 @@ export function toCanvasGraph(canvas) {
         status: 'ready',
         canvasType: type,
         config: normalizeNodeConfig(type, node.config),
-        inputTypes: nodeDefinition(type)?.inputTypes || [],
-        outputType: nodeDefinition(type)?.outputType || null,
         inputPorts: nodeInputPorts(type),
         outputPorts: nodeOutputPorts(type),
       },

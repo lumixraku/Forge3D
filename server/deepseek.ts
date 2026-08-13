@@ -14,7 +14,6 @@ const nodeCatalogRows = [
   ['text-to-3d', 'Reconstruct a 3D model from text only.', 'text', '3D model'],
   ['review', 'Manual checkpoint to approve an image before continuing.', 'image', 'image'],
   ['retopology', 'Optimize / clean up model geometry.', '3D model', '3D model'],
-  ['bake', 'Bake detail from one model onto another.', '3D models', '3D model'],
   ['texture', 'Generate UV textures for a model (optionally guided by an image or text).', '3D model (+ optional image/text)', '3D model'],
   ['rigging', 'Add a skeleton / rig to a model.', '3D model', '3D model'],
   ['segments', 'Segment a model into separate parts.', '3D model', '3D model'],

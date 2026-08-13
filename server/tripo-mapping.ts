@@ -4,8 +4,8 @@
 // and performs the HTTP call.
 //
 // Node types absent from this map are not backed by Tripo and stay on the mock
-// producer: `bake` has no v3 endpoint, and `review` / `model-preview` / `prompt`
-// / `reference-image` / `frame` never call an API.
+// producer: `review` / `model-preview` / `prompt` / `reference-image` / `frame`
+// never call an API.
 
 // Only these node types reach Tripo today. 2D image nodes are deferred: Tripo's
 // image models are a different enum entirely (seedream / banana / chat_image).

@@ -175,7 +175,6 @@ Hidden nodes remain valid definitions so older persisted canvases can still load
 | 3D | `multiview-to-3d` | Multi-view to 3D | Front, back, left, right images | Model | Visible |
 | 3D | `text-to-3d` | Text to 3D | Text | Model | Hidden legacy type |
 | 3D | `retopology` | Retopology | Model | Model | Visible |
-| 3D | `bake` | Bake | Model A, model B | Model | Visible |
 | 3D | `texture` | UV Texture | Model, image, text | Model | Visible |
 | 3D | `rigging` | Rigging | Model | Model | Visible |
 | 3D | `segments` | Segments | Model | Model | Visible |
@@ -187,17 +186,41 @@ Hidden nodes remain valid definitions so older persisted canvases can still load
 
 ### Runtime Port Model
 
-The catalog describes semantic input types, but the current rendered canvas intentionally collapses them:
+A node declares its ports as two keyed maps, `inputs` and `outputs`, of port id to
+`{ type, label?, required?, multiple?, fallbackConfig? }`. The key *is* the port
+id, so a declaration cannot drift from the ids stored edges reference.
 
-- Every node with at least one input receives exactly one handle: `{ id: "input", type: "any" }`.
-- Every producing node receives exactly one handle: `{ id: "output", type: <result metadata> }`.
-- Multi-view, Bake, and Texture therefore render a single universal input/output handle rather than every conceptual port.
+Data follows those declarations; the canvas deliberately does not render them:
+
+- Every node with at least one input receives exactly one handle: `{ id: "input" }`. Every producing node receives exactly one: `{ id: "output" }`.
+- Multi-view and Texture therefore render a single universal handle pair rather than every declared port.
 - Input and output values may be arrays. Array length and item types are data concerns and must never create additional handles.
 - Do not add typed, indexed, or per-item handles. An output may retain result metadata for UI/runtime inspection, but it never affects handle count or connection validation.
 - Multiple upstream edges may target the same universal input handle.
-- Connection validation checks handle existence, missing nodes, self-connections, and exact duplicate edges; it does not currently enforce image/text/model type compatibility.
+- Connection validation does enforce port type compatibility, alongside handle existence, missing nodes, self-connections, and duplicate edges.
 
-Persisted legacy handle names such as `front`, `back`, `model-a`, `image`, or `text` are normalized to `output → input` during loading. Multiple legacy edges between the same source and target may collapse to one edge.
+One visual edge stands for one or more logical edges. Ports pair by matching key
+first, then by compatible type, so `generate-multiview-images` and
+`multiview-to-3d` sharing the keys `front`/`back`/`left`/`right` makes a single
+connection between them resolve per view. A port declared `multiple` collects
+every compatible output of a collapsed edge, which is how one connection from a
+four-view node feeds all four images into `generate-model`.
+
+Persisted legacy handle names `input` and `output` resolve to the first output and
+the first type-compatible input. Multiple legacy edges between the same source and
+target may collapse to one edge.
+
+Execution resolves inputs through these declarations rather than by inspecting
+upstream node types: `resolveNodeInputs` returns a map of input port id to value,
+`resolveInputSources` reports which upstream node and port feeds each input, and a
+node whose port declares `fallbackConfig` reads that config field when nothing is
+connected. A run's own results take precedence over the values the canvas saved,
+which is what lets a single-node run read upstream output it did not produce.
+
+One documented exception remains: `texture` searches upstream for a reference
+image beyond its declared ports, because `/models/texture` fails with
+`reference_image_path not found` unless it is sent the original reference, which
+by then sits several hops back with no edge to the texture node.
 
 This distinction is important when reproducing the current UI: implement the conceptual catalog and the universal rendered handle model separately.
 
@@ -353,16 +376,6 @@ Legacy `quality` and boolean `texture` fields are normalized. Legacy `text-to-3d
 - Face limit: `500-20000`, step `500`.
 - Bake textures: boolean.
 - Legacy `targetFaces` maps to `faceLimit`.
-
-#### `bake`
-
-```json
-{
-  "preview": "/shark-model.png"
-}
-```
-
-No editable parameters in the current card.
 
 #### `texture`
 
@@ -531,8 +544,8 @@ provider is `tripo`:
 | `rigging` | `POST /animations/rig` |
 | `export-model` | `POST /models/convert` |
 
-`bake` has no v3 equivalent, and the 2D image nodes are not mapped yet because
-Tripo's image models are a separate enum (`seedream`, `banana`, `chat_image`).
+The 2D image nodes are not mapped yet because Tripo's image models are a separate
+enum (`seedream`, `banana`, `chat_image`).
 
 Tripo output URLs expire about five minutes after a task succeeds, so each result
 is copied to `server/data/assets/` as soon as the task completes and the canvas
@@ -769,7 +782,6 @@ multiview-to-3d
 review
 text-to-3d
 retopology
-bake
 texture
 rigging
 split

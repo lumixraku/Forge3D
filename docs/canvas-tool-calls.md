@@ -93,7 +93,6 @@ Lists every node type the agent can create. This data is separate from the curre
     "review",
     "text-to-3d",
     "retopology",
-    "bake",
     "texture",
     "rigging",
     "segments",
@@ -126,7 +125,6 @@ multiview-to-3d
 review
 text-to-3d
 retopology
-bake
 texture
 rigging
 segments
