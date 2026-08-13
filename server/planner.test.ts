@@ -97,11 +97,18 @@ test('wires a single-image to multi-view to unified 3D reconstruction chain', ()
     { id: 'generate-model', type: 'generate-model' },
     { id: 'export-model', type: 'export-model' },
   ]
-  const edges = rebuildDagEdges(nodes).map((edge) => [edge.source.nodeId, edge.target.nodeId])
-  assert.deepEqual(edges, [
-    ['reference-image', 'generate-multiview-images'],
-    ['generate-multiview-images', 'generate-model'],
-    ['generate-model', 'export-model'],
+  const edges = rebuildDagEdges(nodes)
+  const pairs = edges.map((edge) => [edge.source.nodeId, edge.target.nodeId])
+  assert.deepEqual(pairs.filter(([source]) => source === 'reference-image'), [['reference-image', 'generate-multiview-images']])
+  assert.deepEqual(pairs.filter(([source]) => source === 'generate-model'), [['generate-model', 'export-model']])
+  // All four views pair with their namesake ports on the unified model node, so
+  // the view label survives into the model node rather than collapsing to one image.
+  const viewEdges = edges.filter((edge) => edge.source.nodeId === 'generate-multiview-images' && edge.target.nodeId === 'generate-model')
+  assert.deepEqual(viewEdges.map((edge) => [edge.source.port, edge.target.port]), [
+    ['front', 'front'],
+    ['back', 'back'],
+    ['left', 'left'],
+    ['right', 'right'],
   ])
 })
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFile } from 'node:fs/promises'
-import { downstreamCanvas, executeNode, executionNodes } from './mock-runs.js'
+import { downstreamCanvas, executeNode, executionNodes, nodeOutput } from './mock-runs.js'
 
 const canvas = {
   id: 'canvas-test',
@@ -23,7 +23,17 @@ test('executes one node and returns its runtime preview output', async () => {
   assert.equal(result.nodeId, 'model')
   assert.equal(result.status, 'succeeded')
   assert.equal(typeof result.durationMs, 'number')
-  assert.deepEqual(result.output, { message: 'Text to 3D generated', preview: '/model.png', modelUrl: '/models/shark-gardener.glb' })
+  assert.deepEqual(result.output, { message: 'Text to 3D generated', preview: '/shark-model.png', modelUrl: '/models/shark-gardener.glb' })
+})
+
+test('mock image outputs are generated during execution when node config has no result', () => {
+  const imageNode = { id: 'images', type: 'generate-image', name: 'Generate Image', config: { amount: 2 } }
+  const multiviewNode = { id: 'views', type: 'generate-multiview-images', name: 'Generate Views', config: {} }
+
+  assert.deepEqual(nodeOutput(imageNode, canvas).previews, ['/shark-concept-front.png', '/shark-concept-left.png'])
+  assert.deepEqual(nodeOutput(multiviewNode, canvas).viewPreviews, {
+    front: '/shark-concept-front.png', back: '/shark-concept-back.png', left: '/shark-concept-left.png', right: '/shark-concept-right.png',
+  })
 })
 
 test('derives execution order from canvas edges', () => {

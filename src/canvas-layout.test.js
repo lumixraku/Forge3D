@@ -37,6 +37,27 @@ test('top-aligns differently sized nodes in a linear canvas', async () => {
   assert.equal(positions.get('b').y, positions.get('c').y)
 })
 
+test('top-aligns a downstream chain after inputs merge', async () => {
+  const nodes = [
+    { id: 'prompt', width: 290, height: 200 },
+    { id: 'upload', width: 290, height: 360 },
+    { id: 'image', width: 290, height: 430 },
+    { id: 'model', width: 290, height: 600 },
+    { id: 'export', width: 290, height: 360 },
+  ]
+  const positions = await layoutCanvas(nodes, [
+    { source: 'prompt', target: 'image' },
+    { source: 'upload', target: 'image' },
+    { source: 'image', target: 'model' },
+    { source: 'model', target: 'export' },
+  ])
+
+  assert.ok(positions.get('image').x < positions.get('model').x)
+  assert.ok(positions.get('model').x < positions.get('export').x)
+  assert.equal(positions.get('image').y, positions.get('model').y)
+  assert.equal(positions.get('model').y, positions.get('export').y)
+})
+
 test('lays out multiple inputs and outputs around a merge and split', async () => {
   const nodes = [
     { id: 'input-a', width: 260, height: 240 },

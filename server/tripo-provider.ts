@@ -203,6 +203,39 @@ function resolveUpstreamPreview(node, canvas, context) {
 }
 
 /**
+ * Resolves generate-model's image inputs for this run. Returns `{ input }` for
+ * one image, `{ multiview }` for several — labeled views become view-key
+ * objects, unlabeled images become a positional string array — or `{}` when
+ * nothing came in so the node falls back to text.
+ */
+async function resolveGenerateModelImages(node, canvas, context, { client, uploads }) {
+  const sources = resolveInputSources(node, canvas)
+  const views: Record<string, unknown> = {}
+  for (const key of ['front', 'back', 'left', 'right']) {
+    const source = (sources[key] || [])[0]
+    if (!source) continue
+    const value = nodeOutputPortValues(source.node, context.get(source.node.id))[source.portId]
+    if (value) views[key] = value
+  }
+  const viewKeys = Object.keys(views)
+  if (viewKeys.length >= 2 && views.front) {
+    const inputs = []
+    for (const key of viewKeys) inputs.push({ [key]: await toTripoInput(views[key], { client, uploads }) })
+    return { multiview: inputs }
+  }
+  const loose = (sources.image || [])
+    .map((source) => nodeOutputPortValues(source.node, context.get(source.node.id))[source.portId])
+    .filter(Boolean)
+  if (loose.length > 1) {
+    const inputs = []
+    for (const url of loose) inputs.push(await toTripoInput(url, { client, uploads }))
+    return { multiview: inputs }
+  }
+  if (loose.length === 1) return { input: await toTripoInput(loose[0], { client, uploads }) }
+  return {}
+}
+
+/**
  * Executes one node through Tripo and returns the same `{ status, durationMs,
  * output }` shape the mock producer returns.
  *
@@ -223,16 +256,22 @@ export async function executeTripoNode(node, canvas, {
   // and falls back to text.
   const needsModel = node.type !== 'generate-model'
   const upstreamModel = needsModel ? resolveUpstreamModel(node, canvas, context) : null
-  const input = needsModel
+  let input = null
+  let multiview = null
+  if (needsModel) {
     // A generation task id is passed straight through; a stored mesh has to be
     // uploaded, because Tripo cannot fetch a local /api/assets path.
-    ? upstreamModel?.taskId || await toTripoInput(upstreamModel?.reference, { client, uploads })
-    : await toTripoInput(resolveUpstreamImage(node, canvas, context), { client, uploads })
+    input = upstreamModel?.taskId || await toTripoInput(upstreamModel?.reference, { client, uploads })
+  } else {
+    const resolved = await resolveGenerateModelImages(node, canvas, context, { client, uploads })
+    input = resolved.input ?? null
+    multiview = resolved.multiview ?? null
+  }
   const imageInput = node.type === 'texture'
     ? await toTripoInput(resolveUpstreamImage(node, canvas, context), { client, uploads })
     : null
 
-  const request = tripoRequest(node, { input, prompt: resolvePrompt(node, canvas), imageInput })
+  const request = tripoRequest(node, { input, prompt: resolvePrompt(node, canvas), imageInput, multiview })
   if (!request) return null
 
   const taskId = await client.createTask(request.endpoint, request.body)

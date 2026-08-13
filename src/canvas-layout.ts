@@ -138,6 +138,33 @@ function linearComponents(nodes: LayoutNode[], edges: LayoutEdge[]) {
 // refit the frame to their own answer, re-save it, and bounce it back forever.
 // The title renders outside the frame at a screen-constant scale; the clearance
 // it needs is reserved here as a fixed flow-space amount.
+
+function downstreamChains(nodes: LayoutNode[], edges: LayoutEdge[]) {
+  const nodeMap = new Map(nodes.map((node) => [node.id, node]))
+  const incoming = new Map(nodes.map((node) => [node.id, new Set<string>()]))
+  const outgoing = new Map(nodes.map((node) => [node.id, new Set<string>()]))
+  for (const edge of edges) {
+    if (!nodeMap.has(edge.source) || !nodeMap.has(edge.target) || edge.source === edge.target) continue
+    outgoing.get(edge.source)!.add(edge.target)
+    incoming.get(edge.target)!.add(edge.source)
+  }
+
+  const chains: LayoutNode[][] = []
+  for (const node of nodes) {
+    if (incoming.get(node.id)!.size < 2 || outgoing.get(node.id)!.size > 1) continue
+    const chain = [node]
+    let current = node
+    while (outgoing.get(current.id)!.size === 1) {
+      const next = nodeMap.get([...outgoing.get(current.id)!][0])!
+      if (incoming.get(next.id)!.size > 1) break
+      chain.push(next)
+      current = next
+    }
+    if (chain.length > 1) chains.push(chain)
+  }
+  return chains
+}
+
 export function frameInsets() {
   return {
     left: FRAME_PADDING,
@@ -219,6 +246,11 @@ export async function layoutCanvas(nodes: LayoutNode[], edges: LayoutEdge[], { o
     const tallest = component.reduce((current, node) => sizeOf(node).height > sizeOf(current).height ? node : current)
     const rowY = positions.get(tallest.id)!.y
     for (const node of component) positions.get(node.id)!.y = rowY
+  }
+  for (const chain of downstreamChains(nodes, edges)) {
+    const tallest = chain.reduce((current, node) => sizeOf(node).height > sizeOf(current).height ? node : current)
+    const rowY = positions.get(tallest.id)!.y
+    for (const node of chain) positions.get(node.id)!.y = rowY
   }
   return positions
 }

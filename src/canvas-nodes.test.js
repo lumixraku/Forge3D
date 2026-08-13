@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeDisplayName, nodeInputPorts, nodeOutputPorts, nodeSchema, parameterRange } from './canvas-nodes.js'
+import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeDefaults, nodeDisplayName, nodeInputPorts, nodeOutputPorts, nodeSchema, parameterRange } from './canvas-nodes.js'
 import { normalizeNodeConfig, canvasNodeSchema } from './canvas-schema.js'
 
 test('uses Lychee node names while preserving unmatched node names', () => {
@@ -14,8 +14,34 @@ test('uses Lychee node names while preserving unmatched node names', () => {
   assert.equal(nodeDisplayName('export-model', 'Export Model'), 'Export')
 })
 
+test('keeps Image Upload empty until an image is uploaded', () => {
+  assert.equal(nodeDefaults('reference-image').preview, undefined)
+  assert.equal(normalizeNodeConfig('reference-image', {}).preview, undefined)
+  assert.equal(normalizeNodeConfig('reference-image', { preview: '/shark-reference.png' }).preview, undefined)
+  assert.equal(normalizeNodeConfig('reference-image', { preview: '/api/assets/uploaded.png' }).preview, '/api/assets/uploaded.png')
+})
+
+test('does not define preview data as node defaults', () => {
+  for (const node of canvasNodeSchema) {
+    assert.equal(Object.hasOwn(node.defaults, 'preview'), false, `${node.type} has a default preview`)
+    assert.equal(Object.hasOwn(node.defaults, 'previews'), false, `${node.type} has default previews`)
+    assert.equal(Object.hasOwn(node.defaults, 'viewPreviews'), false, `${node.type} has default view previews`)
+  }
+})
+
+test('removes legacy bundled previews while retaining uploaded assets', () => {
+  assert.equal(normalizeNodeConfig('segments', { preview: '/shark-model.png' }).preview, undefined)
+  assert.equal(normalizeNodeConfig('generate-image', { previews: ['/shark-concept-front.png'] }).previews, undefined)
+  assert.deepEqual(normalizeNodeConfig('generate-multiview-images', { viewPreviews: { front: '/shark-concept-front.png' } }).viewPreviews, undefined)
+  assert.equal(normalizeNodeConfig('reference-image', { preview: '/api/assets/uploaded.png' }).preview, '/api/assets/uploaded.png')
+})
+
 test('exposes schema-defined typed input and output handles', () => {
-  assert.deepEqual(nodeInputPorts('generate-model').map(({ id, type }) => ({ id, type })), [{ id: 'image', type: 'image' }, { id: 'text', type: 'text' }])
+  assert.deepEqual(nodeInputPorts('generate-model').map(({ id, type }) => ({ id, type })), [
+    { id: 'image', type: 'image' },
+    { id: 'front', type: 'image' }, { id: 'back', type: 'image' }, { id: 'left', type: 'image' }, { id: 'right', type: 'image' },
+    { id: 'text', type: 'text' },
+  ])
   assert.deepEqual(nodeInputPorts('multiview-to-3d').map(({ id, type }) => ({ id, type })), [
     { id: 'front', type: 'image' }, { id: 'back', type: 'image' }, { id: 'left', type: 'image' }, { id: 'right', type: 'image' },
   ])
