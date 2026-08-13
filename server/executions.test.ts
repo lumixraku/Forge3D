@@ -87,7 +87,7 @@ test('re-running one node sees what an earlier run produced upstream', async () 
     },
   })
 
-  assert.deepEqual(seen[0], { tripoTaskId: null, modelUrl: '/api/assets/aa.glb', preview: '/api/assets/bb.webp' })
+  assert.deepEqual(seen[0], { tripoTaskId: null, modelUrl: '/api/assets/aa.glb', preview: '/api/assets/bb.webp', ports: null })
 })
 
 test('keeps a submitted Tripo task traceable on the recorded failure', async () => {

@@ -57,7 +57,7 @@ const RETOPO = { id: 'retopo', type: 'retopology', name: 'Retopo', config: { sma
 const TEXTURE = { id: 'tex', type: 'texture', name: 'Texture', config: { inputMode: 'imageGenerate', textureQuality: 'standard' } }
 
 test('a node type Tripo does not back is left to the mock producer', async () => {
-  const canvas = canvasOf([{ id: 'bake', type: 'bake', name: 'Bake', config: {} }], [])
+  const canvas = canvasOf([{ id: 'review', type: 'review', name: 'Check', config: {} }], [])
   const client = stubClient()
   assert.equal(await executeTripoNode(canvas.nodes[0], canvas, { client, fetchImpl: noopFetch }), null)
   assert.equal(client.calls.tasks.length, 0)

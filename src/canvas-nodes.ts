@@ -1,10 +1,10 @@
 import { canvasNodeSchema } from './canvas-schema'
-import type { NodePort, PortType, CanvasNodeSchema } from './canvas-schema'
+import type { NodePort, NodePorts, PortType, CanvasNodeSchema } from './canvas-schema'
 
 export { applyNodeParameter, conditionsMatch, hasModelEditor, isExecutableNodeType, nodeDefaults, nodeSchema, parameterRange, canvasNodeSchema, canvasNodeSchemas } from './canvas-schema'
 export type { NodeParameter, ParameterCondition, ParameterOption, ParameterRange, CanvasNodeSchema } from './canvas-schema'
 
-export type { NodePort, PortType }
+export type { NodePort, NodePorts, NodePortSpec, PortType } from './canvas-schema'
 export type NodeDefinition = CanvasNodeSchema
 
 export const nodeCatalog: NodeDefinition[] = canvasNodeSchema
@@ -22,23 +22,21 @@ export function canConnectNodeTypes(sourceType: string, targetType: string) {
   return nodeOutputPorts(sourceType).some((sourcePort) => nodeInputPorts(targetType).some((targetPort) => canConnectPorts(sourceType, sourcePort.id, targetType, targetPort.id)))
 }
 
-export function nodeInputPorts(type: string): NodePort[] {
-  const definition = nodeDefinition(type)
-  if (!definition) return []
-  if (definition.inputPorts?.length) return definition.inputPorts
-  return definition.inputTypes.map((portType) => ({
-    id: portType,
-    label: portType[0].toUpperCase() + portType.slice(1),
-    type: portType,
-    ...(portType === 'text' ? { configKey: 'prompt' } : {}),
+/** Expands declared ports into the keyed-plus-label shape the graph helpers use. */
+function toPortList(ports: NodePorts | undefined): NodePort[] {
+  return Object.entries(ports || {}).map(([id, port]) => ({
+    ...port,
+    id,
+    label: port.label || id[0].toUpperCase() + id.slice(1),
   }))
 }
 
+export function nodeInputPorts(type: string): NodePort[] {
+  return toPortList(nodeDefinition(type)?.inputs)
+}
+
 export function nodeOutputPorts(type: string): NodePort[] {
-  const definition = nodeDefinition(type)
-  if (!definition) return []
-  if (definition.outputPorts?.length) return definition.outputPorts
-  return definition.outputType ? [{ id: definition.outputType, label: definition.outputType[0].toUpperCase() + definition.outputType.slice(1), type: definition.outputType }] : []
+  return toPortList(nodeDefinition(type)?.outputs)
 }
 
 export function canConnectPorts(sourceType: string, sourcePortId: string, targetType: string, targetPortId: string) {
@@ -63,6 +61,146 @@ export interface CanvasGraphEdge {
   target?: { nodeId?: string; port?: string }
 }
 
+/**
+ * Resolves which declared ports an edge actually joins, or null when it joins
+ * none. Stored edges predating named ports carry the literals `output`/`input`
+ * (and the canvas still writes them for the single collapsed handle), so those
+ * fall back to the first output and the first type-compatible input.
+ */
+export function resolveEdgePorts(sourceType: string | undefined, targetType: string | undefined, edge: CanvasGraphEdge) {
+  const sourcePorts = sourceType ? nodeOutputPorts(sourceType) : []
+  const targetPorts = targetType ? nodeInputPorts(targetType) : []
+  const sourcePort = sourcePorts.find((port) => port.id === edge.source?.port)
+    || (!edge.source?.port || edge.source.port === 'output' ? sourcePorts[0] : undefined)
+  const targetPort = targetPorts.find((port) => port.id === edge.target?.port)
+    || (!edge.target?.port || edge.target.port === 'input' ? targetPorts.find((port) => sourcePort && (port.type === 'any' || port.type === sourcePort.type)) : undefined)
+  return sourcePort && targetPort ? { sourcePort, targetPort } : null
+}
+
+/**
+ * Every port pairing one edge stands for.
+ *
+ * Normally that is the single pair the edge names. A collapsed edge carrying no
+ * source port is the exception: when its target accepts several values, every
+ * compatible output travels along it, which is how one visual connection from a
+ * multi-view node feeds all four views into a model node.
+ */
+export function resolveEdgePortPairs(sourceType: string | undefined, targetType: string | undefined, edge: CanvasGraphEdge) {
+  const pair = resolveEdgePorts(sourceType, targetType, edge)
+  if (!pair || !sourceType) return []
+  const named = edge.source?.port && edge.source.port !== 'output'
+  if (named || !pair.targetPort.multiple) return [pair]
+  return nodeOutputPorts(sourceType)
+    .filter((sourcePort) => pair.targetPort.type === 'any' || sourcePort.type === pair.targetPort.type)
+    .map((sourcePort) => ({ sourcePort, targetPort: pair.targetPort }))
+}
+
+/**
+ * Reads one node's produced values keyed by output port id.
+ *
+ * A run's own result is authoritative; the config a canvas saved earlier is the
+ * fallback, which is what lets a single-node run read upstream results that this
+ * run never executed. Flat `preview`/`previews`/`viewPreviews` shapes are mapped
+ * onto declared ports so a node that has not been migrated still resolves.
+ */
+export function nodeOutputPortValues(node: CanvasGraphNode, produced?: Record<string, unknown> | null): Record<string, unknown> {
+  const ports = nodeOutputPorts(node.type)
+  if (!ports.length) return {}
+  const fromPorts = (produced?.ports || null) as Record<string, unknown> | null
+  const values: Record<string, unknown> = {}
+  const config = node.config || {}
+  const viewPreviews = (config.viewPreviews || {}) as Record<string, unknown>
+  const previews = (Array.isArray(config.previews) ? config.previews : []) as unknown[]
+
+  for (const port of ports) {
+    if (fromPorts && fromPorts[port.id] != null) {
+      values[port.id] = fromPorts[port.id]
+      continue
+    }
+    // A port named after a view reads that view; an image port otherwise takes
+    // the node's single result, and `previews` being a candidate list means its
+    // selected entry wins.
+    const fallback = port.type === 'model'
+      ? produced?.modelUrl ?? config.modelUrl
+      : port.type === 'text'
+        ? produced?.text ?? config.prompt
+        : viewPreviews[port.id]
+          ?? produced?.preview
+          ?? config.selectedPreview
+          ?? config.preview
+          ?? previews[0]
+    const value = typeof fallback === 'string' ? fallback.trim() : fallback
+    if (value != null && value !== '') values[port.id] = value
+  }
+  return values
+}
+
+/**
+ * Resolves a node's inputs as a map of input port id to value, following the
+ * declared ports rather than guessing from upstream node types. A `multiple`
+ * port collects a list; a `fallbackConfig` port falls back to its own config
+ * field when nothing is connected.
+ *
+ * `producedByNodeId` holds results from the current run, which take precedence
+ * over the values the canvas saved.
+ */
+export interface InputSource {
+  node: CanvasGraphNode
+  /** The upstream output port feeding this input. */
+  portId: string
+}
+
+/**
+ * Which upstream node and output port feeds each of this node's input ports.
+ *
+ * Callers that need more than the value itself use this: a real backend reads
+ * per-node run metadata (an upstream task id, say) that no port value carries.
+ */
+export function resolveInputSources(
+  node: CanvasGraphNode,
+  canvas: { nodes: CanvasGraphNode[]; edges?: CanvasGraphEdge[] },
+): Record<string, InputSource[]> {
+  const byId = new Map(canvas.nodes.map((item) => [item.id, item]))
+  const sources: Record<string, InputSource[]> = {}
+  for (const port of nodeInputPorts(node.type)) sources[port.id] = []
+
+  for (const edge of canvas.edges || []) {
+    if (edge.target?.nodeId !== node.id) continue
+    const source = byId.get(edge.source?.nodeId || '')
+    if (!source) continue
+    for (const pair of resolveEdgePortPairs(source.type, node.type, edge)) {
+      const found = sources[pair.targetPort.id]
+      if (!found || found.some((item) => item.node.id === source.id && item.portId === pair.sourcePort.id)) continue
+      found.push({ node: source, portId: pair.sourcePort.id })
+    }
+  }
+  return sources
+}
+
+export function resolveNodeInputs(
+  node: CanvasGraphNode,
+  canvas: { nodes: CanvasGraphNode[]; edges?: CanvasGraphEdge[] },
+  producedByNodeId: Map<string, Record<string, unknown>> | Record<string, Record<string, unknown>> = new Map(),
+): Record<string, unknown> {
+  const produced = producedByNodeId instanceof Map ? producedByNodeId : new Map(Object.entries(producedByNodeId))
+  const sources = resolveInputSources(node, canvas)
+  const resolved: Record<string, unknown> = {}
+
+  for (const port of nodeInputPorts(node.type)) {
+    const values: unknown[] = []
+    for (const source of sources[port.id] || []) {
+      const value = nodeOutputPortValues(source.node, produced.get(source.node.id))[source.portId]
+      if (value != null && !values.includes(value)) values.push(value)
+    }
+    if (!values.length && port.fallbackConfig) {
+      const fallback = node.config?.[port.fallbackConfig]
+      if (typeof fallback === 'string' ? fallback.trim() : fallback != null) values.push(fallback)
+    }
+    if (values.length) resolved[port.id] = port.multiple ? values : values[0]
+  }
+  return resolved
+}
+
 export interface CanvasGraphIssue {
   nodeId?: string
   port?: string
@@ -80,12 +218,8 @@ export function validateCanvasGraph(nodes: CanvasGraphNode[], edges: CanvasGraph
   for (const edge of edges) {
     const source = byId.get(edge.source?.nodeId || '')
     const target = byId.get(edge.target?.nodeId || '')
-    const sourcePorts = source ? nodeOutputPorts(source.type) : []
-    const sourcePort = sourcePorts.find((port) => port.id === edge.source?.port)
-      || (!edge.source?.port || edge.source.port === 'output' ? sourcePorts[0] : undefined)
-    const targetPorts = target ? nodeInputPorts(target.type) : []
-    const targetPort = targetPorts.find((port) => port.id === edge.target?.port)
-      || (!edge.target?.port || edge.target.port === 'input' ? targetPorts.find((port) => sourcePort && (port.type === 'any' || port.type === sourcePort.type)) : undefined)
+    const ports = source && target ? resolveEdgePorts(source.type, target.type, edge) : null
+    const { sourcePort, targetPort } = ports || {}
     if (!source || !target || !sourcePort || !targetPort) {
       issues.push({ nodeId: target?.id, port: edge.target?.port, code: 'invalid_edge', message: 'Connection references a node or port that does not exist.' })
       continue
@@ -106,7 +240,7 @@ export function validateCanvasGraph(nodes: CanvasGraphNode[], edges: CanvasGraph
     for (const node of nodes) {
       for (const port of nodeInputPorts(node.type)) {
         const hasConnection = Boolean(inputCounts.get(`${node.id}:${port.id}`))
-        const hasFallback = Boolean(port.configKey && node.config?.[port.configKey])
+        const hasFallback = Boolean(port.fallbackConfig && node.config?.[port.fallbackConfig])
         if (port.required && !hasConnection && !hasFallback) {
           issues.push({ nodeId: node.id, port: port.id, code: 'required_input_missing', message: `${node.name || node.type} requires ${port.label}.` })
         }

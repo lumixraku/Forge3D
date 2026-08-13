@@ -213,7 +213,6 @@ test('adds any supported node type through add_canvas_node', async () => {
   assert.ok(nodeTypes.includes('generate-image'))
   assert.ok(addTool.function.parameters.properties.type.enum.includes('frame'))
   assert.ok(nodeTypes.includes('smart-mesh'))
-  assert.ok(nodeTypes.includes('bake'))
   assert.ok(nodeTypes.includes('rigging'))
   assert.ok(nodeTypes.includes('segments'))
   assert.ok(result.canvas.nodes.some((node) => node.type === 'generate-image'))

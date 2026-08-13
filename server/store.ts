@@ -12,7 +12,9 @@ const root = path.dirname(fileURLToPath(import.meta.url))
 const seedDirectory = path.join(root, 'seed')
 export const defaultDataDirectory = path.join(root, 'data')
 const collections = ['canvases', 'sessions', 'runs', 'turns', 'agentTraces', 'accounts', 'creditLedger']
-const retiredNodeTypes = new Set(['save-asset'])
+// `bake` never had a Tripo equivalent and could not be wired up in the canvas,
+// so stored instances are dropped rather than migrated.
+const retiredNodeTypes = new Set(['save-asset', 'bake'])
 
 export function migrateCanvas(canvas, now = () => new Date().toISOString()) {
   const migrated = structuredClone(canvas)

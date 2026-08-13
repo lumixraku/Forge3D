@@ -30,7 +30,7 @@ import { useCanvasRun } from './composables/useCanvasRun'
 import { useDebugSettings } from './composables/useDebugSettings'
 import { request } from './api'
 import { edgeDefaults, nodePresentation } from './canvas-graph'
-import { canConnectNodeTypes, compatibleNodeTypes, hasModelEditor, isExecutableNodeType, nodeCatalog, nodeCategories, nodeDefaults, nodeDefinition, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
+import { canConnectNodeTypes, compatibleNodeTypes, hasModelEditor, isExecutableNodeType, nodeCatalog, nodeCategories, nodeDefaults, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
 
 const ModelEditor = defineAsyncComponent(() => import('./components/ModelEditor.vue'))
 
@@ -466,8 +466,6 @@ function buildCanvasNode(type, { id, position, selected = false, config, parentN
       status: 'ready',
       canvasType: type,
       config: { ...nodeDefaults(type), ...config },
-      inputTypes: nodeDefinition(type)?.inputTypes || [],
-      outputType: nodeDefinition(type)?.outputType || null,
       inputPorts: nodeInputPorts(type),
       outputPorts: nodeOutputPorts(type),
     },

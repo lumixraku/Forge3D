@@ -1,6 +1,89 @@
 # Progress
 
+## 2026-08-13 - feat/new-type
+
+- Replaced the four node port declaration fields (`inputTypes`, `outputType`,
+  `inputPorts`, `outputPorts`) with two keyed maps, `inputs` and `outputs`, of
+  type `Record<string, NodePortSpec>`. The port id is now the map key, so a
+  declaration cannot drift from the ids edges reference, and the shorthand
+  versus explicit dual notation is gone along with its normalization branch in
+  `nodeInputPorts` / `nodeOutputPorts`.
+- Kept every port key equal to its previous id, so no stored edge required
+  migration. Multi-view keys (`front`, `back`, `left`, `right`) are shared by
+  `generate-multiview-images` and `multiview-to-3d`, making same-key pairing the
+  declared contract behind their single collapsed canvas edge rather than an
+  incidental result of a shared constant.
+- Renamed the port field `configKey` to `fallbackConfig` and made it explicit on
+  each text port instead of being injected for text-typed shorthand ports. Five
+  nodes declare it: `generate-image`, `generate-multiview-images`, `smart-mesh`,
+  `generate-model`, `text-to-3d`, plus the already-explicit `texture`.
+- Removed the `bake` node. It had no Tripo endpoint (Tripo exposes baking only as
+  a boolean on texture/low-poly/convert, each taking one model, and Studio has no
+  bake operation), was absent from the planner chains, and its second input could
+  not be connected in the canvas. Retired it via `retiredNodeTypes` in
+  `server/store.ts` so stored instances are dropped with their edges rather than
+  silently losing connections at load, and cleared its references from
+  `mock-runs.ts`, `tripo-provider.ts`, `run-assets.ts`, `deepseek.ts`,
+  `CanvasNode.vue`, and both docs.
+- Dropped the unused `inputTypes` / `outputType` fields that `toCanvasGraph` and
+  `App.vue` pushed into node data; `CanvasNodeData` never declared them.
+- Moved execution onto the declared ports, so they now govern what a node
+  receives rather than only validation and handle rendering. Added
+  `resolveNodeInputs` (input port id to value), `resolveInputSources` (which
+  upstream node and port feeds each input), `nodeOutputPortValues` (a node's
+  results keyed by output port), and `resolveEdgePorts` /
+  `resolveEdgePortPairs` to `canvas-nodes.ts`. `validateCanvasGraph` was folded
+  onto `resolveEdgePorts` so validation and execution resolve edges by one rule.
+- Deleted the upstream-type guessing this replaces: the `modelProducingTypes` set
+  in `mock-runs.ts`, the matching `MODEL_PRODUCING_TYPES` in `tripo-provider.ts`,
+  and the `sourceOutputImage` / `sourceOutputImages` / `resolveInputImage(s)`
+  helpers. The Tripo provider now reads its mesh from declared `model` ports and
+  its image from declared `image` ports, so an image feeding the same node can no
+  longer be mistaken for its mesh.
+- Kept one documented exception: `texture` still searches upstream past its
+  declared ports for a reference image, because `/models/texture` fails with
+  `reference_image_path not found` unless sent the original reference, which by
+  then sits several hops back with no edge to the texture node. Its stop
+  condition is now "every output port is a model" rather than a hardcoded type
+  list.
+- Put `multiple` into service, previously declared but unused. `generate-model`
+  and `smart-mesh` declare `image` as `multiple`, and a collapsed edge whose
+  target accepts several values carries every compatible output, so one visual
+  connection from a four-view node feeds all four images in. This preserves the
+  existing multi-image detection without the type sniff.
+- Threaded port-keyed output through the run context in `executions.ts`, which
+  previously reduced each result to `modelUrl` / `preview` and so could not carry
+  what a multi-output node produced.
+- Fixed a latent bug the new tests caught: `nodeOutputPortValues` had no case for
+  text ports, so a prompt node resolved to no value and a downstream node
+  silently fell back to its own `prompt` field, ignoring what was connected.
+  Empty and whitespace-only strings are now treated as absent throughout, so a
+  blank prompt does not satisfy a required text port.
+- Verification: `npm run typecheck`, `npm run build`, and `git diff --check`
+  passed. `npm test` passed 249 tests, up from 239: `src/canvas-inputs.test.js`
+  adds 10 covering named-view pairing, `multiple` collection through a collapsed
+  edge, `fallbackConfig`, connected values overriding that fallback, run results
+  overriding saved config, and image/mesh inputs landing on their own ports. The
+  239 pre-existing tests were left unmodified except one exact-shape assertion in
+  `executions.test.ts` that now includes the added `ports` field. The build
+  retains the existing large-chunk warning.
+- Remaining issues: Output is still emitted in the flat
+  `preview` / `previews` / `viewPreviews` shape and mapped onto ports on read;
+  only `generate-multiview-images` emits a port-keyed `ports` field, and nothing
+  validates that a producer's `ports` keys match its declared outputs. `PortType`
+  is still a closed union, so a plugin cannot introduce a new data type. The `any`
+  port type remains declared but unused by any node. Two connections from
+  distinct upstream nodes into two same-typed semantic slots on one node cannot be
+  told apart, since key matching has nothing to disambiguate; no node needs this
+  now that `bake` is gone, and a port assignment strategy would be additive.
+
 ## 2026-08-12 - main
+
+- Reduced the composer attachment capsule maximum width from 220px to 120px so long filenames truncate earlier without expanding the composer row.
+- Added a tooltip-style enlarged image preview above image attachment capsules on hover, focus, and editor selection.
+- Made the tooltip image fill its entire 220x180 preview area using cropped `object-fit: cover` rendering with no inner padding.
+- Verification: `pnpm typecheck` and `git diff --check` passed.
+- Remaining issues: None.
 
 - Added a persistent `Demo User` credit account and append-only execution ledger. Executions now reserve a server-owned fixed cost of 10 credits, reject insufficient balances with HTTP 402 without retaining a run, retain successful charges, and refund failed or cancelled runs once by run ID.
 - Added the top-bar account avatar, username, and live balance; account refreshes follow execution creation, terminal polling, cancellation, and canvas events. Both Agent implementations can read the injected balance and request a node execution, while the main API remains the only path that creates and charges runs.

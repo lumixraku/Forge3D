@@ -3,7 +3,7 @@
 // assets, and they survive the nodes that made them being edited or deleted.
 const REFERENCE_TYPES = new Set(['reference-image'])
 const IMAGE_TYPES = new Set(['generate-image', 'generated-image', 'image-decomposition', 'generate-multiview-images', 'review'])
-const MODEL_TYPES = new Set(['generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'texture', 'retopology', 'bake', 'rigging', 'segments', 'model-preview', 'export-model'])
+const MODEL_TYPES = new Set(['generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'texture', 'retopology', 'rigging', 'segments', 'model-preview', 'export-model'])
 
 function assetKind(nodeType) {
   if (REFERENCE_TYPES.has(nodeType)) return 'reference'

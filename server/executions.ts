@@ -158,8 +158,10 @@ export async function executeExecution(runs, run, canvas, executionCanvas, nodes
   const earlier = latestNodeRuns(canvas, runs.filter((candidate) => candidate.id !== run.id))
   for (const [nodeId, nodeRun] of Object.entries(earlier)) {
     if (nodeRun.status !== 'succeeded' || !nodeRun.output) continue
-    const { modelUrl = null, preview = null } = nodeRun.output
-    if (modelUrl || preview) context.set(nodeId, { tripoTaskId: nodeRun.tripoTaskId || null, modelUrl, preview })
+    const { modelUrl = null, preview = null, ports = null } = nodeRun.output
+    // `ports` carries the per-output-port values a multi-output node produced,
+    // which a single `preview` cannot represent.
+    if (modelUrl || preview || ports) context.set(nodeId, { tripoTaskId: nodeRun.tripoTaskId || null, modelUrl, preview, ports })
   }
   // The provider resolves inputs against the full canvas, not the pruned
   // execution canvas: a single-node run carries no edges, so the upstream image
@@ -172,7 +174,7 @@ export async function executeExecution(runs, run, canvas, executionCanvas, nodes
     try {
       const result = await executeNode(node, executionCanvas, provider ? { provider } : undefined)
       if (result.status === 'succeeded') {
-        context.set(node.id, { tripoTaskId: result.tripoTaskId || null, modelUrl: result.output?.modelUrl || null, preview: result.output?.preview || null })
+        context.set(node.id, { tripoTaskId: result.tripoTaskId || null, modelUrl: result.output?.modelUrl || null, preview: result.output?.preview || null, ports: result.output?.ports || null })
       }
       recordNodeExecution(runs, { runId: run.id, canvas, node, result, entryNode, mode: run.mode })
       await onUpdate()

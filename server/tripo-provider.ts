@@ -11,13 +11,10 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tripoNodeOutput, tripoRequest, usesTripo } from './tripo-mapping.js'
 import { assetUrlPrefix, resolveAssetPath } from './tripo-assets.js'
+import { nodeInputPorts, nodeOutputPorts, nodeOutputPortValues, resolveInputSources, resolveNodeInputs } from '../src/canvas-nodes.js'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
 const publicDirectory = path.join(root, '..', 'public')
-
-// Which upstream node types carry a mesh rather than an image. Mirrors the set
-// the mock producer uses so both providers read the same graph the same way.
-const MODEL_PRODUCING_TYPES = new Set(['generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'bake', 'texture', 'rigging', 'segments', 'model-preview'])
 
 // Meshes appear here too: a chained transform uploads its upstream result,
 // which retopology emits as FBX rather than GLB.
@@ -35,15 +32,16 @@ function inboundSources(node, canvas) {
     .filter(Boolean)
 }
 
-/** Collects the prompt text reachable on this node's inputs, plus its own. */
+/**
+ * The prompt this node runs with: its own field first, then whatever text its
+ * declared text ports carry. A text port names its own config field as a
+ * fallback, so a node with nothing connected still resolves its own prompt.
+ */
 function resolvePrompt(node, canvas) {
   const own = typeof node.config?.prompt === 'string' ? node.config.prompt.trim() : ''
   if (own) return own
-  for (const source of inboundSources(node, canvas)) {
-    const text = typeof source.config?.prompt === 'string' ? source.config.prompt.trim() : ''
-    if (text) return text
-  }
-  return ''
+  const text = resolveNodeInputs(node, canvas).text
+  return typeof text === 'string' ? text.trim() : ''
 }
 
 /**
@@ -108,13 +106,19 @@ const GENERATION_NODE_TYPES = new Set(['generate-model', 'multiview-to-3d', 'tex
  * interchangeable, so the caller must not pass a reference where an id is meant.
  */
 function resolveUpstreamModel(node, canvas, context) {
-  for (const source of inboundSources(node, canvas)) {
-    const produced = context.get(source.id)
-    if (!produced) continue
-    // A generation task id lets Tripo read the mesh server-side and skips a
-    // re-upload; anything else has to be addressed by its stored file.
-    if (produced.tripoTaskId && GENERATION_NODE_TYPES.has(source.type)) return { taskId: produced.tripoTaskId }
-    if (produced.modelUrl) return { reference: produced.modelUrl }
+  // Only the declared model inputs are considered, so an image feeding the same
+  // node is never mistaken for its mesh.
+  const sources = resolveInputSources(node, canvas)
+  const modelPorts = nodeInputPorts(node.type).filter((port) => port.type === 'model' || port.type === 'any')
+  for (const port of modelPorts) {
+    for (const source of sources[port.id] || []) {
+      const produced = context.get(source.node.id)
+      if (!produced) continue
+      // A generation task id lets Tripo read the mesh server-side and skips a
+      // re-upload; anything else has to be addressed by its stored file.
+      if (produced.tripoTaskId && GENERATION_NODE_TYPES.has(source.node.type)) return { taskId: produced.tripoTaskId }
+      if (produced.modelUrl) return { reference: produced.modelUrl }
+    }
   }
   return null
 }
@@ -138,13 +142,25 @@ function nodeImage(source, context) {
 }
 
 /**
- * Finds the image this node should be guided by, walking upstream until one turns
- * up. The search has to cross model-producing nodes rather than stop at them:
- * texturing a retopologised mesh still needs the original reference image, which
- * by then sits several hops back, and `/models/texture` fails with
- * `reference_image_path not found` when it is missing.
+ * Finds the image this node should be guided by.
+ *
+ * A declared image port is authoritative. Failing that, the search walks
+ * upstream, because the image a node needs is not always one it declares: a
+ * texture node takes a mesh, yet `/models/texture` fails with
+ * `reference_image_path not found` unless it is also sent the original reference
+ * image, which by then sits several hops back with no edge to this node at all.
  */
 function resolveUpstreamImage(node, canvas, context = new Map()) {
+  const sources = resolveInputSources(node, canvas)
+  for (const port of nodeInputPorts(node.type)) {
+    if (port.type !== 'image' && port.type !== 'any') continue
+    for (const source of sources[port.id] || []) {
+      const produced = context.get(source.node.id)
+      const value = nodeOutputPortValues(source.node, produced)[source.portId]
+      if (value) return value
+    }
+  }
+
   const seen = new Set([node.id])
   let frontier = inboundSources(node, canvas)
   while (frontier.length) {
@@ -154,7 +170,7 @@ function resolveUpstreamImage(node, canvas, context = new Map()) {
       seen.add(source.id)
       // A model-producing node carries no usable image itself, but its own
       // inputs may.
-      if (!MODEL_PRODUCING_TYPES.has(source.type)) {
+      if (!nodeOutputPorts(source.type).every((port) => port.type === 'model')) {
         const image = nodeImage(source, context)
         if (image) return image
       }

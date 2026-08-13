@@ -10,7 +10,7 @@ function node(type, config = {}) {
 }
 
 test('nodes without a Tripo endpoint fall through to the mock producer', () => {
-  for (const type of ['bake', 'review', 'model-preview', 'prompt', 'reference-image', 'frame', 'generate-image']) {
+  for (const type of ['review', 'model-preview', 'prompt', 'reference-image', 'frame', 'generate-image']) {
     assert.equal(tripoRequest(node(type), { input: 'task_abc' }), null, type)
     assert.equal(usesTripo(node(type)), false, type)
   }
