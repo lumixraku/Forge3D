@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 import { EditorContent } from '@tiptap/vue-3'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
@@ -25,6 +25,12 @@ const emit = defineEmits<{
   retry: [message: any]
 }>()
 const fileInput = ref<HTMLInputElement | null>(null)
+const messageList = ref<HTMLElement | null>(null)
+
+watch(() => props.messages.length, async () => {
+  await nextTick()
+  messageList.value?.scrollTo({ top: messageList.value.scrollHeight })
+}, { immediate: true })
 
 function renderAssistantMarkdown(content: string) {
   return DOMPurify.sanitize(marked.parse(content || '', { async: false, breaks: true, gfm: true, html: false }))
@@ -56,7 +62,7 @@ function userContent(message) {
 <template>
   <section class="chat-panel bg-bg-panel border-r border-line">
     <header><div><span>CANVAS COPILOT</span><b>DeepSeek tool-calling agent</b></div><i /></header>
-    <div class="message-list">
+    <div ref="messageList" class="message-list">
       <article v-for="message in messages" :key="message.id" class="message" :class="[message.role, { pending: message.pending }]">
         <span>{{ message.role === 'assistant' ? 'FORGE' : 'YOU' }}</span>
         <template v-if="message.role === 'assistant'">

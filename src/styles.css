@@ -387,7 +387,7 @@
 .message.user p { color: var(--text-primary); }
 .user-message-body { min-width: 0; }
 .message-attachments { display: inline; }
-.message-attachment { position: relative; display: inline-flex; min-width: 0; max-width: min(220px, 100%); align-items: center; height: 25px; margin: 0 3px 5px 0; padding: 0 8px 0 3px; vertical-align: middle; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-input-hover); color: var(--text-primary); line-height: 1; text-decoration: none; }
+.message-attachment { position: relative; display: inline-flex; min-width: 0; max-width: min(120px, 100%); align-items: center; height: 25px; margin: 0 3px 5px 0; padding: 0 8px 0 3px; vertical-align: middle; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-input-hover); color: var(--text-primary); line-height: 1; text-decoration: none; }
 .message-attachment:hover { border-color: color-mix(in srgb, var(--acid) 55%, var(--line-strong)); }
 .message-attachment > img:not(.message-attachment-preview), .message-attachment-icon { flex: 0 0 19px; width: 19px; height: 19px; margin-right: 5px; border-radius: 5px; object-fit: cover; background: var(--bg-active); }
 .message-attachment-icon { display: grid; place-items: center; color: var(--acid); }

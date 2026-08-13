@@ -2,6 +2,18 @@
 
 ## 2026-08-13 - feat/new-type
 
+- Added one-shot chat list scrolling to the end whenever the message count changes, including immediately after sending a message.
+- Verification: `pnpm run typecheck` passed; `git diff --check` passed.
+- Remaining issues: None.
+
+## 2026-08-13 - feat/new-type
+
+- Matched sent-message attachment chips to the composer's existing 120px maximum width, so long filenames truncate consistently instead of expanding to 220px.
+- Verification: `pnpm run build` passed; `git diff --check` passed.
+- Remaining issues: None.
+
+## 2026-08-13 - feat/new-type
+
 ## 2026-08-13 - feat/new-type (cherry-picked tripo 22af0eb)
 
 - Investigated the known-good `vueflow-infinite-canvas-demo` repository. Its relevant commit is `ffaa8d8` (`fix: auto layout`), which is already in this repository's history, so no cherry-pick was required.
