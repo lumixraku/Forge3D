@@ -77,6 +77,28 @@ test('generate-model uploads the reference image and reconstructs from it', asyn
   assert.equal(client.calls.uploads[0].contentType, 'image/png')
 })
 
+test('generate-model with labeled views reconstructs via multiview-to-model', async () => {
+  const views = { id: 'views', type: 'generate-multiview-images', name: 'Views', config: { viewPreviews: { front: 'https://cdn/front.png', back: 'https://cdn/back.png', left: 'https://cdn/left.png', right: 'https://cdn/right.png' } } }
+  const model = { id: 'model', type: 'generate-model', name: 'Model', config: { modelVersion: 'v3.0-20250812' } }
+  const canvas = {
+    id: 'canvas-1',
+    revision: 1,
+    nodes: [views, model],
+    edges: ['front', 'back', 'left', 'right'].map((view) => ({ id: `e-${view}`, source: { nodeId: 'views', port: view }, target: { nodeId: 'model', port: view } })),
+  }
+  const client = stubClient()
+
+  await executeTripoNode(model, canvas, { client, fetchImpl: noopFetch })
+
+  assert.equal(client.calls.tasks[0].endpoint, '/generation/multiview-to-model')
+  assert.deepEqual(client.calls.tasks[0].body.inputs, [
+    { front: 'https://cdn/front.png' },
+    { back: 'https://cdn/back.png' },
+    { left: 'https://cdn/left.png' },
+    { right: 'https://cdn/right.png' },
+  ])
+})
+
 test('an upstream generation task is passed by id, with no re-upload', async () => {
   const canvas = canvasOf([REFERENCE, MODEL, RETOPO], [['ref', 'model'], ['model', 'retopo']])
   const client = stubClient()

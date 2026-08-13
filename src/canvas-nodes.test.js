@@ -23,9 +23,9 @@ test('keeps Image Upload empty until an image is uploaded', () => {
 
 test('does not define preview data as node defaults', () => {
   for (const node of canvasNodeSchema) {
-    assert.equal(Object.hasOwn(node.defaults, 'preview'), false, node.type + ' has a default preview')
-    assert.equal(Object.hasOwn(node.defaults, 'previews'), false, node.type + ' has default previews')
-    assert.equal(Object.hasOwn(node.defaults, 'viewPreviews'), false, node.type + ' has default view previews')
+    assert.equal(Object.hasOwn(node.defaults, 'preview'), false, `${node.type} has a default preview`)
+    assert.equal(Object.hasOwn(node.defaults, 'previews'), false, `${node.type} has default previews`)
+    assert.equal(Object.hasOwn(node.defaults, 'viewPreviews'), false, `${node.type} has default view previews`)
   }
 })
 
@@ -37,7 +37,11 @@ test('removes legacy bundled previews while retaining uploaded assets', () => {
 })
 
 test('exposes schema-defined typed input and output handles', () => {
-  assert.deepEqual(nodeInputPorts('generate-model').map(({ id, type }) => ({ id, type })), [{ id: 'image', type: 'image' }, { id: 'text', type: 'text' }])
+  assert.deepEqual(nodeInputPorts('generate-model').map(({ id, type }) => ({ id, type })), [
+    { id: 'image', type: 'image' },
+    { id: 'front', type: 'image' }, { id: 'back', type: 'image' }, { id: 'left', type: 'image' }, { id: 'right', type: 'image' },
+    { id: 'text', type: 'text' },
+  ])
   assert.deepEqual(nodeInputPorts('multiview-to-3d').map(({ id, type }) => ({ id, type })), [
     { id: 'front', type: 'image' }, { id: 'back', type: 'image' }, { id: 'left', type: 'image' }, { id: 'right', type: 'image' },
   ])

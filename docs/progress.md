@@ -2,11 +2,80 @@
 
 ## 2026-08-13 - feat/new-type
 
-- Removed preview artifacts from every node schema default so untouched nodes, including an empty `Image Upload`, render no result before an upload or run.
-- Made `CanvasNode` show its result area only when an uploaded asset or runtime output exists. Legacy bundled shark placeholders are stripped during config normalization while real uploaded `/api/assets/...` values are retained.
-- Kept bundled mock media in the execution producer rather than node defaults, and added regression coverage for empty defaults, legacy cleanup, uploaded asset retention, and run-generated mock output.
-- Verification: `pnpm run typecheck`, `pnpm test` (253 passing), and `git diff --check` passed. Browser verification was blocked because the existing Chrome MCP session timed out.
-- Remaining issues: Page-level visual verification remains pending due to the unavailable existing Chrome MCP session.
+- Made `generate-model` (Gen HD Model) a single node that accepts all three
+  image-input shapes: one image, several unlabeled images, and labeled four-view
+  images. Its declared inputs grew from `{ image, text }` to
+  `{ image, front, back, left, right, text }` (`src/canvas-schema.ts`), where
+  `image` stays `multiple` and the view ports are optional, so the label is
+  carried by the port key exactly like `multiview-to-3d`. The UI is unchanged:
+  every node pair still renders one visual connection whose logical ports live
+  in `edge.data.logicalConnections` (`src/canvas-graph.ts`).
+- Fixed `rebuildDagEdges` in `server/planner.ts` to prefer an exact key match
+  before falling back to type matching, so `generate-multiview-images` pairs
+  `front→front`, `back→back`, etc. instead of collapsing all views onto the
+  first same-type port (which would drop the label again).
+- Wired the multiview path to Tripo: `generate-model` now dispatches on its
+  inputs — labeled views (front present, ≥2 views) go to
+  `POST /generation/multiview-to-model` as a view-key `inputs` array; one image
+  goes to `/generation/image-to-model`; several unlabeled images go to
+  `multiview-to-model` as a positional string array (marked TODO: Tripo has no
+  unlabeled multi-image endpoint yet). `server/tripo-mapping.ts` and
+  `server/tripo-provider.ts` (`resolveGenerateModelImages`).
+- Updated `planner.test.ts` and `canvas-nodes.test.js` for the new view ports,
+  and added a `tripo-provider.test.ts` case asserting labeled views reach
+  `multiview-to-model` with the view-key body.
+- Verification: `node --import tsx --test server/*.test.ts src/*.test.js`
+  passed 254 tests. `tsc --noEmit -p tsconfig.json` still reports the
+  pre-existing strict-mode errors the project intentionally skips via
+  `tsc --noEmit --noCheck`; the one annotation this change added (`views:
+  Record<string, unknown>`) was resolved.
+- Remaining issues: `multiview-to-3d` is left hidden rather than retired (no
+  stored-node migration). Unlabeled multi-image input has no real Tripo
+  endpoint yet, so it rides on `multiview-to-model`'s positional array as a
+  trial.
+
+## 2026-08-13 - feat/new-type
+
+- Removed preview artifacts from every node schema default so untouched nodes,
+  including an empty `Image Upload`, render no result before an upload or run.
+- Made `CanvasNode` show its result area only when an uploaded asset or runtime
+  output exists. Legacy bundled shark placeholders are stripped during config
+  normalization while real uploaded `/api/assets/...` values are retained.
+- Kept the bundled mock media in the execution producer rather than node
+  defaults. Mock image, multiview, model, and export artifacts are now returned
+  by the execution path, with existing explicit test fixtures still supported.
+- Updated migration and execution regression tests to cover empty defaults,
+  legacy placeholder cleanup, uploaded asset retention, and run-generated mock
+  output.
+- Verification: `pnpm run typecheck`, `pnpm test` (253 passing), and
+  `git diff --check` passed. Browser verification was not completed because the
+  existing Chrome MCP session timed out; no alternate browser session was
+  started.
+- Remaining issues: Page-level visual verification remains pending due to the
+  unavailable existing Chrome MCP session.
+
+## 2026-08-13 - feat/new-type
+
+- Clarified the multi-image-to-3D ambiguity in the builder agent system prompt
+  (`server/deepseek.ts`). There are now two explicitly distinct paths: (1) one
+  reference image whose missing views are generated via
+  `generate-multiview-images` before `generate-model`, and (2) several existing
+  images fed straight into `generate-model` without the multi-view node. When a
+  request is ambiguous between the two, the prompt now instructs the model to
+  call `request_user_select` with one option per path instead of guessing, and
+  the `build_canvas` "common shapes" list gained the several-existing-images
+  shape (`reference-image → generate-model → export-model`).
+- Verification: `node --import tsx --test server/agent-eval.test.ts
+  server/deepseek.test.ts server/planner.test.ts` passed 21 tests. No build
+  run, since only the prompt string changed.
+- Remaining issues: The second path cannot yet be built structurally —
+  `buildCanvasStructure` dedupes `nodeTypes` with `new Set` and
+  `rebuildDagEdges` keys nodes by type, so multiple `reference-image` nodes are
+  collapsed to one, and `reference-image` still emits a single image port. This
+  change only fixes the clarification stage; multi-image input construction is
+  left for a follow-up.
+
+## 2026-08-13 - feat/new-type
 
 - Replaced the four node port declaration fields (`inputTypes`, `outputType`,
   `inputPorts`, `outputPorts`) with two keyed maps, `inputs` and `outputs`, of

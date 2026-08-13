@@ -21,7 +21,7 @@ function supportsV3Options(modelVersion: string) {
 const SEGMENTATION_GRANULARITY = { low: 'simple', medium: 'balanced', high: 'detailed' }
 const CONVERT_FORMATS = { gltf: 'GLTF', fbx: 'FBX', usdz: 'USDZ', obj: 'OBJ', stl: 'STL', '3mf': '3MF' }
 
-function generateModelRequest(config, { input, prompt }) {
+function generateModelRequest(config, { input, prompt, multiview }) {
   const modelVersion = config.modelVersion
   const body: Record<string, unknown> = { model: modelVersion }
   // `generate_parts` requires texture, pbr, and quad to all be false. The node
@@ -42,6 +42,9 @@ function generateModelRequest(config, { input, prompt }) {
 
   // An image input wins over the prompt: the node reconstructs from whatever the
   // upstream stage produced and only falls back to text when nothing came in.
+  // Multiple images are the multiview path: view-key objects (labeled) or a
+  // positional string array (unlabeled, not yet a Tripo endpoint).
+  if (multiview) return { endpoint: '/generation/multiview-to-model', body: { ...body, inputs: multiview } }
   if (input) return { endpoint: '/generation/image-to-model', body: { ...body, input } }
   if (prompt) return { endpoint: '/generation/text-to-model', body: { ...body, prompt } }
   throw new Error('Gen HD Model needs an upstream image or a text prompt.')
@@ -63,11 +66,11 @@ function texturePrompt(config, { input, prompt, imageInput }) {
  * `imageInput` is a separate image reference for nodes that take a mesh on the
  * main input and an image as guidance.
  */
-export function tripoRequest(node, { input = null, prompt = '', imageInput = null } = {}) {
+export function tripoRequest(node, { input = null, prompt = '', imageInput = null, multiview = null } = {}) {
   if (!TRIPO_NODE_TYPES.has(node.type)) return null
   const config = node.config || {}
 
-  if (node.type === 'generate-model') return generateModelRequest(config, { input, prompt })
+  if (node.type === 'generate-model') return generateModelRequest(config, { input, prompt, multiview })
 
   // Every remaining type transforms an existing mesh, so an input is mandatory.
   if (!input) throw new Error(`${node.name || node.type} needs an upstream 3D model.`)
