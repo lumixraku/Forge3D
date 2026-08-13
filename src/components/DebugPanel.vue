@@ -117,16 +117,16 @@ function onBallClick() {
 </script>
 
 <template>
-  <div class="debug-dock" :class="{ 'at-top': atTop, 'at-left': atLeft, dragging }" :style="dockStyle">
-    <aside v-if="props.open" class="debug-panel bg-bg-card border border-line-strong" role="dialog" aria-label="Debug settings">
-      <header>
+  <div class="fixed z-[60] flex flex-col items-start gap-2.5 pointer-events-none [&.at-top]:flex-col-reverse [&:not(.at-left)]:items-end [&>*]:pointer-events-auto [&.dragging_.debug-ball]:cursor-grabbing [&.dragging_.debug-ball]:transform-none" :class="{ 'at-top': atTop, 'at-left': atLeft, dragging }" :style="dockStyle">
+    <aside v-if="props.open" class="w-[268px] overflow-hidden rounded-[10px] border border-line-strong bg-bg-card font-sans shadow-popover" role="dialog" aria-label="Debug settings">
+      <header class="flex items-center justify-between border-b border-line px-3 py-[9px] font-mono text-[10px] font-semibold tracking-[.08em] text-text-secondary">
         <span>DEBUG</span>
-        <button type="button" aria-label="Close debug panel" @click="emit('update:open', false)">×</button>
+        <button class="border-0 bg-transparent text-[15px] leading-none text-text-muted hover:text-text-primary" type="button" aria-label="Close debug panel" @click="emit('update:open', false)">×</button>
       </header>
 
-      <section>
+      <section class="p-3 [&_h3]:mb-2 [&_h3]:mt-0 [&_h3]:font-mono [&_h3]:text-[9px] [&_h3]:font-semibold [&_h3]:uppercase [&_h3]:tracking-[.07em] [&_h3]:text-text-muted">
         <h3>Node execution</h3>
-        <div class="debug-options" role="radiogroup" aria-label="Execution provider">
+        <div class="flex flex-col gap-[5px] [&_button]:flex [&_button]:flex-col [&_button]:gap-px [&_button]:rounded-md [&_button]:border [&_button]:border-line [&_button]:bg-bg-input [&_button]:px-[9px] [&_button]:py-[7px] [&_button]:text-left [&_button]:hover:bg-bg-input-hover [&_button.selected]:border-acid [&_button.selected]:bg-bg-active [&_strong]:text-xs [&_strong]:font-medium [&_strong]:text-text-primary [&_small]:text-[10px] [&_small]:text-text-muted" role="radiogroup" aria-label="Execution provider">
           <button
             type="button"
             role="radio"
@@ -162,23 +162,23 @@ function onBallClick() {
         </div>
       </section>
 
-      <section>
+      <section class="border-t border-line-subtle p-3 [&_h3]:mb-2 [&_h3]:mt-0 [&_h3]:font-mono [&_h3]:text-[9px] [&_h3]:font-semibold [&_h3]:uppercase [&_h3]:tracking-[.07em] [&_h3]:text-text-muted">
         <h3>Active</h3>
-        <p class="debug-active" :class="props.activeProvider">
+        <p class="m-0 flex items-center gap-[7px] text-xs text-text-primary [&_i]:size-[7px] [&_i]:rounded-full [&_i]:bg-text-muted [&.tripo_i]:bg-acid [&.tripo_i]:shadow-[0_0_6px_var(--acid)] [&_b]:ml-auto [&_b]:font-mono [&_b]:text-[9px] [&_b]:font-medium [&_b]:tracking-[.04em] [&_b]:text-acid" :class="props.activeProvider">
           <i />
           <span>{{ props.activeProvider === 'tripo' ? 'Tripo API' : 'Mock' }}</span>
           <b v-if="props.activeProvider === 'tripo'">spends credits</b>
         </p>
-        <p v-if="props.activeProvider === 'tripo'" class="debug-note">
+        <p v-if="props.activeProvider === 'tripo'" class="mb-0 mt-[7px] text-[10px] leading-[1.45] text-text-muted">
           Backed by Tripo: {{ props.tripoNodeTypes.join(', ') }}. Other node types stay simulated.
         </p>
-        <p v-if="props.error" class="debug-note error">{{ props.error }}</p>
+        <p v-if="props.error" class="mb-0 mt-[7px] text-[10px] leading-[1.45] text-status-failed">{{ props.error }}</p>
       </section>
     </aside>
 
     <button
       type="button"
-      class="debug-ball"
+      class="debug-ball flex size-[52px] cursor-pointer flex-col items-center justify-center gap-0.5 rounded-full border border-line-strong bg-bg-card font-mono text-[9px] font-semibold tracking-[.04em] text-text-secondary shadow-md transition-[transform,border-color,color] hover:-translate-y-px hover:border-acid hover:text-text-primary [&.open]:border-acid [&.open]:text-text-primary [&_i]:size-[7px] [&_i]:rounded-full [&_i]:bg-text-muted [&.tripo_i]:bg-acid [&.tripo_i]:shadow-[0_0_6px_var(--acid)] [&.tripo]:text-text-primary"
       :class="[props.activeProvider, { open: props.open }]"
       :aria-expanded="props.open"
       :aria-label="`Debug settings · running on ${props.activeProvider === 'tripo' ? 'Tripo API' : 'Mock'} · drag to move`"
@@ -190,137 +190,3 @@ function onBallClick() {
     </button>
   </div>
 </template>
-
-<style scoped>
-/* Position comes from the inline style: a corner while docked, pointer
-   coordinates while dragging. The panel precedes the ball in the DOM, so
-   `column` puts the ball last (nearest a bottom edge) and `column-reverse` puts
-   it first (nearest a top edge). Either way the ball stays pinned to its corner
-   and the panel grows toward the middle of the screen, instead of the ball
-   jumping when the panel opens. */
-.debug-dock {
-  position: fixed;
-  z-index: 60;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
-  pointer-events: none;
-}
-.debug-dock.at-top { flex-direction: column-reverse; }
-.debug-dock:not(.at-left) { align-items: flex-end; }
-.debug-dock > * { pointer-events: auto; }
-.debug-dock.dragging { transition: none; }
-.debug-dock.dragging .debug-ball { cursor: grabbing; transform: none; }
-
-.debug-ball {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  border: 1px solid var(--line-strong);
-  background: var(--bg-card);
-  box-shadow: var(--shadow-md);
-  color: var(--text-secondary);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: .04em;
-  cursor: pointer;
-  transition: transform .15s ease, border-color .15s ease, color .15s ease;
-}
-.debug-ball:hover { transform: translateY(-1px); border-color: var(--acid); color: var(--text-primary); }
-.debug-ball.open { border-color: var(--acid); color: var(--text-primary); }
-.debug-ball i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--text-muted);
-}
-/* A live backend that costs money reads differently from a simulation. */
-.debug-ball.tripo i { background: var(--acid); box-shadow: 0 0 6px var(--acid); }
-.debug-ball.tripo { color: var(--text-primary); }
-
-.debug-panel {
-  width: 268px;
-  border-radius: 10px;
-  box-shadow: var(--shadow-popover);
-  overflow: hidden;
-  font-family: var(--font-sans);
-}
-.debug-panel header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 9px 12px;
-  border-bottom: 1px solid var(--line);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: .08em;
-  color: var(--text-secondary);
-}
-.debug-panel header button {
-  border: 0;
-  background: none;
-  color: var(--text-muted);
-  font-size: 15px;
-  line-height: 1;
-  cursor: pointer;
-}
-.debug-panel header button:hover { color: var(--text-primary); }
-.debug-panel section { padding: 11px 12px; }
-.debug-panel section + section { border-top: 1px solid var(--line-subtle); }
-.debug-panel h3 {
-  margin: 0 0 8px;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: .07em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.debug-options { display: flex; flex-direction: column; gap: 5px; }
-.debug-options button {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 7px 9px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--bg-input);
-  text-align: left;
-  cursor: pointer;
-}
-.debug-options button:hover:not(:disabled) { background: var(--bg-input-hover); }
-.debug-options button.selected { border-color: var(--acid); background: var(--bg-active); }
-.debug-options button:disabled { opacity: .45; cursor: not-allowed; }
-.debug-options strong { font-size: 12px; font-weight: 500; color: var(--text-primary); }
-.debug-options small { font-size: 10px; color: var(--text-muted); }
-
-.debug-active {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-primary);
-}
-.debug-active i { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); }
-.debug-active.tripo i { background: var(--acid); box-shadow: 0 0 6px var(--acid); }
-.debug-active b {
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
-  letter-spacing: .04em;
-  color: var(--acid);
-}
-.debug-note { margin: 7px 0 0; font-size: 10px; line-height: 1.45; color: var(--text-muted); }
-.debug-note.error { color: var(--status-failed); }
-</style>

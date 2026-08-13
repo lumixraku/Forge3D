@@ -229,16 +229,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="host" class="model3d nodrag nopan" />
+  <div ref="host" class="model3d nodrag nopan relative h-full min-h-[180px] w-full" />
 </template>
 
 <style scoped>
-.model3d {
-  width: 100%;
-  height: 100%;
-  min-height: 180px;
-  position: relative;
-}
 .model3d :deep(canvas) {
   display: block;
   width: 100% !important;

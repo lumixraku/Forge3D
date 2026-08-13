@@ -771,8 +771,8 @@ onUnmounted(() => {
 
 
 <template>
-  <main class="app-shell">
-    <div v-if="editLockedNoticeOpen" class="edit-lock-notice" role="alert">
+  <main class="grid h-full w-full grid-rows-[68px_minmax(0,1fr)] bg-bg-primary transition-colors duration-200 max-[760px]:h-auto max-[760px]:min-h-full max-[760px]:grid-rows-[58px_auto]">
+    <div v-if="editLockedNoticeOpen" class="fixed left-1/2 top-4 z-[1000] flex min-w-[300px] -translate-x-1/2 items-center gap-[18px] rounded-[10px] border border-line-strong bg-bg-panel py-3 pl-4 pr-3 text-[13px] text-text-primary shadow-popover" role="alert">
       <span><strong>{{ editLockedNoticeName }}</strong> 正在编辑此画布</span>
     </div>
     <TopBar
@@ -794,13 +794,13 @@ onUnmounted(() => {
       @update:canvas-view="canvasView = $event"
     />
 
-    <div v-if="canvasMenu" class="canvas-menu" :style="{ left: `${canvasMenu.left}px`, top: `${canvasMenu.top}px` }" @pointerdown.stop>
-      <button type="button" @click="runCanvasMenuAction(exportCanvas)">Export JSON</button>
-      <button type="button" @click="runCanvasMenuAction(duplicateCanvas)">Duplicate</button>
-      <button class="danger" type="button" @click="runCanvasMenuAction(deleteCanvas)">Delete</button>
+    <div v-if="canvasMenu" class="fixed z-40 grid w-[164px] gap-[3px] rounded-lg border border-line-strong bg-bg-input p-[5px] shadow-popover" :style="{ left: `${canvasMenu.left}px`, top: `${canvasMenu.top}px` }" @pointerdown.stop>
+      <button class="min-h-[34px] rounded-md border border-transparent bg-transparent px-[9px] py-[7px] text-left text-[10px] font-medium transition-colors hover:border-line-strong hover:bg-bg-input-hover" type="button" @click="runCanvasMenuAction(exportCanvas)">Export JSON</button>
+      <button class="min-h-[34px] rounded-md border border-transparent bg-transparent px-[9px] py-[7px] text-left text-[10px] font-medium transition-colors hover:border-line-strong hover:bg-bg-input-hover" type="button" @click="runCanvasMenuAction(duplicateCanvas)">Duplicate</button>
+      <button class="min-h-[34px] rounded-md border border-transparent bg-transparent px-[9px] py-[7px] text-left text-[10px] font-medium text-status-failed transition-colors hover:border-line-strong hover:bg-[color-mix(in_srgb,var(--status-failed)_10%,transparent)]" type="button" @click="runCanvasMenuAction(deleteCanvas)">Delete</button>
     </div>
 
-    <section v-if="workspaceMode === 'canvas'" class="workspace">
+    <section v-if="workspaceMode === 'canvas'" class="relative grid min-h-0 grid-cols-[350px_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] overflow-hidden max-[1200px]:grid-cols-[310px_minmax(0,1fr)] max-[760px]:grid-cols-1 max-[760px]:grid-rows-[480px_620px]">
       <ChatPanel
         :messages="messages"
         :editor="composer"
@@ -819,7 +819,7 @@ onUnmounted(() => {
         @retry="retryMessage"
       />
 
-      <section class="canvas-panel bg-bg-secondary" @pointerdown.capture="selectCanvasEdge" @pointerdown="closeContextMenu">
+      <section class="canvas-panel relative grid min-h-0 min-w-0 grid-rows-[62px_minmax(0,1fr)_auto_27px] overflow-hidden bg-bg-secondary transition-colors duration-200" @pointerdown.capture="selectCanvasEdge" @pointerdown="closeContextMenu">
         <CanvasToolbar
           :canvas-view="canvasView"
           :canvas-mode="canvasMode"
@@ -862,7 +862,7 @@ onUnmounted(() => {
           @select-node-type="selectNodeType"
           @drag-node-type="startNodeDrag($event.event, $event.type)"
         />
-        <VueFlow v-show="canvasView === 'canvas'" v-model:nodes="nodes" :edges="executionEdges" @update:edges="edges = $event" :class="['flow-canvas', `canvas-mode-${canvasMode}`]" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="canvasMode === 'select' ? true : null" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @viewport-change-start="dismissCanvasPopups" @pointerdown.capture="onCanvasPointerDown" @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
+        <VueFlow v-show="canvasView === 'canvas'" v-model:nodes="nodes" :edges="executionEdges" @update:edges="edges = $event" :class="['flow-canvas bg-bg-primary touch-none transition-colors duration-200', `canvas-mode-${canvasMode}`]" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="canvasMode === 'select' ? true : null" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @viewport-change-start="dismissCanvasPopups" @pointerdown.capture="onCanvasPointerDown" @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
           <template #node-frame="props"><FrameNode v-bind="props" :zoom="viewport.zoom" :running="sectionIsRunning(props.id)" @update-name="updateNodeName(props.id, $event)" @resize-start="onFrameResizeStart(props.id)" @resize-end="onFrameResizeEnd" @run="runSection(props.id)" @stop-run="cancelRun" /></template>
           <template #node-canvas="props"><CanvasNode v-bind="props" :node-run="nodeRuns[props.id] || null" :run-id="run?.id || null" :run-entry-node-id="run?.entryNodeId || null" :run-mode="run?.mode || null" :run-status="run?.status || null" :inbound-type="inboundExportTarget(props.id)" :inbound-image="inboundImage(props.id)" :node-catalog="compatibleNodeTypes(props.data.canvasType)" :viewport-dismiss-version="viewportDismissVersion" @update-config="updateNodeConfig(props.id, $event)" @update-name="updateNodeName(props.id, $event)" @open-model-editor="openModelEditor(props.id)" @preview-image="openImagePreview" @add-next="addNode($event, props.id)" @run-canvas="runCanvas($event, 'node')" @run-downstream="runCanvas($event, 'downstream')" @stop-run="cancelRun" /></template>
           <template #edge-execution="props"><ExecutionEdge v-bind="props" /></template>
@@ -872,11 +872,11 @@ onUnmounted(() => {
         </VueFlow>
         <AssetLibraryView v-if="canvasView === 'assets'" :rails="assetRails" :total="assetLibrary.total" :loading="assetsLoading" :canvas-node-ids="canvasNodeIds" @preview="openImagePreview" @open-model-editor="openModelEditor" />
         <RunLogPanel v-if="runDetails && runSummaryOpen" :details="runDetails" @close="runSummaryOpen = false" />
-        <footer><div class="run-status"><span><i />{{ runSummary }}</span><button v-if="runDetails" type="button" :aria-expanded="runSummaryOpen" @click="runSummaryOpen = !runSummaryOpen">{{ runSummaryOpen ? 'Hide logs' : 'Logs' }} <b>{{ runSummaryOpen ? '↓' : '↑' }}</b></button></div><span>Click or drag a node from Add node · Drop a connection on empty canvas to create a compatible node · Press / to add</span></footer>
+        <footer class="row-start-4 flex min-h-0 items-center justify-between border-t border-line px-[13px] font-mono text-[8px] font-medium leading-none text-text-muted"><div class="flex h-full items-center gap-[9px] whitespace-nowrap"><span class="flex h-full items-center gap-[7px] uppercase"><i class="size-[7px] rounded-full bg-acid shadow-[0_0_9px_color-mix(in_srgb,var(--acid)_60%,transparent)]" />{{ runSummary }}</span><button v-if="runDetails" class="flex h-[19px] items-center gap-[5px] rounded border border-line-strong bg-bg-input px-[7px] font-mono text-[7px] font-semibold uppercase tracking-[.06em] text-acid transition-colors hover:bg-bg-input-hover" type="button" :aria-expanded="runSummaryOpen" @click="runSummaryOpen = !runSummaryOpen">{{ runSummaryOpen ? 'Hide logs' : 'Logs' }} <b class="text-[9px] font-medium">{{ runSummaryOpen ? '↓' : '↑' }}</b></button></div><span class="overflow-hidden text-ellipsis whitespace-nowrap max-[760px]:hidden">Click or drag a node from Add node · Drop a connection on empty canvas to create a compatible node · Press / to add</span></footer>
       </section>
-      <button class="task-queue-toggle" type="button" :aria-expanded="taskQueueOpen" aria-controls="task-queue-panel" @click="taskQueueOpen = !taskQueueOpen">
+      <button class="absolute right-0 top-[76px] z-[21] flex h-[42px] w-9 items-center justify-center gap-[3px] rounded-l-lg border border-r-0 border-line bg-bg-card font-mono text-[11px] font-semibold text-acid shadow-[-5px_4px_14px_rgba(20,26,22,.1)] transition-[right] duration-200 has-[+_.is-open]:right-[300px] max-[1200px]:has-[+_.is-open]:right-[270px] max-[760px]:has-[+_.is-open]:right-[min(300px,90vw)]" type="button" :aria-expanded="taskQueueOpen" aria-controls="task-queue-panel" @click="taskQueueOpen = !taskQueueOpen">
         <span aria-hidden="true">{{ taskQueueOpen ? '→' : '←' }}</span>
-        <b>{{ executions.length + (run?.id && !executions.some((execution) => execution.id === run.id) ? 1 : 0) }}</b>
+        <b class="text-[9px] text-text-secondary">{{ executions.length + (run?.id && !executions.some((execution) => execution.id === run.id) ? 1 : 0) }}</b>
       </button>
       <ExecutionOutputPanel id="task-queue-panel" :class="{ 'is-open': taskQueueOpen }" :executions="executions" :active-execution="run" :loading="executionsLoading" />
     </section>
@@ -893,3 +893,30 @@ onUnmounted(() => {
     />
   </main>
 </template>
+
+<style scoped>
+:deep(.flow-canvas .vue-flow__pane), :deep(.flow-canvas .vue-flow__node.draggable), :deep(.flow-canvas .vue-flow__nodesselection-rect) { cursor: default; }
+:deep(.flow-canvas.canvas-mode-select .vue-flow__pane.selection) { cursor: default; }
+:deep(.flow-canvas.canvas-mode-move .vue-flow__pane) { cursor: default; }
+:deep(.flow-canvas.canvas-mode-move .vue-flow__pane.dragging) { cursor: grabbing; }
+:deep(.flow-canvas .vue-flow__node.draggable.dragging), :deep(.flow-canvas .vue-flow__nodesselection-rect.dragging) { cursor: grabbing; }
+:deep(.vue-flow__node-frame) { z-index: 2 !important; }
+:deep(.vue-flow__node-canvas) { z-index: 1 !important; }
+:deep(.vue-flow__node-canvas:focus), :deep(.vue-flow__node-canvas:focus-visible) { outline: none; }
+:deep(.vue-flow__background > rect) { stroke: none; }
+:deep(.vue-flow__edge-path) { stroke: #535a56; stroke-width: 1.6; transition: stroke .15s ease, stroke-width .15s ease; }
+:deep(.vue-flow__edge) { cursor: pointer; }
+:deep(.vue-flow__edge:hover .vue-flow__edge-path) { stroke: color-mix(in srgb, var(--acid) 70%, #535a56); stroke-width: 2.6; }
+:deep(.vue-flow__edge.selected .vue-flow__edge-path) { stroke: var(--acid); stroke-width: 3; }
+:deep(.vue-flow__edge-interaction) { stroke: transparent; stroke-width: 36; pointer-events: stroke; cursor: pointer; }
+:deep(.vue-flow__connection) { z-index: 1000; pointer-events: none; overflow: visible; }
+:deep(.vue-flow__connection path), :deep(.vue-flow__connection-path) { stroke: var(--acid) !important; stroke-width: 5 !important; stroke-linecap: round; fill: none; filter: drop-shadow(0 0 4px color-mix(in srgb, var(--acid) 65%, transparent)); }
+:deep(.vue-flow__minimap) { right: 16px; bottom: 16px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-card); overflow: hidden; }
+:deep(.vue-flow__controls) { right: 186px; bottom: 16px; border: 1px solid var(--line-strong); border-radius: 7px; box-shadow: none; overflow: hidden; }
+:deep(.vue-flow__controls-button) { width: 28px; height: 28px; border-bottom-color: var(--line-strong); background: var(--bg-card); fill: #929994; transition: background .15s ease, fill .15s ease; }
+:deep(.vue-flow__controls-button:hover) { background: var(--bg-input-hover); fill: var(--acid); }
+:global(:root[data-theme='light']) :deep(.vue-flow__edge-path) { stroke: #909993; }
+:global(:root[data-theme='light']) :deep(.vue-flow__edge:hover .vue-flow__edge-path) { stroke: color-mix(in srgb, var(--acid) 75%, #6c756f); }
+:global(:root[data-theme='light']) :deep(.vue-flow__edge.selected .vue-flow__edge-path) { stroke: var(--acid); }
+:global(:root[data-theme='light']) :deep(.vue-flow__controls-button) { fill: #616a64; }
+</style>

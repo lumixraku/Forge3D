@@ -1,5 +1,21 @@
 # Progress
 
+## 2026-08-14 - main
+
+- Removed all component-owned selectors and animations from `src/styles.css`; it now contains only dependency imports, Tailwind theme mappings, light/dark theme tokens, and global element base rules.
+- Co-located Vue Flow overrides, canvas-node runtime states, generated chat markup, attachment and resize pseudo-elements, edge effects, and component animations in scoped styles in their owning Vue components.
+- Replaced the canvas toolbar's bottom border with an equivalent one-pixel gray inset divider so it no longer produces an accent-colored endpoint where it meets the chat panel divider.
+- Disabled the inherited accent stroke on Vue Flow's full-size background rectangle, removing the green canvas outline without changing the dotted background or gray panel dividers.
+- Verification: `pnpm test` passed 255 tests; `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. Reloaded the existing Chrome MCP localhost session, visually checked the canvas, node, chat, minimap, controls, and background boundary, and found no console warnings or errors. The production build retains the existing large-chunk warning.
+- Remaining issues: None.
+
+## 2026-08-13 - main
+
+- Migrated the application-owned layout and component presentation rules from `src/styles.css` into Tailwind utility classes across the app shell and 17 Vue components. The stylesheet now contains Tailwind/theme setup, base rules, Vue Flow-generated DOM overrides, pseudo-elements, and animation/runtime rules that cannot be expressed directly on the owning template element.
+- Added the `light:` custom Tailwind variant for existing light-theme overrides and replaced the stale `--status-succeeded` reference with the established `--acid` token.
+- Verification: `pnpm test` passed 255 tests; `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning.
+- Remaining issues: Browser visual regression verification remains pending because the existing Chrome MCP session timed out; no replacement browser session was created.
+
 ## 2026-08-13 - feat/new-type
 
 - Added one-shot chat list scrolling to the end whenever the message count changes, including immediately after sending a message.
