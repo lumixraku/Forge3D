@@ -38,7 +38,7 @@ const schema = computed(() => nodeSchema(props.data.canvasType))
 const isExecutableNode = computed(() => Boolean(schema.value?.executable))
 const visibleParameters = computed(() => (schema.value?.parameters || []).filter((parameter) => conditionsMatch(parameter.visibleWhen, props.data.config)))
 const hasEditor = computed(() => visibleParameters.value.length > 0)
-const showResult = computed(() => !isExecutableNode.value || Boolean(
+const showResult = computed(() => Boolean(
   runtimePreview.value || runtimePreviews.value.length || Object.keys(runtimeViewPreviews.value).length,
 ))
 const isExecuting = computed(() => ['queued', 'running', 'cancelling'].includes(runtimeStatus.value || ''))

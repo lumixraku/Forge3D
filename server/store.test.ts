@@ -58,7 +58,7 @@ test('migrates split nodes to segments once', () => {
   }
 
   const migrated = migrateCanvas(canvas, () => 'after')
-  assert.deepEqual(migrated.nodes, [{ id: 'split', type: 'segments', name: 'Segments', config: { detailLevel: 'low', preview: '/shark-model.png' } }])
+  assert.deepEqual(migrated.nodes, [{ id: 'split', type: 'segments', name: 'Segments', config: { detailLevel: 'low' } }])
   assert.equal(migrated.revision, 2)
   assert.equal(migrated.updatedAt, 'after')
   assert.equal(migrateCanvas(migrated), migrated)

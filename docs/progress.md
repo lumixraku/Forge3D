@@ -2,6 +2,12 @@
 
 ## 2026-08-13 - feat/new-type
 
+- Removed preview artifacts from every node schema default so untouched nodes, including an empty `Image Upload`, render no result before an upload or run.
+- Made `CanvasNode` show its result area only when an uploaded asset or runtime output exists. Legacy bundled shark placeholders are stripped during config normalization while real uploaded `/api/assets/...` values are retained.
+- Kept bundled mock media in the execution producer rather than node defaults, and added regression coverage for empty defaults, legacy cleanup, uploaded asset retention, and run-generated mock output.
+- Verification: `pnpm run typecheck`, `pnpm test` (253 passing), and `git diff --check` passed. Browser verification was blocked because the existing Chrome MCP session timed out.
+- Remaining issues: Page-level visual verification remains pending due to the unavailable existing Chrome MCP session.
+
 - Replaced the four node port declaration fields (`inputTypes`, `outputType`,
   `inputPorts`, `outputPorts`) with two keyed maps, `inputs` and `outputs`, of
   type `Record<string, NodePortSpec>`. The port id is now the map key, so a

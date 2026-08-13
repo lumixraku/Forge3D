@@ -38,44 +38,45 @@ function exportTarget(node, canvas) {
 
 export function nodeOutput(node, canvas) {
   if (['reference-image', 'generated-image'].includes(node.type)) {
-    const image = resolveInputImage(node, canvas) || node.config?.preview || null
+    const image = resolveInputImage(node, canvas) || null
     return { message: `${node.name} ready`, image, preview: image }
   }
   if (node.type === 'generate-image') {
-    const all = node.config?.previews || []
+    const all = node.config?.previews?.length ? node.config.previews : demoConceptImages
     const count = Number(node.config?.amount) > 0 ? Number(node.config.amount) : all.length
     const previews = all.slice(0, count)
     const selected = previews.includes(node.config?.selectedPreview) ? node.config.selectedPreview : previews[0] || null
     return { message: 'Image candidates generated', previews, image: selected }
   }
   if (node.type === 'image-decomposition') {
-    const previews = (node.config?.previews || []).slice(0, Number(node.config?.amount) || 4)
+    const all = node.config?.previews?.length ? node.config.previews : demoConceptImages
+    const previews = all.slice(0, Number(node.config?.amount) || 4)
     return { message: 'Image assets extracted', previews, image: previews[0] || null }
   }
   if (node.type === 'generate-multiview-images') {
-    const viewPreviews = node.config?.viewPreviews || {}
+    const viewPreviews = Object.keys(node.config?.viewPreviews || {}).length ? node.config.viewPreviews : demoViewImages
     // The four views are this node's four output ports, so they double as the
     // port-keyed result downstream nodes resolve against.
     return { message: 'Front, back, left, and right views generated', viewPreviews, ports: { ...viewPreviews } }
   }
   if (node.type === 'review') {
-    const image = resolveInputImage(node, canvas) || node.config?.preview || null
+    const image = resolveInputImage(node, canvas) || null
     return { message: node.config?.approved ? 'Image approved' : 'Awaiting image approval', image, preview: image }
   }
   if (['generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'texture', 'rigging', 'segments', 'model-preview'].includes(node.type)) {
     if (node.type === 'generate-model') {
       const inputImages = resolveInputImages(node, canvas)
-      return { message: `${node.name} generated from ${inputImages.length > 1 ? `${inputImages.length} images` : inputImages.length === 1 ? '1 image' : 'text'}`, preview: node.config?.preview || demoModelImage(node.type), modelUrl: demoModelUrl, inputMode: inputImages.length > 1 ? 'multi-image' : inputImages.length === 1 ? 'single-image' : 'text', inputImages }
+      return { message: `${node.name} generated from ${inputImages.length > 1 ? `${inputImages.length} images` : inputImages.length === 1 ? '1 image' : 'text'}`, preview: demoModelImage(node.type), modelUrl: demoModelUrl, inputMode: inputImages.length > 1 ? 'multi-image' : inputImages.length === 1 ? 'single-image' : 'text', inputImages }
     }
     return node.type === 'texture'
-      ? { message: 'UV texture generated', preview: node.config?.preview || demoModelImage(node.type), modelUrl: demoModelUrl, textureQuality: node.config?.textureQuality || 'detailed' }
-      : { message: `${node.name} generated`, preview: node.config?.preview || demoModelImage(node.type), modelUrl: demoModelUrl }
+      ? { message: 'UV texture generated', preview: demoModelImage(node.type), modelUrl: demoModelUrl, textureQuality: node.config?.textureQuality || 'detailed' }
+      : { message: `${node.name} generated`, preview: demoModelImage(node.type), modelUrl: demoModelUrl }
   }
   if (node.type === 'export-model') {
     const format = ['usdz', 'fbx', 'obj', 'stl', 'gltf', '3mf'].includes(node.config?.modelFormat) ? node.config.modelFormat : 'gltf'
     const fileName = node.config?.fileName || 'shark-gardener'
     const outputs = [{ destination: 'dcc', format, filename: `${fileName}.${format === 'gltf' ? 'glb' : format}`, downloadUrl: '/models/shark-gardener.glb', mock: format !== 'gltf' }]
-    return { message: `${node.name} ready`, target: exportTarget(node, canvas), format, outputs, preview: node.config?.preview || '/shark-model.png', modelUrl: outputs[0].downloadUrl }
+    return { message: `${node.name} ready`, target: exportTarget(node, canvas), format, outputs, preview: '/shark-model.png', modelUrl: outputs[0].downloadUrl }
   }
   return { message: `Mock ${node.type} result` }
 }
