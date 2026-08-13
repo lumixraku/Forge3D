@@ -11,5 +11,8 @@ const isImage = computed(() => props.node.attrs.type.startsWith('image/'))
     <img v-if="isImage && node.attrs.preview" :src="node.attrs.preview" alt="" />
     <span v-else class="composer-attachment-icon" aria-hidden="true">&#128206;</span>
     <span class="composer-attachment-name">{{ node.attrs.name }}</span>
+    <span v-if="isImage && node.attrs.preview" class="composer-attachment-preview" role="tooltip">
+      <img :src="node.attrs.preview" :alt="`Preview of ${node.attrs.name}`" />
+    </span>
   </NodeViewWrapper>
 </template>
