@@ -2,6 +2,14 @@
 
 ## 2026-08-13 - feat/new-type
 
+## 2026-08-13 - feat/new-type (cherry-picked tripo 22af0eb)
+
+- Investigated the known-good `vueflow-infinite-canvas-demo` repository. Its relevant commit is `ffaa8d8` (`fix: auto layout`), which is already in this repository's history, so no cherry-pick was required.
+- Found the remaining gap: `ffaa8d8` only aligns fully linear components, while the generated workflow has `Text Prompt` and `Image Upload` merge into `Gen Image`. Added alignment for the single-output chain beginning at a merge, keeping `Gen Image -> Gen HD Model -> Export` on one horizontal row while preserving the separate input nodes.
+- Added a regression test with the same two-input merge and differently sized downstream nodes.
+- Verification: `pnpm exec tsx --test src/canvas-layout.test.js` passed 12/12; `pnpm run typecheck` passed; `git diff --check` passed.
+- Remaining issues: None.
+
 - Made `generate-model` (Gen HD Model) a single node that accepts all three
   image-input shapes: one image, several unlabeled images, and labeled four-view
   images. Its declared inputs grew from `{ image, text }` to
