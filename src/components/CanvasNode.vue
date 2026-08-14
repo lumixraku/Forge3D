@@ -267,7 +267,7 @@ function loadMockImage(file: File) {
       <Handle :id="port.id" class="canvas-handle output-handle" type="source" :position="Position.Right" :style="{ top: `${28 + (index + 1) * 52}px` }" title="Output" />
     </template>
     <div class="nodrag nopan absolute right-[-43px] top-1/2 z-[4] size-[30px] -translate-y-1/2 [&.open_.node-next-button]:scale-100 [&.open_.node-next-button]:opacity-100" :class="{ open: nextMenuOpen }">
-      <button type="button" class="node-next-button grid size-[30px] place-items-center rounded-full border-2 border-[#111313] bg-[var(--node-accent)] p-0 font-mono text-[21px] font-semibold leading-none text-[#111313] opacity-0 shadow-[0_0_0_3px_color-mix(in_srgb,var(--node-accent)_18%,transparent)] scale-[.72] transition-[opacity,transform,box-shadow] hover:brightness-110 hover:shadow-[0_0_0_5px_color-mix(in_srgb,var(--node-accent)_25%,transparent)] group-hover:scale-100 group-hover:opacity-100" aria-label="Add and connect next node" :aria-expanded="nextMenuOpen" @click.stop="nextMenuOpen = !nextMenuOpen">+</button>
+      <button type="button" class="node-next-button grid size-[30px] place-items-center rounded-full border-2 border-[var(--node-ring)] bg-[var(--node-accent)] p-0 font-mono text-[21px] font-semibold leading-none text-[#111313] opacity-0 shadow-[0_0_0_3px_color-mix(in_srgb,var(--node-accent)_18%,transparent)] scale-[.72] transition-[opacity,transform,box-shadow] hover:brightness-110 hover:shadow-[0_0_0_5px_color-mix(in_srgb,var(--node-accent)_25%,transparent)] group-hover:scale-100 group-hover:opacity-100" aria-label="Add and connect next node" :aria-expanded="nextMenuOpen" @click.stop="nextMenuOpen = !nextMenuOpen">+</button>
       <div v-if="nextMenuOpen" class="absolute left-[-3px] top-[38px] z-10 grid max-h-[300px] w-[220px] gap-[3px] overflow-y-auto rounded-lg border border-line-strong bg-bg-input p-[5px] shadow-popover animate-[popover-in_.12s_ease-out] [&_button]:grid [&_button]:min-h-[39px] [&_button]:rounded-[5px] [&_button]:border [&_button]:border-transparent [&_button]:bg-transparent [&_button]:px-2 [&_button]:py-1.5 [&_button]:text-left [&_button]:transition-colors [&_button]:hover:border-line-strong [&_button]:hover:bg-bg-input-hover [&_span]:text-[10px] [&_span]:font-medium [&_small]:mt-0.5 [&_small]:font-mono [&_small]:text-[8px] [&_small]:text-text-muted">
         <button v-for="item in nodeCatalog" :key="item.type" type="button" @click.stop="emit('add-next', item.type); nextMenuOpen = false">
           <span>{{ item.label }}</span><small>{{ item.description }}</small>
@@ -278,6 +278,8 @@ function loadMockImage(file: File) {
 </template>
 
 <style scoped>
+.canvas-node { --node-ring: #111313; }
+:global(:root[data-theme='light']) .canvas-node { --node-ring: #fff; }
 .tone-cyan { --node-accent: #68d9d0; }
 .tone-violet { --node-accent: #a78bfa; }
 .tone-amber { --node-accent: #f0ba62; }
@@ -311,14 +313,12 @@ function loadMockImage(file: File) {
 :deep(.vue-flow__handle.canvas-handle) { z-index: 6; width: 36px; height: 36px; border: 0; background: transparent; }
 :deep(.vue-flow__handle.canvas-handle.input-handle) { left: 0; right: auto; transform: translateY(-50%); }
 :deep(.vue-flow__handle.canvas-handle.output-handle) { left: auto; right: 0; transform: translateY(-50%); }
-:deep(.vue-flow__handle.canvas-handle::after) { position: absolute; top: 50%; width: 20px; height: 20px; border: 3px solid var(--node-port-border, #111313); border-radius: 50%; background: var(--node-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--node-accent) 22%, transparent); content: ''; transition: box-shadow .12s ease; }
+:deep(.vue-flow__handle.canvas-handle::after) { position: absolute; top: 50%; width: 20px; height: 20px; border: 3px solid var(--node-ring); border-radius: 50%; background: var(--node-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--node-accent) 22%, transparent); content: ''; transition: box-shadow .12s ease; }
 :deep(.vue-flow__handle.canvas-handle.input-handle::after) { left: 0; transform: translate(-50%, -50%); }
 :deep(.vue-flow__handle.canvas-handle.output-handle::after) { right: 0; transform: translate(50%, -50%); }
 :deep(.vue-flow__handle.canvas-handle:hover::after) { box-shadow: 0 0 0 5px color-mix(in srgb, var(--node-accent) 28%, transparent); }
 .canvas-node.is-executing :deep(.vue-flow__handle.canvas-handle.output-handle::before) { position: absolute; top: 50%; right: 0; width: 20px; height: 20px; border-radius: 50%; background: color-mix(in srgb, var(--node-accent) 48%, transparent); content: ''; transform: translate(50%, -50%); animation: node-port-halo 1.5s ease-out infinite; }
 .canvas-node.is-executing :deep(.vue-flow__handle.canvas-handle.output-handle::after) { animation: node-port-breathe 1.5s ease-in-out infinite; }
-:global(:root[data-theme='light']) .canvas-node { --node-port-border: var(--line-strong); }
-:global(:root[data-theme='light']) .node-next-button { border-color: var(--line-strong); }
 @keyframes node-running { to { transform: rotate(360deg); } }
 @keyframes node-executing-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--status-running) 4%, transparent); transform: scale(1.1); } }
 @keyframes node-execution-border { to { stroke-dashoffset: -200; } }

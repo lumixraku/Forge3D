@@ -23,7 +23,9 @@
 - Verification: `pnpm test` passed 255 tests; `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. Reloaded the existing Chrome MCP localhost session and confirmed the header dividers share the same coordinate, upload hover keeps identical bounds, and light-theme handles resolve to the gray border token. The production build retains the existing large-chunk warning.
 - Removed layout-shifting hover effects on node result previews: the `-translate-y-px` lift on the four `node-output` buttons and the `scale-[1.02]` on generated/multi-view thumbnails. Hover now only changes border color and image brightness, so element bounds stay fixed and the node no longer jitters.
 - Verification: `pnpm test` passed 255 tests; `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning. Not verified in a browser this round.
-- Remaining issues: The connection-port ring color in light theme is still `--line-strong`; the requested "same color as the adjacent border" target was not confirmed, so it is unchanged.
+- Fixed the dark ring showing in light theme on the connection ports and the add-next `+` button. The `+` button hardcoded `border-[#111313]` as a Tailwind utility, which the scoped light-theme override could not reliably beat. Both now read a single `--node-ring` variable defined per theme on `.canvas-node` (`#111313` dark, `#fff` light).
+- Verification: `pnpm test` passed 255 tests; `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning. Not verified in a browser this round.
+- Remaining issues: None.
 
 ## 2026-08-13 - main
 
