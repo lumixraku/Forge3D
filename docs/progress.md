@@ -19,8 +19,11 @@
 - Co-located Vue Flow overrides, canvas-node runtime states, generated chat markup, attachment and resize pseudo-elements, edge effects, and component animations in scoped styles in their owning Vue components.
 - Replaced the canvas toolbar's bottom border with an equivalent one-pixel gray inset divider so it no longer produces an accent-colored endpoint where it meets the chat panel divider.
 - Disabled the inherited accent stroke on Vue Flow's full-size background rectangle, removing the green canvas outline without changing the dotted background or gray panel dividers.
-- Verification: `pnpm test` passed 255 tests; `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. Reloaded the existing Chrome MCP localhost session, visually checked the canvas, node, chat, minimap, controls, and background boundary, and found no console warnings or errors. The production build retains the existing large-chunk warning.
-- Remaining issues: None.
+- Aligned the toolbar and chat header dividers with an inset rule, removed the extra node hover inset border so hover only changes the existing border color, prevented the reference-image upload control from receiving a focus outline, and changed light-theme node port borders from black to the light gray border token.
+- Verification: `pnpm test` passed 255 tests; `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. Reloaded the existing Chrome MCP localhost session and confirmed the header dividers share the same coordinate, upload hover keeps identical bounds, and light-theme handles resolve to the gray border token. The production build retains the existing large-chunk warning.
+- Removed layout-shifting hover effects on node result previews: the `-translate-y-px` lift on the four `node-output` buttons and the `scale-[1.02]` on generated/multi-view thumbnails. Hover now only changes border color and image brightness, so element bounds stay fixed and the node no longer jitters.
+- Verification: `pnpm test` passed 255 tests; `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning. Not verified in a browser this round.
+- Remaining issues: The connection-port ring color in light theme is still `--line-strong`; the requested "same color as the adjacent border" target was not confirmed, so it is unchanged.
 
 ## 2026-08-13 - main
 

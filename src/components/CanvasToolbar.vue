@@ -29,7 +29,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="relative z-[5] flex items-center justify-between bg-bg-secondary px-4 shadow-[0_1px_0_var(--line)] [&>div:last-child]:flex [&>div:last-child]:gap-[5px] max-[1200px]:[&>div:first-child]:hidden">
+  <div class="relative z-[5] flex items-center justify-between bg-bg-secondary px-4 shadow-[inset_0_-1px_0_var(--line)] [&>div:last-child]:flex [&>div:last-child]:gap-[5px] max-[1200px]:[&>div:first-child]:hidden">
     <div>
       <span class="font-mono text-[9px] font-medium tracking-[.12em] text-text-muted">{{ canvasView === 'assets' ? 'ASSET LIBRARY' : 'CANVAS' }}</span>
       <b v-if="canvasView === 'assets'" class="mt-[3px] block font-mono text-[10px] font-medium text-text-secondary">{{ assetLibrary.total }} assets · {{ assetLibrary.reference.length }} reference · {{ assetLibrary.images.length }} 2D · {{ assetLibrary.models.length }} 3D</b>
