@@ -218,7 +218,7 @@ configureIdleRelease({
 
 const { capabilitiesError, debugPanelOpen, selectedProvider, activeProvider, tripoAvailable, tripoNodeTypes, setProvider } = useDebugSettings()
 
-const { isRunning, runDetails, runSummary, runCanvas, cancelRun, executions, executionsLoading, loadExecutions } = useCanvasRun({
+const { isRunning, runDetails, runSummary, runCanvas, cancelRun, executions, executionsLoading, loadExecutions, activeExecutions } = useCanvasRun({
   activeCanvas,
   nodes,
   edges,
@@ -878,7 +878,7 @@ onUnmounted(() => {
         <span aria-hidden="true">{{ taskQueueOpen ? '→' : '←' }}</span>
         <b class="text-[9px] text-text-secondary">{{ executions.length + (run?.id && !executions.some((execution) => execution.id === run.id) ? 1 : 0) }}</b>
       </button>
-      <ExecutionOutputPanel id="task-queue-panel" :class="{ 'is-open': taskQueueOpen }" :executions="executions" :active-execution="run" :loading="executionsLoading" />
+      <ExecutionOutputPanel id="task-queue-panel" :class="{ 'is-open': taskQueueOpen }" :executions="executions" :active-execution="run" :active-executions="activeExecutions" :loading="executionsLoading" />
     </section>
     <ModelEditor v-else-if="modelEditorNode" :node="modelEditorNode" @back="closeModelEditor" @update-config="updateNodeConfig(modelEditorNode.id, $event)" />
     <ImagePreviewOverlay :preview="imagePreview" @close="closeImagePreview" />

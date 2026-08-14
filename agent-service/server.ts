@@ -87,6 +87,7 @@ const server = createServer(async (req, res) => {
       message: input.message,
       canvas: input.canvas,
       account: input.account,
+      executions: input.executions,
       checkpoint: input.checkpoint,
       onProgress: (event) => write({ type: 'progress', event }),
       onTrace: (event) => write({ type: 'trace', event }),

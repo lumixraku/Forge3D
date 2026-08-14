@@ -167,45 +167,39 @@ export async function executeExecution(runs, run, canvas, executionCanvas, nodes
   // execution canvas: a single-node run carries no edges, so the upstream image
   // or mesh would be invisible to it.
   const provider = createProvider ? createProvider({ context, run, onUpdate, canvas }) : null
-  for (const node of nodes) {
-    if (run.cancelRequested) break
-    run.nodeRuns[node.id].status = 'running'
+  const nodeIds = new Set(nodes.map((node) => node.id))
+  const dependencies = new Map(nodes.map((node) => [node.id, new Set()]))
+  for (const edge of executionCanvas.edges || []) {
+    if (nodeIds.has(edge.source?.nodeId) && nodeIds.has(edge.target?.nodeId)) dependencies.get(edge.target.nodeId).add(edge.source.nodeId)
+  }
+  const completed = new Set()
+  while (completed.size < nodes.length && !run.cancelRequested) {
+    const ready = nodes.filter((node) => !completed.has(node.id) && [...dependencies.get(node.id)].every((id) => completed.has(id)))
+    if (!ready.length) break
+    for (const node of ready) run.nodeRuns[node.id].status = 'running'
     await onUpdate()
-    try {
-      const result = await executeNode(node, executionCanvas, provider ? { provider } : undefined)
-      if (result.status === 'succeeded') {
-        context.set(node.id, { tripoTaskId: result.tripoTaskId || null, modelUrl: result.output?.modelUrl || null, preview: result.output?.preview || null, ports: result.output?.ports || null })
+    await Promise.all(ready.map(async (node) => {
+      try {
+        const result = await executeNode(node, executionCanvas, provider ? { provider } : undefined)
+        if (result.status === 'succeeded') context.set(node.id, { tripoTaskId: result.tripoTaskId || null, modelUrl: result.output?.modelUrl || null, preview: result.output?.preview || null, ports: result.output?.ports || null })
+        recordNodeExecution(runs, { runId: run.id, canvas, node, result, entryNode, mode: run.mode })
+      } catch (failure) {
+        const activeNodeRun = run.nodeRuns[node.id]
+        recordNodeExecution(runs, { runId: run.id, canvas, node, entryNode, mode: run.mode, result: { status: 'failed', durationMs: null, output: null, error: failure.message, ...(activeNodeRun?.tripoTaskId ? { tripoTaskId: activeNodeRun.tripoTaskId } : {}), ...(activeNodeRun?.progress === undefined ? {} : { progress: activeNodeRun.progress }) } })
+      } finally {
+        completed.add(node.id)
       }
-      recordNodeExecution(runs, { runId: run.id, canvas, node, result, entryNode, mode: run.mode })
-      await onUpdate()
-      if (result.status !== 'succeeded') break
-    } catch (failure) {
-      const activeNodeRun = run.nodeRuns[node.id]
-      run = recordNodeExecution(runs, {
-        runId: run.id,
-        canvas,
-        node,
-        entryNode,
-        mode: run.mode,
-        // Tripo may have accepted a task before this failed. Keep its id so the
-        // recorded failure remains traceable to the real task.
-        result: {
-          status: 'failed',
-          durationMs: null,
-          output: null,
-          error: failure.message,
-          ...(activeNodeRun?.tripoTaskId ? { tripoTaskId: activeNodeRun.tripoTaskId } : {}),
-          ...(activeNodeRun?.progress === undefined ? {} : { progress: activeNodeRun.progress }),
-        },
-      })
-      await onUpdate()
-      break
-    }
+    }))
+    await onUpdate()
+    if (Object.values(run.nodeRuns).some((nodeRun) => nodeRun.status === 'failed')) break
   }
   for (const nodeRun of Object.values(run.nodeRuns)) {
     if (nodeRun.status === 'queued') nodeRun.status = 'skipped'
   }
   if (run.cancelRequested) run.status = 'cancelled'
+  else if (Object.values(run.nodeRuns).some((nodeRun) => nodeRun.status === 'failed')) run.status = 'failed'
+  else if (Object.values(run.nodeRuns).some((nodeRun) => nodeRun.status === 'waiting_review')) run.status = 'waiting_review'
+  else run.status = 'succeeded'
   run.completedAt = new Date().toISOString()
   await onUpdate()
   return executionDto(run)

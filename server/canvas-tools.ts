@@ -93,7 +93,7 @@ export const canvasToolDefinitions = [
   },
   {
     name: 'execute_canvas_node',
-    description: 'Request one paid execution for an executable node on the current canvas. The host validates the node, checks the balance, charges the fixed execution cost, and runs it through the normal execution API.',
+    description: 'Request an independent paid background execution for an executable node on the current canvas. Multiple requests can run concurrently. The host validates the node, checks the balance, charges the fixed execution cost, and runs it through the normal execution API.',
     parameters: {
       type: 'object',
       properties: {
@@ -101,6 +101,31 @@ export const canvasToolDefinitions = [
         mode: { type: 'string', enum: ['node', 'downstream'] },
       },
       required: ['nodeId', 'mode'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'list_canvas_executions',
+    description: 'List recent and active background executions for the current canvas, including task IDs, node names, status, and progress.',
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'get_execution_status',
+    description: 'Read the latest status and per-node progress of one background execution on the current canvas.',
+    parameters: {
+      type: 'object',
+      properties: { executionId: { type: 'string', description: 'Exact task ID returned by execute_canvas_node or list_canvas_executions.' } },
+      required: ['executionId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'cancel_execution',
+    description: 'Request cancellation of one queued or running background execution on the current canvas.',
+    parameters: {
+      type: 'object',
+      properties: { executionId: { type: 'string', description: 'Exact task ID returned by execute_canvas_node or list_canvas_executions.' } },
+      required: ['executionId'],
       additionalProperties: false,
     },
   },

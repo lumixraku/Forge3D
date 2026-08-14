@@ -129,6 +129,17 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
     return unclaimed
   }
 
+  function placeCompletedMessageAfterLatestUser(message) {
+    const items = activeSession.value?.messages
+    if (!items) return
+    const currentIndex = items.indexOf(message)
+    const latestUserIndex = items.findLastIndex((item) => item.role === 'user')
+    if (currentIndex < 0 || currentIndex > latestUserIndex) return
+    items.splice(currentIndex, 1)
+    const nextUserIndex = items.findLastIndex((item) => item.role === 'user')
+    items.splice(nextUserIndex + 1, 0, message)
+  }
+
   function applyAgentEvent(event) {
     const pending = pendingMessageFor(event)
     if (event.type === 'progress' && pending) pending.progress = [...(pending.progress || []), { label: event.label, status: event.status }]
@@ -140,6 +151,7 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
       pending.pending = false
       pending.request = event.request
       pending.content = ''
+      placeCompletedMessageAfterLatestUser(pending)
     }
     if (event.type === 'error') {
       if (pending) {

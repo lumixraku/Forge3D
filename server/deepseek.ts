@@ -37,7 +37,7 @@ When a multi-image request is ambiguous — you cannot tell whether the user has
 
 When the user asks to create, build, or design a canvas, call build_canvas with the complete ordered nodeTypes list. The server appends one new frame without replacing existing canvas content, places all new nodes inside it, connects compatible ports, and lays out the new section. Common shapes: text-to-image-to-3D = reference-image, prompt, generate-image, generate-model, export-model; direct text-to-3D = prompt, text-to-3d, export-model; one image generating multi-view then 3D = reference-image, generate-multiview-images, generate-model, export-model; several existing images to 3D = reference-image, generate-model, export-model. Add retopology, texture, rigging, and segments before export-model when requested.
 
-Use get_canvas_structure when the current nodes or connections are unclear. Use list_available_node_types when the creatable node types are unclear. Use get_credit_balance when the user asks about their credits or before a paid execution if the balance is unclear. Use execute_canvas_node only when the user explicitly asks to run, generate, regenerate, retry, or export; it requests execution but cannot alter the price or balance. Use add_canvas_node to add any supported node type, including frame, when it is not already present; use build_canvas to append a complete canvas section. Use get_canvas_parameters when parameter names, node IDs, ranges, or options are unclear. Apply every parameter explicitly requested by the user. Group all requested changes for the same node into one update_node_parameters call, use separate calls for different nodes, and verify every requested change appears in successful tool results before replying. When you need the user to choose from a finite set of valid alternatives before continuing, you MUST call request_user_select. Never ask that question, list the options, or tell the user to choose in normal assistant text. For an empty canvas, if the user has not stated how to create the model, call request_user_select with the available canvas approaches. Do not ask for free-form text with this tool. Reply concisely in the user's language and summarize the nodes and connections actually created or changed.`
+Use get_canvas_structure when the current nodes or connections are unclear. Use list_available_node_types when the creatable node types are unclear. Use get_credit_balance when the user asks about their credits or before a paid execution if the balance is unclear. Use execute_canvas_node only when the user explicitly asks to run, generate, regenerate, retry, or export; every call requests an independent background execution, and several executions may run concurrently. Use list_canvas_executions when the user asks about recent or active tasks without supplying a task ID. Use get_execution_status for the latest progress of a specific task. Use cancel_execution only when the user explicitly asks to stop a task. Use add_canvas_node to add any supported node type, including frame, when it is not already present; use build_canvas to append a complete canvas section. Use get_canvas_parameters when parameter names, node IDs, ranges, or options are unclear. Apply every parameter explicitly requested by the user. Group all requested changes for the same node into one update_node_parameters call, use separate calls for different nodes, and verify every requested change appears in successful tool results before replying. When you need the user to choose from a finite set of valid alternatives before continuing, you MUST call request_user_select. Never ask that question, list the options, or tell the user to choose in normal assistant text. For an empty canvas, if the user has not stated how to create the model, call request_user_select with the available canvas approaches. Do not ask for free-form text with this tool. Reply concisely in the user's language and summarize the nodes and connections actually created or changed.`
 
 export { canvasNodeTypes } from './canvas-tools.js'
 const progressLabelByTool = {
@@ -50,6 +50,9 @@ const progressLabelByTool = {
   add_canvas_node: 'Adding canvas node',
   request_user_select: 'Waiting for your selection',
   execute_canvas_node: 'Requesting node execution',
+  list_canvas_executions: 'Listing canvas tasks',
+  get_execution_status: 'Checking task progress',
+  cancel_execution: 'Requesting task cancellation',
 }
 
 const tools = canvasToolDefinitions.map((definition) => ({ type: 'function', function: definition }))
@@ -69,14 +72,15 @@ function parseArguments(call) {
   }
 }
 
-export async function runDeepSeekAgent({ apiKey, message, canvas, account, history = [], fetchImpl = fetch, baseUrl = 'https://api.deepseek.com', model = 'deepseek-v4-flash', maxRounds = 5, signal, onProgress = () => {}, onTrace = () => {}, onCheckpoint = () => {}, checkpoint }) {
+export async function runDeepSeekAgent({ apiKey, message, canvas, account, executions = [], history = [], fetchImpl = fetch, baseUrl = 'https://api.deepseek.com', model = 'deepseek-v4-flash', maxRounds = 5, signal, onProgress = () => {}, onTrace = () => {}, onCheckpoint = () => {}, checkpoint }) {
   if (!apiKey) throw new DeepSeekError('DeepSeek is not configured.', 503)
   baseUrl ||= 'https://api.deepseek.com'
   model ||= 'deepseek-v4-flash'
   let nextCanvas = structuredClone(checkpoint?.canvas || canvas)
   let structureChanged = Boolean(checkpoint?.structureChanged)
   const changes = structuredClone(checkpoint?.changes || [])
-  let executionRequest = structuredClone(checkpoint?.executionRequest)
+  const executionRequests = structuredClone(checkpoint?.executionRequests || [])
+  const cancellationRequests = structuredClone(checkpoint?.cancellationRequests || [])
   const messages = checkpoint?.messages ? structuredClone(checkpoint.messages) : [
     { role: 'system', content: systemPrompt },
     ...history.slice(-20).map(({ role, content }) => ({ role, content })),
@@ -116,7 +120,8 @@ export async function runDeepSeekAgent({ apiKey, message, canvas, account, histo
         reply: assistant.content || (changes.length ? 'Canvas updated.' : 'No canvas changes were made. Use the canvas tools to make a change.'),
         changedNodeIds: [...new Set(changes.map((change) => change.nodeId))],
         structureChanged,
-        ...(executionRequest ? { executionRequest } : {}),
+        executionRequests,
+        cancellationRequests,
       }
     }
 
@@ -196,14 +201,26 @@ export async function runDeepSeekAgent({ apiKey, message, canvas, account, histo
       } else if (call.function.name === 'execute_canvas_node') {
         const node = nextCanvas.nodes.find((candidate) => candidate.id === args.nodeId)
         if (!node || !['node', 'downstream'].includes(args.mode)) throw new DeepSeekError('DeepSeek requested an invalid node execution.')
-        executionRequest = { nodeId: node.id, mode: args.mode }
-        result = { accepted: true, ...executionRequest, cost: account.executionCost }
+        const request = { nodeId: node.id, mode: args.mode }
+        executionRequests.push(request)
+        result = { accepted: true, ...request, cost: account.executionCost, background: true }
+      } else if (call.function.name === 'list_canvas_executions') {
+        result = { executions }
+      } else if (call.function.name === 'get_execution_status') {
+        const execution = executions.find((candidate) => candidate.id === args.executionId)
+        if (!execution) throw new DeepSeekError('Execution not found on the current canvas.')
+        result = execution
+      } else if (call.function.name === 'cancel_execution') {
+        const execution = executions.find((candidate) => candidate.id === args.executionId)
+        if (!execution) throw new DeepSeekError('Execution not found on the current canvas.')
+        cancellationRequests.push(execution.id)
+        result = { accepted: true, executionId: execution.id, status: execution.status }
       }
       messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) })
       await onTrace({ type: 'tool_call_succeeded', payload: { round, toolCallId: call.id, toolName: call.function.name, durationMs: Date.now() - toolStartedAt, result } })
       await onProgress({ label, status: 'complete' })
     }
-    await onCheckpoint({ round: round + 1, messages, canvas: nextCanvas, changes, structureChanged, executionRequest, phase: 'tool_complete' })
+    await onCheckpoint({ round: round + 1, messages, canvas: nextCanvas, changes, structureChanged, executionRequests, cancellationRequests, phase: 'tool_complete' })
   }
   throw new DeepSeekError('DeepSeek exceeded the tool-call limit.')
 }

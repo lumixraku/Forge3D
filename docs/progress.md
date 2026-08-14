@@ -2,6 +2,19 @@
 
 ## 2026-08-14 - main
 
+- Fixed live chat chronology for delayed `request_user_select` results: when a later user message has already appeared, the completed selection card is moved after the latest user message instead of filling its earlier placeholder in place.
+- Verification: `pnpm test` passed 255 tests; `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning.
+- Remaining issues: None.
+
+## 2026-08-14 - main
+
+- Added independent background execution requests, canvas task listing/status/cancellation tools for both Agent runtimes, and Agent support for submitting multiple executions in one turn.
+- Changed execution scheduling to run dependency-ready DAG nodes in parallel while preserving upstream dependencies and cancellation behavior.
+- Updated the canvas run composable and task queue to track and poll multiple active executions without blocking new runs.
+- Verification: `pnpm test` passed 255 tests; `pnpm run typecheck` passed. Remaining issues: `pnpm run build` and `git diff --check` still need to be run for this change.
+
+## 2026-08-14 - main
+
 - Removed all component-owned selectors and animations from `src/styles.css`; it now contains only dependency imports, Tailwind theme mappings, light/dark theme tokens, and global element base rules.
 - Co-located Vue Flow overrides, canvas-node runtime states, generated chat markup, attachment and resize pseudo-elements, edge effects, and component animations in scoped styles in their owning Vue components.
 - Replaced the canvas toolbar's bottom border with an equivalent one-pixel gray inset divider so it no longer produces an accent-colored endpoint where it meets the chat panel divider.

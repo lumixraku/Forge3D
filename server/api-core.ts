@@ -275,6 +275,7 @@ export function createApi({ createContext }) {
           message: turn.selection ? `${turn.message}\n\nThe user selected: ${turn.selection.selected_option_ids.map((optionId) => turn.request.options.find((option) => option.id === optionId)?.label || optionId).join(', ')}. Continue the turn using this selection.` : turn.message,
           canvas,
           account: { ...accountDto(state), executionCost: EXECUTION_CREDIT_COST },
+          executions: canvasExecutions(state.runs, canvas.id),
           history: session.messages || [],
           checkpoint: ['tool_complete', 'waiting_for_user'].includes(trace?.checkpoint?.phase) ? trace.checkpoint : undefined,
           onTrace: (event) => recordTrace(event.type, event.payload),
@@ -351,12 +352,22 @@ export function createApi({ createContext }) {
       const canvasIndex = state.canvases.findIndex((item) => item.id === turn.canvasId)
       if (canvasIndex < 0) throw new Error('Project was deleted while this turn was running')
       state.canvases[canvasIndex] = applyAgentCanvas(state.canvases[canvasIndex], plan.canvas)
-      if (plan.executionRequest) {
-        const executionCanvas = state.canvases[canvasIndex]
-        const requestedNode = executionCanvas.nodes.find((node) => node.id === plan.executionRequest.nodeId)
+      const executionCanvas = state.canvases[canvasIndex]
+      const executionRequests = plan.executionRequests || (plan.executionRequest ? [plan.executionRequest] : [])
+      const startedExecutions = []
+      for (const executionRequest of executionRequests) {
+        const requestedNode = executionCanvas.nodes.find((node) => node.id === executionRequest.nodeId)
         if (!requestedNode) throw new Error('Agent requested a node outside this canvas')
-        plan.execution = executionDto(await startPaidExecution(context, executionCanvas, requestedNode, plan.executionRequest.mode))
+        startedExecutions.push(executionDto(await startPaidExecution(context, executionCanvas, requestedNode, executionRequest.mode)))
       }
+      for (const executionId of plan.cancellationRequests || []) {
+        const execution = executionById(state.runs, executionId)
+        if (execution && execution.canvasId === turn.canvasId) {
+          cancelExecution(execution)
+          await settlePaidExecution(store, execution)
+        }
+      }
+      if (startedExecutions.length) plan.executions = startedExecutions
 
       const nextSession = sessionById(turn.sessionId)
       if (!nextSession || !turnById(turn.id)) throw new Error('Session or turn was deleted while this turn was running')

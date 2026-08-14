@@ -135,7 +135,7 @@ test('exposes a read-only balance and returns a controlled execution request', a
 
   const balance = JSON.parse(requests[1].messages.find((entry) => entry.tool_call_id === 'call-balance').content)
   assert.equal(balance.balance, 1000)
-  assert.deepEqual(result.executionRequest, { nodeId: 'text-to-3d', mode: 'node' })
+  assert.deepEqual(result.executionRequests, [{ nodeId: 'text-to-3d', mode: 'node' }])
 })
 
 test('uses DeepSeek to append a framed canvas with nodes and connections', async () => {

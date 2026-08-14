@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-const props = defineProps<{ executions: any[]; loading: boolean; activeExecution?: any }>()
+const props = defineProps<{ executions: any[]; loading: boolean; activeExecution?: any; activeExecutions?: Record<string, any> }>()
 
 const taskRuns = computed(() => [
+  ...Object.values(props.activeExecutions || {}),
   ...(props.activeExecution?.id && !props.executions.some((execution) => execution.id === props.activeExecution.id) ? [props.activeExecution] : []),
   ...props.executions,
 ].map((execution) => ({

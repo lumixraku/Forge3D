@@ -29,7 +29,8 @@ export interface AgentPlan {
   changedNodeIds: string[]
   structureChanged: boolean
   userSelectionRequest?: UserSelectionRequest
-  executionRequest?: { nodeId: string; mode: 'node' | 'downstream' }
+  executionRequests: { nodeId: string; mode: 'node' | 'downstream' }[]
+  cancellationRequests: string[]
 }
 
 export interface RunOptions {
@@ -41,6 +42,7 @@ export interface RunOptions {
   message: string
   canvas: any
   account: { id: string; name: string; balance: number; executionCost: number }
+  executions?: any[]
   checkpoint?: any
   onProgress?: (event: ProgressEvent) => void | Promise<void>
   onTrace?: (event: any) => void | Promise<void>
@@ -59,6 +61,9 @@ const progressLabelByTool: Record<string, string> = {
   add_canvas_node: 'Pi · Adding canvas node',
   request_user_select: 'Pi · Requesting your selection',
   execute_canvas_node: 'Pi · Requesting node execution',
+  list_canvas_executions: 'Pi · Listing canvas tasks',
+  get_execution_status: 'Pi · Checking task progress',
+  cancel_execution: 'Pi · Requesting task cancellation',
 }
 
 const result = (text: string, details?: unknown) => ({ content: [{ type: 'text', text }], details })
@@ -95,12 +100,15 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     changes: { nodeId: string }[]
     structureChanged: boolean
     userSelectionRequest?: UserSelectionRequest
-    executionRequest?: { nodeId: string; mode: 'node' | 'downstream' }
+    executionRequests: { nodeId: string; mode: 'node' | 'downstream' }[]
+    cancellationRequests: string[]
     agent?: any
   } = {
     canvas: structuredClone(opts.checkpoint?.canvas || opts.canvas),
     changes: structuredClone(opts.checkpoint?.changes || []),
     structureChanged: Boolean(opts.checkpoint?.structureChanged),
+    executionRequests: structuredClone(opts.checkpoint?.executionRequests || []),
+    cancellationRequests: structuredClone(opts.checkpoint?.cancellationRequests || []),
   }
 
   const emit = (tool: string) => opts.onProgress?.({ label: progressLabelByTool[tool] || tool, status: 'running' })
@@ -230,8 +238,43 @@ export function startPiAgent(opts: RunOptions): LiveRun {
         await emit('execute_canvas_node')
         const node = session.canvas.nodes.find((candidate: any) => candidate.id === params.nodeId)
         if (!node || !['node', 'downstream'].includes(params.mode)) return errorResult('Invalid node execution requested.')
-        session.executionRequest = { nodeId: node.id, mode: params.mode }
-        return result(JSON.stringify({ accepted: true, ...session.executionRequest, cost: opts.account.executionCost }))
+        const request = { nodeId: node.id, mode: params.mode }
+        session.executionRequests.push(request)
+        return result(JSON.stringify({ accepted: true, ...request, cost: opts.account.executionCost, background: true }))
+      },
+    },
+    {
+      name: 'list_canvas_executions',
+      label: 'List canvas tasks',
+      description: canvasToolDefinition('list_canvas_executions')!.description,
+      parameters: toolSchema('list_canvas_executions'),
+      execute: async () => {
+        await emit('list_canvas_executions')
+        return result(JSON.stringify({ executions: opts.executions || [] }))
+      },
+    },
+    {
+      name: 'get_execution_status',
+      label: 'Check task progress',
+      description: canvasToolDefinition('get_execution_status')!.description,
+      parameters: toolSchema('get_execution_status'),
+      execute: async (_id: string, params: any) => {
+        await emit('get_execution_status')
+        const execution = (opts.executions || []).find((candidate: any) => candidate.id === params.executionId)
+        return execution ? result(JSON.stringify(execution)) : errorResult('Execution not found on the current canvas.')
+      },
+    },
+    {
+      name: 'cancel_execution',
+      label: 'Cancel task',
+      description: canvasToolDefinition('cancel_execution')!.description,
+      parameters: toolSchema('cancel_execution'),
+      execute: async (_id: string, params: any) => {
+        await emit('cancel_execution')
+        const execution = (opts.executions || []).find((candidate: any) => candidate.id === params.executionId)
+        if (!execution) return errorResult('Execution not found on the current canvas.')
+        session.cancellationRequests.push(execution.id)
+        return result(JSON.stringify({ accepted: true, executionId: execution.id, status: execution.status }))
       },
     },
   ]
@@ -316,7 +359,7 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     if (runError && !session.userSelectionRequest) throw new Error(runError)
 
     const changedNodeIds = [...new Set(session.changes.map((change) => change.nodeId))]
-    await opts.onCheckpoint?.({ phase: session.userSelectionRequest ? 'waiting_for_user' : 'complete', canvas: session.canvas, changes: session.changes, structureChanged: session.structureChanged, executionRequest: session.executionRequest })
+    await opts.onCheckpoint?.({ phase: session.userSelectionRequest ? 'waiting_for_user' : 'complete', canvas: session.canvas, changes: session.changes, structureChanged: session.structureChanged, executionRequests: session.executionRequests, cancellationRequests: session.cancellationRequests })
     if (session.userSelectionRequest) {
       return { canvas: session.canvas, reply, changedNodeIds, structureChanged: session.structureChanged, userSelectionRequest: session.userSelectionRequest }
     }
@@ -327,7 +370,8 @@ export function startPiAgent(opts: RunOptions): LiveRun {
       reply: reply || (session.changes.length ? 'Canvas updated.' : 'No canvas changes were made. Use the canvas tools to make a change.'),
       changedNodeIds,
       structureChanged: session.structureChanged,
-      ...(session.executionRequest ? { executionRequest: session.executionRequest } : {}),
+      executionRequests: session.executionRequests,
+      cancellationRequests: session.cancellationRequests,
     }
   })()
 

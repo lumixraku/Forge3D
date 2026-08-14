@@ -61,10 +61,10 @@ function toCanvasRun(execution: ExecutionDto): CanvasRun {
 }
 
 export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvasBusy, error, runToken, saveCanvas, materializeRunBatch, onAccountChanged = async () => {}, provider = { value: null } }) {
-  const cancelRequested = ref(false)
+  const activeExecutions = ref<Record<string, CanvasRun>>({})
   const executions = ref([])
   const executionsLoading = ref(false)
-  const isRunning = computed(() => ['running', 'cancelling'].includes(run.value?.status))
+  const isRunning = computed(() => Object.values(activeExecutions.value).some((execution) => ['queued', 'running', 'cancelling'].includes(execution.status)))
   const runDetails = computed(() => summarizeRun(run.value, nodes.value))
   const runSummary = computed(() => {
     if (!run.value) return 'Ready to run'
@@ -107,9 +107,8 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
   }
 
   async function runCanvas(targetNodeId?: string, scope: ExecutionMode = 'node') {
-    if (!activeCanvas.value || !targetNodeId || canvasBusy.value || isRunning.value) return
+    if (!activeCanvas.value || !targetNodeId || canvasBusy.value) return
     canvasBusy.value = true
-    cancelRequested.value = false
     error.value = ''
     const pollToken = ++runToken.value
     try {
@@ -138,23 +137,9 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
       if (runToken.value !== pollToken || activeCanvas.value?.id !== canvasId) return
       const pollInterval = POLL_INTERVAL_MS[provider.value === 'mock' ? 'mock' : 'tripo']
       run.value = toCanvasRun(execution)
-      if (cancelRequested.value) await cancelRun()
-      while (['queued', 'running', 'cancelling'].includes(run.value.status) && runToken.value === pollToken) {
-        await new Promise((resolve) => setTimeout(resolve, pollInterval))
-        const current = await request(`/api/executions/${execution.id}`) as ExecutionDto
-        if (runToken.value !== pollToken || activeCanvas.value?.id !== canvasId) return
-        run.value = toCanvasRun(current)
-        nodeRuns.value = { ...nodeRuns.value, ...current.nodeExecutions }
-      }
-      for (const node of plan) {
-        const nodeRun = run.value.nodeRuns[node.id]
-        if (!nodeRun) continue
-        const previews = nodeRun.output?.previews
-        if (node.data?.canvasType === 'generate-image' && Array.isArray(previews) && previews.length) materializeRunBatch(node.id, run.value.id, previews)
-        if (node.data?.canvasType === 'export-model') downloadExport(nodeRun)
-      }
+      activeExecutions.value = { ...activeExecutions.value, [execution.id]: run.value }
+      void pollExecution(execution, plan, canvasId, pollToken, pollInterval)
       await loadExecutions(canvasId)
-      await onAccountChanged()
     } catch (caught) {
       error.value = caught.message
       // Mark whichever node was mid-flight as failed so the canvas stops spinning.
@@ -170,20 +155,48 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
     }
   }
 
-  async function cancelRun() {
-    if (!isRunning.value) return
-    cancelRequested.value = true
-    if (!run.value?.id) return
+  async function pollExecution(execution: ExecutionDto, plan: any[], canvasId: string, pollToken: number, pollInterval: number) {
+    try {
+      let current = toCanvasRun(execution)
+      while (['queued', 'running', 'cancelling'].includes(current.status) && activeCanvas.value?.id === canvasId) {
+        await new Promise((resolve) => setTimeout(resolve, pollInterval))
+        current = toCanvasRun(await request(`/api/executions/${execution.id}`) as ExecutionDto)
+        activeExecutions.value = { ...activeExecutions.value, [execution.id]: current }
+        run.value = current
+        nodeRuns.value = { ...nodeRuns.value, ...current.nodeRuns }
+      }
+      for (const node of plan) {
+        const nodeRun = current.nodeRuns[node.id]
+        if (!nodeRun) continue
+        const previews = nodeRun.output?.previews
+        if (node.data?.canvasType === 'generate-image' && Array.isArray(previews) && previews.length) materializeRunBatch(node.id, current.id, previews)
+        if (node.data?.canvasType === 'export-model') downloadExport(nodeRun)
+      }
+      await loadExecutions(canvasId)
+      await onAccountChanged()
+    } catch (caught) {
+      error.value = caught.message
+    } finally {
+      const { [execution.id]: _, ...remaining } = activeExecutions.value
+      activeExecutions.value = remaining
+    }
+  }
+
+  async function cancelRun(executionId = run.value?.id) {
+    if (!executionId) return
+    const active = activeExecutions.value[executionId]
+    if (!active || !['queued', 'running', 'cancelling'].includes(active.status)) return
     error.value = ''
     try {
-      const cancelled = await request(`/api/executions/${run.value.id}/cancel`, { method: 'POST' }) as ExecutionDto
-      run.value = toCanvasRun(cancelled)
-      nodeRuns.value = { ...nodeRuns.value, ...cancelled.nodeExecutions }
+      const cancelled = toCanvasRun(await request(`/api/executions/${executionId}/cancel`, { method: 'POST' }) as ExecutionDto)
+      activeExecutions.value = { ...activeExecutions.value, [executionId]: cancelled }
+      run.value = cancelled
+      nodeRuns.value = { ...nodeRuns.value, ...cancelled.nodeRuns }
       await onAccountChanged()
     } catch (caught) {
       error.value = caught.message
     }
   }
 
-  return { isRunning, runDetails, runSummary, runCanvas, cancelRun, executions, executionsLoading, loadExecutions }
+  return { isRunning, runDetails, runSummary, runCanvas, cancelRun, executions, executionsLoading, loadExecutions, activeExecutions }
 }
