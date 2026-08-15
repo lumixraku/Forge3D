@@ -1,5 +1,19 @@
 # Progress
 
+## 2026-08-15 - main
+
+- Replaced canvas-scoped Agent steering with coordinator-created task groups: independent general workers run concurrently, canvas-writing workers remain serialized, and a coordinator turn summarizes all worker outcomes.
+- Added task-scoped cancellation, multi-task SSE/chat progress UI, read-only web research tools for general workers, and durable task metadata on reused turn records.
+- Hardened public-page fetching against DNS-resolved private addresses and redirect-based SSRF, and made malformed coordinator output fall back to one canvas task.
+- Fixed durable worker assistant messages and restored in-flight tasks to retain task IDs/titles without exposing internal worker prompts as duplicate user messages.
+- Added a strict one-call web-research budget, direct-fetch guidance for supplied authoritative URLs, and a forced steering message that tells a Worker to stop using tools and answer from collected evidence.
+- Browser verification with the configured DeepSeek service confirmed concurrent task creation, independent task cancellation, serialized canvas writes, Retopology persistence at 8,000 polygons, and a single-URL Khronos research Worker that used one `fetch_web_page` call and returned source-linked results. The verified Worker completed in about 60 seconds; its Trace ended with `turn_succeeded`, and its Coordinator summary was recovered after the API service restarted and persisted as `succeeded`.
+- Fixed Agent Trace persistence so awaited trace/checkpoint callbacks mutate the current in-memory Trace without reloading an older snapshot that can overwrite terminal status. Added restart recovery for waiting Coordinator turns after all dependencies complete, including concurrent recovery for general Workers and serialized recovery for canvas Workers.
+- Added API-core regression coverage for ordered Trace/checkpoint terminal persistence and waiting Coordinator recovery.
+- Verification: `pnpm run typecheck` passed; `pnpm test` passed 259 tests after one existing execution-cancellation timing test failed once and passed both an isolated rerun and the full rerun; `pnpm run build` passed with the existing large-chunk warning; `git diff --check` passed.
+- Routed Agent Service model and web-fetch requests through the configured local proxy by enabling Node's environment-proxy support while bypassing localhost service traffic.
+- Remaining issues: Task graph retries, independent Task steering, and canvas revision rebasing are not part of this first version. Cross-process recovery covers Worker execution and waiting Coordinator summaries, but does not resume an already-running Coordinator model request.
+
 ## 2026-08-14 - main
 
 - Fixed live chat chronology for delayed `request_user_select` results: when a later user message has already appeared, the completed selection card is moved after the latest user message instead of filling its earlier placeholder in place.

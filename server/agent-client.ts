@@ -4,11 +4,11 @@
 // streams, so it runs in both Node and the Cloudflare Workers runtime.
 
 export async function runAgentViaService(opts: any) {
-  const { serviceUrl, turnId, apiKey, baseUrl, model, message, canvas, account, executions, checkpoint, signal, onProgress = async () => {}, onTrace = async () => {}, onCheckpoint = async () => {} } = opts
+  const { serviceUrl, taskId, taskKind, turnId, apiKey, baseUrl, model, message, canvas, account, executions, checkpoint, signal, onProgress = async () => {}, onTrace = async () => {}, onCheckpoint = async () => {} } = opts
   const response = await fetch(serviceUrl, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ turnId, apiKey, baseUrl, model, message, canvas, account, executions, checkpoint }),
+    body: JSON.stringify({ taskId: taskId || turnId, taskKind, turnId, apiKey, baseUrl, model, message, canvas, account, executions, checkpoint }),
     signal,
   })
   if (!response.ok || !response.body) {
@@ -65,7 +65,30 @@ export async function cancelAgentViaService(serviceUrl: string, turnId: string) 
   const response = await fetch(new URL('cancel', serviceUrl.endsWith('/') ? serviceUrl : `${serviceUrl}/`), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ turnId }),
+    body: JSON.stringify({ taskId: turnId, turnId }),
   })
   if (!response.ok) throw new Error('Agent service could not stop the run')
+}
+
+export async function coordinateTasksViaService(opts: any) {
+  const response = await fetch(new URL('../coordinator', opts.serviceUrl), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ apiKey: opts.apiKey, baseUrl: opts.baseUrl, model: opts.model, message: opts.message }),
+    signal: opts.signal,
+  })
+  const body: any = await response.json().catch(() => ({}))
+  if (!response.ok || !Array.isArray(body.tasks)) throw new Error(body.error || 'Coordinator service failed')
+  return body.tasks
+}
+
+export async function summarizeTasksViaService(opts: any) {
+  const response = await fetch(new URL('../coordinator/summarize', opts.serviceUrl), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ apiKey: opts.apiKey, baseUrl: opts.baseUrl, model: opts.model, message: opts.message, results: opts.results }),
+  })
+  const body: any = await response.json().catch(() => ({}))
+  if (!response.ok || typeof body.reply !== 'string') throw new Error(body.error || 'Coordinator summary failed')
+  return body.reply
 }

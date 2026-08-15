@@ -1,6 +1,8 @@
 import { Agent } from '@earendil-works/pi-agent-core'
 import { Type } from '@earendil-works/pi-ai'
 import { streamSimple } from '@earendil-works/pi-ai/api/openai-completions'
+import { lookup } from 'node:dns/promises'
+import { isIP } from 'node:net'
 import { addCanvasStage, buildCanvasStructure } from '../server/planner.js'
 import { describeCanvasParameters, updateNodeParameters } from '../server/canvas-parameters.js'
 import { systemPrompt } from '../server/deepseek.js'
@@ -44,9 +46,103 @@ export interface RunOptions {
   account: { id: string; name: string; balance: number; executionCost: number }
   executions?: any[]
   checkpoint?: any
+  taskKind?: 'canvas' | 'general'
   onProgress?: (event: ProgressEvent) => void | Promise<void>
   onTrace?: (event: any) => void | Promise<void>
   onCheckpoint?: (checkpoint: any) => void | Promise<void>
+}
+
+export interface CoordinatedTask {
+  title: string
+  message: string
+  kind: 'canvas' | 'general'
+}
+
+function isPrivateAddress(address: string) {
+  if (address === '::1' || address === '::') return true
+  if (address.startsWith('fc') || address.startsWith('fd') || address.startsWith('fe80:')) return true
+  const parts = address.split('.').map(Number)
+  if (parts.length !== 4) return false
+  return parts[0] === 10 || parts[0] === 127 || parts[0] === 0 || (parts[0] === 169 && parts[1] === 254)
+    || (parts[0] === 192 && parts[1] === 168) || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31)
+}
+
+async function assertPublicUrl(url: URL) {
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hostname.endsWith('.local')) throw new Error('Only public HTTP and HTTPS URLs are allowed.')
+  const addresses = isIP(url.hostname) ? [{ address: url.hostname }] : await lookup(url.hostname, { all: true })
+  if (!addresses.length || addresses.some(({ address }) => isPrivateAddress(address))) throw new Error('Private network URLs are not allowed.')
+}
+
+async function fetchPublicPage(input: string) {
+  let url = new URL(input)
+  for (let redirects = 0; redirects <= 4; redirects += 1) {
+    await assertPublicUrl(url)
+    const response = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0 Forge3DAgent/1.0' }, signal: AbortSignal.timeout(15_000), redirect: 'manual' })
+    if (![301, 302, 303, 307, 308].includes(response.status)) return response
+    const location = response.headers.get('location')
+    if (!location) return response
+    url = new URL(location, url)
+  }
+  throw new Error('Too many redirects.')
+}
+
+export async function coordinateTasks(opts: Pick<RunOptions, 'apiKey' | 'baseUrl' | 'model' | 'message' | 'timeoutMs'>): Promise<CoordinatedTask[]> {
+  const model = {
+    id: opts.model || 'deepseek-chat',
+    name: 'DeepSeek',
+    api: 'openai-completions',
+    provider: 'deepseek',
+    baseUrl: opts.baseUrl || 'https://api.deepseek.com',
+    reasoning: false,
+    input: ['text'],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 65536,
+    maxTokens: 2048,
+  }
+  const prompt = `You are a task coordinator. Split the user's request into independent tasks that can run concurrently. Return JSON only, with this exact shape: {"tasks":[{"title":"short title","message":"self-contained worker instruction","kind":"canvas"|"general"}]}. Use kind canvas for work that reads or changes the 3D node canvas. Use kind general for analysis, writing, or research. Keep dependent work in one task. Do not create a task that waits for, combines, summarizes, reports, or verifies other tasks; the coordinator always performs the final synthesis after every worker finishes. Create at most 4 tasks.\n\nUser request:\n${opts.message}`
+  const agent = new Agent({
+    initialState: { systemPrompt: 'Return only valid JSON. Do not use markdown fences.', model, tools: [] },
+    streamFn: ((currentModel: any, context: any, options: any) => streamSimple(currentModel, context, { ...options, timeoutMs: opts.timeoutMs || 30_000 })) as any,
+    getApiKey: () => opts.apiKey,
+  })
+  let reply = ''
+  agent.subscribe((event: any) => {
+    if (event.type === 'message_end' && event.message?.role === 'assistant') {
+      reply = (event.message.content || []).filter((part: any) => part.type === 'text').map((part: any) => part.text).join('')
+    }
+  })
+  await agent.prompt(prompt)
+  let parsed: any
+  try {
+    parsed = JSON.parse(reply.trim().replace(/^```json\s*|\s*```$/g, ''))
+  } catch {
+    return [{ title: opts.message.trim().slice(0, 60) || 'Canvas task', message: opts.message, kind: 'canvas' }]
+  }
+  if (!Array.isArray(parsed.tasks) || !parsed.tasks.length) throw new Error('Coordinator returned no tasks')
+  return parsed.tasks.slice(0, 4).map((task: any, index: number) => ({
+    title: typeof task.title === 'string' && task.title.trim() ? task.title.trim() : `Task ${index + 1}`,
+    message: typeof task.message === 'string' && task.message.trim() ? task.message.trim() : opts.message,
+    kind: task.kind === 'general' ? 'general' : 'canvas',
+  }))
+}
+
+export async function summarizeTasks(opts: Pick<RunOptions, 'apiKey' | 'baseUrl' | 'model' | 'message' | 'timeoutMs'> & { results: any[] }): Promise<string> {
+  const model = {
+    id: opts.model || 'deepseek-chat', name: 'DeepSeek', api: 'openai-completions', provider: 'deepseek',
+    baseUrl: opts.baseUrl || 'https://api.deepseek.com', reasoning: false, input: ['text'],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 65536, maxTokens: 4096,
+  }
+  const agent = new Agent({
+    initialState: { systemPrompt: 'You are the coordinator. Give the user one concise final answer that combines the worker results. Mention failures clearly. Do not expose internal orchestration JSON.', model, tools: [] },
+    streamFn: ((currentModel: any, context: any, options: any) => streamSimple(currentModel, context, { ...options, timeoutMs: opts.timeoutMs || 30_000 })) as any,
+    getApiKey: () => opts.apiKey,
+  })
+  let reply = ''
+  agent.subscribe((event: any) => {
+    if (event.type === 'message_end' && event.message?.role === 'assistant') reply = (event.message.content || []).filter((part: any) => part.type === 'text').map((part: any) => part.text).join('')
+  })
+  await agent.prompt(`Original request:\n${opts.message}\n\nWorker results:\n${JSON.stringify(opts.results)}`)
+  return reply || 'The requested tasks have finished.'
 }
 
 // Labels are prefixed with "Pi ·" so the UI's Thought process makes it obvious
@@ -103,18 +199,68 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     executionRequests: { nodeId: string; mode: 'node' | 'downstream' }[]
     cancellationRequests: string[]
     agent?: any
+    webToolCalls: number
   } = {
     canvas: structuredClone(opts.checkpoint?.canvas || opts.canvas),
     changes: structuredClone(opts.checkpoint?.changes || []),
     structureChanged: Boolean(opts.checkpoint?.structureChanged),
     executionRequests: structuredClone(opts.checkpoint?.executionRequests || []),
     cancellationRequests: structuredClone(opts.checkpoint?.cancellationRequests || []),
+    webToolCalls: 0,
   }
 
   const emit = (tool: string) => opts.onProgress?.({ label: progressLabelByTool[tool] || tool, status: 'running' })
   const nodeSummary = () => session.canvas.nodes.map((node: any) => ({ id: node.id, type: node.type, name: node.name }))
 
   const toolImplementations = [
+    {
+      name: 'web_search',
+      label: 'Search the web',
+      description: 'Search the public web for current information. Returns result titles, URLs, and snippets.',
+      parameters: Type.Object({ query: Type.String({ minLength: 1 }) }),
+      execute: async (_id: string, params: any) => {
+        if (session.webToolCalls >= 1) {
+          session.agent?.steer({ role: 'user', content: [{ type: 'text', text: 'Stop calling tools now. Write the final answer from the evidence already collected, including source URLs.' }], timestamp: Date.now() })
+          return errorResult('Web research budget reached. Write the final answer now.')
+        }
+        session.webToolCalls += 1
+        await emit('web_search')
+        const response = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(params.query)}`, { headers: { 'user-agent': 'Mozilla/5.0 Forge3DAgent/1.0' } })
+        if (!response.ok) return errorResult(`Web search failed with status ${response.status}.`)
+        const html = await response.text()
+        const results = [...html.matchAll(/class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>[\s\S]*?class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g)].slice(0, 8).map((match) => ({
+          url: match[1].replace(/&amp;/g, '&'),
+          title: match[2].replace(/<[^>]+>/g, '').replace(/&amp;/g, '&'),
+          snippet: match[3].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().replace(/&amp;/g, '&'),
+        }))
+        session.agent?.steer({ role: 'user', content: [{ type: 'text', text: 'You have enough evidence. Stop calling tools and write the final answer now, including source URLs.' }], timestamp: Date.now() })
+        return result(JSON.stringify({ results }))
+      },
+    },
+    {
+      name: 'fetch_web_page',
+      label: 'Read web page',
+      description: 'Fetch and read a public HTTP or HTTPS page by URL.',
+      parameters: Type.Object({ url: Type.String({ minLength: 1 }) }),
+      execute: async (_id: string, params: any) => {
+        if (session.webToolCalls >= 1) {
+          session.agent?.steer({ role: 'user', content: [{ type: 'text', text: 'Stop calling tools now. Write the final answer from the evidence already collected, including source URLs.' }], timestamp: Date.now() })
+          return errorResult('Web research budget reached. Write the final answer now.')
+        }
+        session.webToolCalls += 1
+        await emit('fetch_web_page')
+        let response: Response
+        try {
+          response = await fetchPublicPage(params.url)
+        } catch (error: any) {
+          return errorResult(error.message)
+        }
+        if (!response.ok) return errorResult(`Page fetch failed with status ${response.status}.`)
+        const text = (await response.text()).replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+        session.agent?.steer({ role: 'user', content: [{ type: 'text', text: 'You have enough evidence. Stop calling tools and write the final answer now, including source URLs.' }], timestamp: Date.now() })
+        return result(JSON.stringify({ url: response.url, text: text.slice(0, 8_000) }))
+      },
+    },
     {
       name: 'get_canvas_structure',
       label: 'Inspect canvas',
@@ -279,7 +425,10 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     },
   ]
 
-  const tools = toolImplementations.map((tool) => ({
+  const enabledTools = opts.taskKind === 'general'
+    ? toolImplementations.filter((tool) => ['web_search', 'fetch_web_page', 'get_canvas_structure', 'get_canvas_parameters', 'list_canvas_executions', 'get_execution_status'].includes(tool.name))
+    : toolImplementations.filter((tool) => !['web_search', 'fetch_web_page'].includes(tool.name))
+  const tools = enabledTools.map((tool) => ({
     ...tool,
     execute: async (...args: any[]) => {
       const startedAt = Date.now()
@@ -295,8 +444,11 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     },
   }))
 
+  const workerPrompt = opts.taskKind === 'general'
+    ? 'You are an independent research and analysis worker. Complete only the assigned task and report a concise answer in the user\'s language. Canvas tools are read-only context; never claim to modify the canvas. Use at most 1 web tool call. If the instruction gives an authoritative URL, fetch it directly. Otherwise, search once and answer from the returned snippets. After that single call, stop using tools and answer with concrete findings and source URLs.'
+    : systemPrompt
   const agent = new Agent({
-    initialState: { systemPrompt, model, tools },
+    initialState: { systemPrompt: workerPrompt, model, tools },
     streamFn: ((model: any, context: any, options: any) => streamSimple(model, context, { ...options, timeoutMs })) as any,
     getApiKey: () => opts.apiKey,
     // Drain every queued steering message at the next turn boundary.
@@ -367,7 +519,7 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     if (session.changes.length) session.canvas.updatedAt = new Date().toISOString()
     return {
       canvas: session.canvas,
-      reply: reply || (session.changes.length ? 'Canvas updated.' : 'No canvas changes were made. Use the canvas tools to make a change.'),
+      reply: reply || (session.changes.length ? 'Canvas updated.' : 'Task completed without canvas changes.'),
       changedNodeIds,
       structureChanged: session.structureChanged,
       executionRequests: session.executionRequests,

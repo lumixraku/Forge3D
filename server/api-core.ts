@@ -18,7 +18,7 @@ import { executionAssets } from './run-assets.js'
 import { cancelExecution, canvasExecutions, createExecution, executeExecution, executionById, executionDto, paginateAssets, syncExecutionWithTripo } from './executions.js'
 import { createInitialSession, createCanvas, createSession, duplicateCanvas } from './canvases.js'
 import { runDeepSeekAgent } from './deepseek.js'
-import { cancelAgentViaService, runAgentViaService } from './agent-client.js'
+import { cancelAgentViaService, coordinateTasksViaService, runAgentViaService, summarizeTasksViaService } from './agent-client.js'
 import { tripoNodeTypes } from './tripo-mapping.js'
 import { applyAgentCanvas, projectDto, replaceCanvasDocument } from './projects.js'
 import { appendAgentTrace, checkpointAgentTrace, createAgentTrace, sanitizeAgentError } from './agent-traces.js'
@@ -155,10 +155,6 @@ export function createApi({ createContext }) {
   // survives for the life of the process (or isolate).
   const canvasTurnQueues = new Map()
   const activeTurnIds = new Set()
-  // How many agent runs are currently streaming per canvas. A new turn for a
-  // canvas with an active run is dispatched immediately (bypassing the serial
-  // queue) so the agent service can steer it into the running run.
-  const activeRuns = new Map()
   const activeTurnCancels = new Map()
   let creditMutation = Promise.resolve()
   let recovered = false
@@ -218,21 +214,17 @@ export function createApi({ createContext }) {
     // that is not the one which posted the turn still sees it.
     const emit = (type, fields) => channels.broadcast(turn.canvasId, channels.event(turn, type, fields))
     let trace
-    const recordTrace = async (type, payload = {}, updates = {}) => {
-      await store.reload(['agentTraces'])
+    const mutateTrace = (operation) => {
       trace = traceByTurnId(turn.id) || trace
-      if (!trace) return
-      Object.assign(trace, updates)
-      appendAgentTrace(trace, type, payload)
-      await store.persist(['agentTraces'])
+      if (!trace) return Promise.resolve()
+      operation(trace)
+      return store.persist(['agentTraces'])
     }
-    const saveCheckpoint = async (checkpoint) => {
-      await store.reload(['agentTraces'])
-      trace = traceByTurnId(turn.id) || trace
-      if (!trace) return
-      checkpointAgentTrace(trace, checkpoint)
-      await store.persist(['agentTraces'])
-    }
+    const recordTrace = (type, payload = {}, updates = {}) => mutateTrace((currentTrace) => {
+      Object.assign(currentTrace, updates)
+      appendAgentTrace(currentTrace, type, payload)
+    })
+    const saveCheckpoint = (checkpoint) => mutateTrace((currentTrace) => checkpointAgentTrace(currentTrace, checkpoint))
 
     try {
       await reloadAgentCollections()
@@ -262,11 +254,12 @@ export function createApi({ createContext }) {
         controller.abort()
       }
       activeTurnCancels.set(turn.id, cancel)
-      activeRuns.set(turn.canvasId, (activeRuns.get(turn.canvasId) || 0) + 1)
       let plan
       try {
         plan = await runAgent({
           serviceUrl,
+          taskId: turn.id,
+          taskKind: turn.kind || 'canvas',
           turnId: turn.id,
           signal: controller.signal,
           apiKey: config.deepseek.apiKey,
@@ -294,9 +287,6 @@ export function createApi({ createContext }) {
         })
       } finally {
         if (activeTurnCancels.get(turn.id) === cancel) activeTurnCancels.delete(turn.id)
-        const remaining = (activeRuns.get(turn.canvasId) || 1) - 1
-        if (remaining > 0) activeRuns.set(turn.canvasId, remaining)
-        else activeRuns.delete(turn.canvasId)
       }
       await reloadAgentCollections()
       const currentTurn = turnById(turn.id)
@@ -304,28 +294,6 @@ export function createApi({ createContext }) {
       if (currentTurn.status === 'cancelled' || currentTurn.status === 'cancelling') return
       turn = currentTurn
       if (plan.canvas && plan.canvas.id !== turn.canvasId) throw new Error('Agent returned a canvas outside this project')
-      // The message was steered into a still-running run; it produces no diff of
-      // its own. Acknowledge it in the session and finish.
-      if (plan.steered) {
-        const steerSession = sessionById(turn.sessionId)
-        if (!steerSession) throw new Error('Session was deleted while this turn was running')
-        const steerNow = new Date().toISOString()
-        const steerReply = '🔀 Pi steering · Added your message to the running turn.'
-        const steerAssistantId = `msg-${randomUUID()}`
-        steerSession.messages.push({ id: `msg-${randomUUID()}`, role: 'user', content: turn.message, createdAt: steerNow })
-        steerSession.messages.push({ id: steerAssistantId, role: 'assistant', content: steerReply, progress: turn.progress, createdAt: steerNow })
-        steerSession.updatedAt = steerNow
-        turn.status = 'succeeded'
-        turn.completedAt = steerNow
-        turn.updatedAt = steerNow
-        await store.persist(['sessions', 'turns'])
-        if (trace) {
-          await recordTrace('turn_steered', {}, { status: 'succeeded', completedAt: steerNow })
-        }
-        emit('text', { step_id: 'final-response', id: steerAssistantId, text: steerReply })
-        emit('finish', { finish_reason: 'stop' })
-        return
-      }
       if (plan.userSelectionRequest) {
         delete turn.selection
         turn.request = { request_id: `request-${randomUUID()}`, ...plan.userSelectionRequest }
@@ -351,7 +319,7 @@ export function createApi({ createContext }) {
       }
       const canvasIndex = state.canvases.findIndex((item) => item.id === turn.canvasId)
       if (canvasIndex < 0) throw new Error('Project was deleted while this turn was running')
-      state.canvases[canvasIndex] = applyAgentCanvas(state.canvases[canvasIndex], plan.canvas)
+      if (turn.kind === 'canvas') state.canvases[canvasIndex] = applyAgentCanvas(state.canvases[canvasIndex], plan.canvas)
       const executionCanvas = state.canvases[canvasIndex]
       const executionRequests = plan.executionRequests || (plan.executionRequest ? [plan.executionRequest] : [])
       const startedExecutions = []
@@ -373,7 +341,7 @@ export function createApi({ createContext }) {
       if (!nextSession || !turnById(turn.id)) throw new Error('Session or turn was deleted while this turn was running')
       const now = new Date().toISOString()
       const assistantMessageId = `msg-${randomUUID()}`
-      nextSession.messages.push({ id: assistantMessageId, role: 'assistant', content: plan.reply, progress: turn.progress, createdAt: now })
+      nextSession.messages.push({ id: assistantMessageId, role: 'assistant', content: plan.reply, progress: turn.progress, turnId: turn.id, taskTitle: turn.title, taskKind: turn.kind, createdAt: now })
       nextSession.updatedAt = now
       turn.status = 'succeeded'
       turn.result = structuredClone({ ...plan, session: nextSession })
@@ -437,14 +405,66 @@ export function createApi({ createContext }) {
   }
 
   function startAgentTurn(context, turn) {
-    // A run for this canvas is already streaming -> dispatch now (bypassing the
-    // serial queue) so the agent service steers this message into it. Otherwise
-    // queue it as the canvas's next run.
-    if ((activeRuns.get(turn.canvasId) || 0) > 0) {
+    // Read-only/general workers can run concurrently. Canvas writers remain
+    // serialized so independently planned tasks cannot overwrite each other.
+    if (turn.kind === 'general') {
       activeTurnIds.add(turn.id)
       return executeAgentTurn(context, turn).finally(() => activeTurnIds.delete(turn.id))
     }
     return enqueueAgentTurn(context, turn)
+  }
+
+  async function executeCoordinatorSummary(context, coordinatorTurn, workerIds) {
+    const { store, config } = context
+    const { state } = store
+    const emit = (type, fields) => channels.broadcast(coordinatorTurn.canvasId, channels.event(coordinatorTurn, type, fields))
+    try {
+      await store.reload(['turns', 'sessions'])
+      const current = state.turns.find((turn) => turn.id === coordinatorTurn.id)
+      if (!current || current.status === 'cancelled') return
+      current.status = 'running'
+      current.startedAt = new Date().toISOString()
+      await store.persist(['turns'])
+      emit('turn-start')
+      current.progress.push({ label: 'Coordinator · Combining worker results', status: 'running' })
+      await store.persist(['turns'])
+      emit('progress', { label: 'Coordinator · Combining worker results', status: 'running' })
+      const workers = workerIds.map((id) => state.turns.find((turn) => turn.id === id)).filter(Boolean)
+      const reply = await summarizeTasksViaService({
+        serviceUrl: config.agentServiceUrl,
+        apiKey: config.deepseek.apiKey,
+        baseUrl: config.deepseek.baseUrl,
+        model: config.deepseek.model,
+        message: current.originalMessage,
+        results: workers.map((worker) => ({ title: worker.title, kind: worker.kind, status: worker.status, result: worker.result?.reply, error: worker.error })),
+      })
+      await store.reload(['turns', 'sessions'])
+      const latest = state.turns.find((turn) => turn.id === coordinatorTurn.id)
+      const session = state.sessions.find((item) => item.id === coordinatorTurn.sessionId)
+      if (!latest || !session || latest.status === 'cancelled') return
+      const now = new Date().toISOString()
+      const messageId = `msg-${randomUUID()}`
+      session.messages.push({ id: messageId, role: 'assistant', content: reply, turnId: latest.id, createdAt: now })
+      session.updatedAt = now
+      latest.status = 'succeeded'
+      latest.result = { reply, workerIds }
+      latest.completedAt = now
+      latest.updatedAt = now
+      await store.persist(['sessions', 'turns'])
+      emit('text', { step_id: 'final-response', id: messageId, text: reply })
+      emit('finish', { finish_reason: 'stop' })
+    } catch (error) {
+      await store.reload(['turns']).catch(() => {})
+      const latest = state.turns.find((turn) => turn.id === coordinatorTurn.id)
+      if (latest) {
+        latest.status = 'failed'
+        latest.error = error.message
+        latest.completedAt = new Date().toISOString()
+        latest.updatedAt = latest.completedAt
+        await store.persist(['turns']).catch(() => {})
+      }
+      emit('error', { error: error.message })
+    }
   }
 
   async function recoverAgentTurns(context) {
@@ -453,7 +473,6 @@ export function createApi({ createContext }) {
     await context.store.reload(AGENT_COLLECTIONS)
     const { state } = context.store
     const recoverable = state.turns.filter((turn) => !turn.request && ['queued', 'running'].includes(turn.status))
-    if (!recoverable.length) return
     const now = new Date().toISOString()
     for (const turn of recoverable) {
       if (turn.status === 'running') {
@@ -468,8 +487,19 @@ export function createApi({ createContext }) {
       }
       turn.updatedAt = now
     }
-    await context.store.persist(['turns', 'agentTraces'])
-    for (const turn of recoverable) context.waitUntil(enqueueAgentTurn(context, turn))
+    if (recoverable.length) await context.store.persist(['turns', 'agentTraces'])
+    const recovering = new Map(recoverable.map((turn) => [turn.id, startAgentTurn(context, turn)]))
+    for (const promise of recovering.values()) context.waitUntil(promise)
+    for (const coordinator of state.turns.filter((turn) => turn.kind === 'coordinator' && turn.status === 'waiting')) {
+      const dependencies = coordinator.dependencies || []
+      const unresolved = dependencies.filter((id) => {
+        const dependency = state.turns.find((turn) => turn.id === id)
+        return !recovering.has(id) && !['succeeded', 'failed', 'cancelled'].includes(dependency?.status)
+      })
+      if (unresolved.length) continue
+      const workersDone = Promise.allSettled(dependencies.map((id) => recovering.get(id) || Promise.resolve()))
+      context.waitUntil(workersDone.then(() => executeCoordinatorSummary(context, coordinator, dependencies)))
+    }
   }
 
   async function route(request, context) {
@@ -695,27 +725,56 @@ export function createApi({ createContext }) {
         error.statusCode = 404
         throw error
       }
+      const coordinated = config.agentServiceUrl
+        ? await coordinateTasksViaService({ serviceUrl: config.agentServiceUrl, apiKey: config.deepseek.apiKey, baseUrl: config.deepseek.baseUrl, model: config.deepseek.model, message: input.message })
+        : [{ title: input.message.trim().slice(0, 60), message: input.message, kind: 'canvas' }]
       const now = new Date().toISOString()
-      const turn = {
+      const groupId = `task-group-${randomUUID()}`
+      const turns = coordinated.map((task) => {
+        const turn = {
+          id: `turn-${randomUUID()}`,
+          groupId,
+          title: task.title,
+          kind: task.kind,
+          sessionId: session.id,
+          canvasId: canvas.id,
+          message: task.message,
+          originalMessage: input.message,
+          attachments: Array.isArray(input.attachments) ? input.attachments : [],
+          status: 'queued',
+          progress: [],
+          createdAt: now,
+          updatedAt: now,
+        }
+        const trace = createAgentTrace(turn, { model: config.deepseek.model, runtime: config.agentServiceUrl ? 'pi-service' : 'direct' }, now)
+        turn.traceId = trace.id
+        appendAgentTrace(trace, 'turn_created', { message: turn.message, groupId, kind: turn.kind }, now)
+        appendAgentTrace(trace, 'turn_queued', {}, now)
+        state.agentTraces.push(trace)
+        return turn
+      })
+      const coordinatorTurn = {
         id: `turn-${randomUUID()}`,
+        groupId,
+        title: 'Coordinator summary',
+        kind: 'coordinator',
         sessionId: session.id,
         canvasId: canvas.id,
         message: input.message,
-        attachments: Array.isArray(input.attachments) ? input.attachments : [],
-        status: 'queued',
+        originalMessage: input.message,
+        status: 'waiting',
         progress: [],
+        dependencies: turns.map((turn) => turn.id),
         createdAt: now,
         updatedAt: now,
       }
-      const trace = createAgentTrace(turn, { model: config.deepseek.model, runtime: config.agentServiceUrl ? 'pi-service' : 'direct' }, now)
-      turn.traceId = trace.id
-      appendAgentTrace(trace, 'turn_created', { message: turn.message }, now)
-      appendAgentTrace(trace, 'turn_queued', {}, now)
-      state.turns.push(turn)
-      state.agentTraces.push(trace)
-      await store.persist(['turns', 'agentTraces'])
-      waitUntil(startAgentTurn(context, turn))
-      return json(turn, 202)
+      session.messages.push({ id: `msg-${randomUUID()}`, role: 'user', content: input.message, attachments: Array.isArray(input.attachments) ? input.attachments : [], createdAt: now })
+      session.updatedAt = now
+      state.turns.push(...turns, coordinatorTurn)
+      await store.persist(['sessions', 'turns', 'agentTraces'])
+      const workersDone = Promise.allSettled(turns.map((turn) => startAgentTurn(context, turn)))
+      waitUntil(workersDone.then(() => executeCoordinatorSummary(context, coordinatorTurn, turns.map((turn) => turn.id))))
+      return json({ id: groupId, tasks: [...turns, coordinatorTurn] }, 202)
     }
 
     if (method === 'POST' && parts[1] === 'turns' && parts[3] === 'continue' && parts.length === 4) {

@@ -9,7 +9,7 @@
     "dev:web": "vite",
     "dev:server": "NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\" node --use-env-proxy --env-file-if-exists=.env --watch --import tsx server/index.ts",
     "server": "NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\" node --use-env-proxy --env-file-if-exists=.env --import tsx server/index.ts",
-    "agent:service": "node --env-file-if-exists=.env --watch --import tsx agent-service/server.ts",
+    "agent:service": "NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\" node --use-env-proxy --env-file-if-exists=.env --watch --import tsx agent-service/server.ts",
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit --noCheck && vue-tsc --noEmit -p tsconfig.app.json",
