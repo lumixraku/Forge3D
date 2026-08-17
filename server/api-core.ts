@@ -77,18 +77,47 @@ function createChannels() {
   }
 }
 
-function sseResponse(canvasId, signal, channels) {
+const SSE_IDLE_TIMEOUT_MS = 10 * 60 * 1000
+
+function sseResponse(canvasId, signal, channels, idleTimeoutMs = SSE_IDLE_TIMEOUT_MS) {
   let unsubscribe = () => {}
   let keepalive = null
+  let idleTimeout = null
+  let closed = false
   const encoder = new TextEncoder()
 
   const stream = new ReadableStream({
     start(controller) {
+      const armIdleTimeout = () => {
+        clearTimeout(idleTimeout)
+        idleTimeout = setTimeout(() => {
+          // Send an application event before closing so clients can distinguish
+          // intentional idle expiry from a broken transport and avoid reconnecting
+          // until the next Agent interaction.
+          send('event: end\ndata: {"type":"sse-end","reason":"idle-timeout"}\n\n')
+          close()
+        }, idleTimeoutMs)
+      }
+      const close = () => {
+        if (closed) return
+        closed = true
+        clearInterval(keepalive)
+        clearTimeout(idleTimeout)
+        unsubscribe()
+        try {
+          controller.close()
+        } catch {
+          // Already closed.
+        }
+      }
       const send = (text) => {
+        if (closed) return
         try {
           controller.enqueue(encoder.encode(text))
+          if (!text.startsWith(':')) armIdleTimeout()
         } catch {
           // The client is gone; the teardown below drops it from the channel.
+          close()
         }
       }
       // Flush a comment so the client's EventSource opens before the first event,
@@ -96,19 +125,14 @@ function sseResponse(canvasId, signal, channels) {
       send(': subscribed\n\n')
       unsubscribe = channels.subscribe(canvasId, send)
       keepalive = setInterval(() => send(': keepalive\n\n'), 15000)
-      signal?.addEventListener('abort', () => {
-        clearInterval(keepalive)
-        unsubscribe()
-        try {
-          controller.close()
-        } catch {
-          // Already closed.
-        }
-      })
+      armIdleTimeout()
+      signal?.addEventListener('abort', close)
     },
     cancel() {
       clearInterval(keepalive)
+      clearTimeout(idleTimeout)
       unsubscribe()
+      closed = true
     },
   })
 
@@ -121,7 +145,7 @@ function sseResponse(canvasId, signal, channels) {
   })
 }
 
-export function createApi({ createContext }) {
+export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_MS }) {
   const channels = createChannels()
   const canvasLeases = new Map()
   const leaseExpiryTimers = new Map()
@@ -681,7 +705,7 @@ export function createApi({ createContext }) {
     if (method === 'GET' && parts[1] === 'canvases' && parts[2] && parts[3] === 'events' && parts.length === 4) {
       const canvas = canvasById(parts[2])
       if (!canvas) return json({ error: 'Canvas not found' }, 404)
-      return sseResponse(canvas.id, request.signal, channels)
+      return sseResponse(canvas.id, request.signal, channels, sseIdleTimeoutMs)
     }
 
     if (method === 'GET' && parts[1] === 'canvases' && parts[2] && parts[3] === 'assets' && parts.length === 4) {

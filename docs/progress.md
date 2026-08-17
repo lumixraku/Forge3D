@@ -1210,3 +1210,11 @@ five nodes green, 80 credits.
 - Preserved the existing CanvasNode light-theme change already present in the worktree.
 - Verification: `pnpm test` passed 259 tests; `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. Build retains the existing large-chunk warning.
 - Remaining issues: None.
+
+## 2026-08-17 - main
+
+- Added a 10-minute SSE inactivity timeout that sends an explicit `sse-end` event before closing the canvas event stream. Keepalive comments do not reset the timeout; real canvas and Agent events do.
+- Closed the browser `EventSource` when the intentional end event arrives to suppress automatic reconnects, and reopen it before sending or continuing an Agent turn.
+- Added a configurable `SSE_IDLE_TIMEOUT_MS` server override and a mock 30ms case that verifies the server emits `sse-end` and closes the stream without waiting ten minutes.
+- Verification: `pnpm test` passed 260 tests; `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. Build retains the existing large-chunk warning.
+- Remaining issues: None.

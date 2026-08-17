@@ -117,6 +117,7 @@ before(async () => {
       TRIPO_API_KEY: '',
       AGENT_SERVICE_URL: 'direct',
       DEEPSEEK_API_KEY: '',
+      SSE_IDLE_TIMEOUT_MS: '30',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -655,3 +656,25 @@ test('the canvas event channel opens as a stream and 404s for a missing canvas',
   assert.match(new TextDecoder().decode(value), /: subscribed/)
   controller.abort()
 })
+
+test('mocked SSE idle timeout sends an end event and closes the stream', async () => {
+  const controller = new AbortController()
+  const response = await fetch(new URL('/api/canvases/canvas-fixture/events', baseUrl), { signal: controller.signal })
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let stream = ''
+
+  try {
+    while (!stream.includes('idle-timeout')) {
+      const { value, done } = await reader.read()
+      if (done) break
+      stream += decoder.decode(value, { stream: true })
+    }
+    assert.match(stream, /event: end/)
+    assert.match(stream, /"type":"sse-end"/)
+    assert.match(stream, /"reason":"idle-timeout"/)
+    assert.equal((await reader.read()).done, true)
+  } finally {
+    controller.abort()
+  }
+}, { timeout: 2000 })

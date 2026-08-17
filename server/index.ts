@@ -51,7 +51,11 @@ const context = {
   recoverAgentTurns: true,
 }
 
-const handle = createApi({ createContext: () => context })
+const configuredSseIdleTimeout = Number(process.env.SSE_IDLE_TIMEOUT_MS)
+const handle = createApi({
+  createContext: () => context,
+  ...(Number.isFinite(configuredSseIdleTimeout) && configuredSseIdleTimeout > 0 ? { sseIdleTimeoutMs: configuredSseIdleTimeout } : {}),
+})
 
 async function toRequest(request) {
   const url = new URL(request.url, `http://${request.headers.host || '127.0.0.1'}`)

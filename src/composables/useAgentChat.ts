@@ -185,6 +185,10 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
       // reconnects on its own, so a transport failure needs nothing from us.
       if (!message.data || token !== runToken.value) return
       const event = JSON.parse(message.data)
+      if (event.type === 'sse-end') {
+        if (events === source) closeCanvasEvents()
+        return
+      }
       onCanvasEvent?.(event)
       if (event.type === 'canvas-updated' && !event.session_id) {
         if (event.source_client_id !== clientId) await onCanvasDocumentEvent?.(event)
@@ -196,6 +200,11 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
     }
     source.addEventListener('message', handle)
     source.addEventListener('error', handle)
+    source.addEventListener('end', handle)
+  }
+
+  function ensureCanvasEvents(canvasId) {
+    if (!canvasId || !events || events.readyState === EventSource.CLOSED) subscribeCanvasEvents(canvasId)
   }
 
   function closeCanvasEvents() {
@@ -242,6 +251,7 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
     error.value = ''
     message.pending = true
     try {
+      ensureCanvasEvents(activeCanvas.value?.id)
       // The turn resumes on the canvas channel; this only hands over the selection.
       await request(`/api/turns/${message.turnId}/continue`, {
         method: 'POST',
@@ -304,6 +314,7 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
       ],
     }
     try {
+      ensureCanvasEvents(canvasId)
       await flushPendingSave()
       if (activeCanvas.value?.id !== canvasId || activeSession.value?.id !== sessionId) {
         throw new Error('Project changed before the message was sent')
