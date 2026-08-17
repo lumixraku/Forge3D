@@ -15,7 +15,7 @@
 import { randomUUID } from './ids.js'
 import { latestNodeRuns } from './node-state.js'
 import { executionAssets } from './run-assets.js'
-import { cancelExecution, canvasExecutions, createExecution, executeExecution, executionById, executionDto, paginateAssets, syncExecutionWithTripo } from './executions.js'
+import { assertProjectExecutionCapacity, cancelExecution, canvasExecutions, createExecution, executeExecution, executionById, executionDto, paginateAssets, syncExecutionWithTripo } from './executions.js'
 import { createInitialSession, createCanvas, createSession, duplicateCanvas } from './canvases.js'
 import { runDeepSeekAgent } from './deepseek.js'
 import { cancelAgentViaService, coordinateTasksViaService, runAgentViaService, summarizeTasksViaService } from './agent-client.js'
@@ -174,12 +174,15 @@ export function createApi({ createContext }) {
     })
   }
 
-  async function startPaidExecution(context, canvas, node, mode, createProvider = null) {
+  async function startPaidExecution(context, canvas, node, mode, createProvider = null, options = {}) {
     const { store, waitUntil } = context
     const { state } = store
     const pending = await mutateCredits(async () => {
       await store.reload(['accounts', 'creditLedger'])
-      const created = createExecution(state.runs, canvas, node, mode)
+      const existing = options.idempotencyKey && state.runs.find((run) => run.canvasId === canvas.id && run.idempotencyKey === options.idempotencyKey)
+      if (existing) return { run: existing, duplicate: true }
+      if (options.enforceActiveTaskLimit) assertProjectExecutionCapacity(state.runs, canvas.id)
+      const created = createExecution(state.runs, canvas, node, mode, options)
       try {
         reserveExecutionCredits(state, created.run)
         await store.persist(CREDIT_COLLECTIONS)
@@ -189,7 +192,7 @@ export function createApi({ createContext }) {
         throw error
       }
     })
-    waitUntil(executeExecution(
+    if (!pending.duplicate) waitUntil(executeExecution(
       state.runs,
       pending.run,
       canvas,
@@ -921,6 +924,20 @@ export function createApi({ createContext }) {
       return json(executionDto(execution), 202)
     }
 
+    if (method === 'POST' && parts[1] === 'projects' && parts[2] && parts[3] === 'executions' && parts.length === 4) {
+      const canvas = canvasById(parts[2])
+      if (!canvas) return json({ error: 'Project not found' }, 404)
+      const { entryNodeId, nodeIds, mode = 'downstream', provider: requestedProvider, idempotencyKey, parameters } = await parseJson(request)
+      const node = canvas.nodes.find((candidate) => candidate.id === entryNodeId)
+      if (!node) return json({ error: 'Entry node not found' }, 404)
+      if (requestedProvider && !['mock', 'tripo'].includes(requestedProvider)) return json({ error: 'provider must be "mock" or "tripo"' }, 400)
+      if (requestedProvider === 'tripo' && !config.createTripoProvider) return json({ error: 'Tripo is not configured. Set TRIPO_API_KEY and restart the API server.' }, 503)
+      const useTripo = requestedProvider ? requestedProvider === 'tripo' : Boolean(config.createTripoProvider)
+      const enforceActiveTaskLimit = request.headers.get('x-micro-method') === '/tripo.agent.api.run.v1.RunService/CreateRun'
+      const execution = await startPaidExecution(context, canvas, node, mode, useTripo ? config.createTripoProvider : null, { nodeIds, idempotencyKey, parameters, enforceActiveTaskLimit })
+      return json(executionDto(execution), 202)
+    }
+
     // Legacy assets from runs created before downloads switched to refreshed
     // Tripo task URLs remain readable, but new runs never write local files.
     if (method === 'POST' && parts[1] === 'assets' && parts.length === 2) {
@@ -952,7 +969,7 @@ export function createApi({ createContext }) {
       return await route(request, context)
     } catch (error) {
       if (!error.statusCode) console.error(error)
-      return json({ error: error.message }, error.statusCode || 500)
+      return json({ error: error.message, ...(error.code ? { code: error.code } : {}), ...(error.limit !== undefined ? { limit: error.limit } : {}), ...(error.activeTaskCount !== undefined ? { activeTaskCount: error.activeTaskCount } : {}) }, error.statusCode || 500)
     }
   }
 }

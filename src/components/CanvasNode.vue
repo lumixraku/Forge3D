@@ -278,8 +278,8 @@ function loadMockImage(file: File) {
 </template>
 
 <style scoped>
-.canvas-node { --node-ring: #111313; }
-:global(:root[data-theme='light']) .canvas-node { --node-ring: #fff; }
+:global(:root) { --node-ring: #111313; }
+:global(:root[data-theme='light']) { --node-ring: #fff; }
 .tone-cyan { --node-accent: #68d9d0; }
 .tone-violet { --node-accent: #a78bfa; }
 .tone-amber { --node-accent: #f0ba62; }

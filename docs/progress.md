@@ -1202,3 +1202,11 @@ five nodes green, 80 credits.
 - Verification: `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. The build retains the existing large-chunk warning.
 - Verification: `pnpm test` passed 219 tests, `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. Focus-loss correction was rechecked with `pnpm test`, `pnpm typecheck`, and `git diff --check`. The build retains the existing large-chunk warning. Browser re-verification was blocked because the existing localhost Chrome tabs stopped responding to Chrome MCP reload and snapshot requests.
 - Remaining issues: Process-local leases require shared TTL storage for multi-instance deployment; complete the two-tab 30-second idle handoff check when the existing Chrome session responds.
+
+## 2026-08-17 - main
+
+- Adapted the Tripo CreateRun improvement to this branch's REST API: execution parameters are snapshotted from the current panel configs, SaveCanvas and CreateRun start concurrently, and the task panel displays the recorded parameters.
+- Added locked execution-plan and idempotency metadata to project execution requests, plus a three-active-task project limit for CreateRun gateway requests. Legacy canvas execution requests remain unchanged.
+- Preserved the existing CanvasNode light-theme change already present in the worktree.
+- Verification: `pnpm test` passed 259 tests; `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. Build retains the existing large-chunk warning.
+- Remaining issues: None.

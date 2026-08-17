@@ -44,6 +44,14 @@ function progress(execution: any) {
   if (!steps.length) return 0
   return Math.round((steps.filter((step) => ['succeeded', 'failed', 'waiting_review'].includes(step.status)).length / steps.length) * 100)
 }
+
+function parameterText(execution: any) {
+  return Object.entries(execution.parameters || {}).flatMap(([nodeId, parameters]: [string, any]) =>
+    Object.entries(parameters || {})
+      .filter(([key, value]) => key !== 'result' && value != null && ['string', 'number', 'boolean'].includes(typeof value))
+      .map(([key, value]) => `${nodeId}.${key}: ${value}`),
+  ).join(' · ')
+}
 </script>
 
 <template>
@@ -57,6 +65,7 @@ function progress(execution: any) {
       <section v-for="execution in taskRuns" :key="execution.id" class="grid gap-[7px] rounded-lg border border-line bg-bg-card p-[10px]">
         <div class="flex items-baseline justify-between gap-2"><strong class="overflow-hidden text-ellipsis whitespace-nowrap text-[10px] text-text-secondary">{{ execution.entryNodeName || 'Workflow run' }}</strong><time class="flex-none font-mono text-[7px] text-text-muted" :datetime="execution.createdAt">{{ runLabel(execution) }}</time></div>
         <code class="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[7px] text-text-muted" :title="execution.id">Task ID: {{ execution.id }}</code>
+        <p v-if="parameterText(execution)" class="m-0 line-clamp-3 font-mono text-[7px] leading-[1.45] text-text-muted" :title="parameterText(execution)">{{ parameterText(execution) }}</p>
         <div class="flex items-center gap-1.5 font-mono text-[8px] font-medium tracking-[.06em] text-text-muted [&>i]:size-[7px] [&>i]:rounded-full [&>i]:bg-text-muted [&>b]:ml-auto [&>b]:font-medium [&>b]:text-text-secondary [&.is-running>i]:animate-[execution-pulse_1.2s_ease-in-out_infinite] [&.is-running>i]:bg-acid [&.is-running>i]:shadow-[0_0_8px_color-mix(in_srgb,var(--acid)_70%,transparent)] [&.is-succeeded>i]:bg-[#68c987] [&.is-failed>i]:bg-[#e2746b]" :class="statusClass(execution.status)"><i aria-hidden="true" /><span>{{ statusLabel(execution.status) }}</span><b>{{ progress(execution) }}%</b></div>
         <div class="mt-[7px] h-[3px] overflow-hidden rounded-sm bg-line"><span class="block h-full bg-acid transition-[width] duration-250" :style="{ width: `${progress(execution)}%` }" /></div>
         <p v-if="execution.status === 'failed'" class="m-0 font-mono text-[8px] font-normal leading-[1.4] text-[#e2746b]">{{ Object.values(execution.nodeExecutions || {}).find((nodeRun: any) => nodeRun.error)?.error || 'Task failed' }}</p>

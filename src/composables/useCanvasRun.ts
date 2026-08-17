@@ -34,6 +34,7 @@ interface ExecutionDto {
   mode: ExecutionMode
   status: ExecutionStatus
   nodeExecutions: Record<string, NodeExecution>
+  parameters?: Record<string, Record<string, unknown>>
   createdAt?: string
   completedAt?: string | null
 }
@@ -44,6 +45,7 @@ interface CanvasRun {
   mode: ExecutionMode
   status: ExecutionStatus
   nodeRuns: Record<string, NodeExecution>
+  parameters?: Record<string, Record<string, unknown>>
   createdAt?: string
   completedAt?: string | null
 }
@@ -55,6 +57,7 @@ function toCanvasRun(execution: ExecutionDto): CanvasRun {
     mode: execution.mode,
     status: execution.status,
     nodeRuns: execution.nodeExecutions,
+    parameters: execution.parameters,
     createdAt: execution.createdAt,
     completedAt: execution.completedAt,
   }
@@ -112,36 +115,45 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
     error.value = ''
     const pollToken = ++runToken.value
     try {
-      await saveCanvas()
       const plan = planNodes(nodes.value, edges.value, targetNodeId, scope)
       if (!plan.length) return
+      const parameters = Object.fromEntries(plan.map((node) => [node.id, JSON.parse(JSON.stringify(node.data?.config || {}))]))
 
       // Queue the whole plan up front so the canvas shows what is pending.
       const planned: Record<string, NodeExecution> = Object.fromEntries(plan.map((node, index) => [node.id, { status: index === 0 ? 'running' : 'queued', durationMs: null, output: null, error: null }]))
-      run.value = { id: null, entryNodeId: targetNodeId, mode: scope, status: 'running', nodeRuns: planned }
+      run.value = { id: null, entryNodeId: targetNodeId, mode: scope, status: 'running', nodeRuns: planned, parameters }
       nodeRuns.value = targetNodeId ? { ...nodeRuns.value, ...planned } : planned
       canvasBusy.value = false
 
       const canvasId = activeCanvas.value.id
-      const execution = await request(`/api/canvases/${encodeURIComponent(canvasId)}/nodes/${encodeURIComponent(targetNodeId)}/executions`, {
+      const createRun = request(`/api/projects/${encodeURIComponent(canvasId)}/executions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          mode: scope === 'downstream' ? 'downstream' : 'node',
           canvasId,
+          entryNodeId: targetNodeId,
+          nodeIds: plan.map((node) => node.id),
+          mode: scope === 'downstream' ? 'downstream' : 'node',
+          idempotencyKey: crypto.randomUUID(),
+          parameters,
           // Omitted entirely when no override is set, so the server keeps deciding.
           ...(provider.value ? { provider: provider.value } : {}),
         }),
-      }) as ExecutionDto
+      }) as Promise<ExecutionDto>
+      const [, execution] = await Promise.all([saveCanvas(), createRun])
+      run.value = toCanvasRun(execution)
       await onAccountChanged()
       if (runToken.value !== pollToken || activeCanvas.value?.id !== canvasId) return
       const pollInterval = POLL_INTERVAL_MS[provider.value === 'mock' ? 'mock' : 'tripo']
-      run.value = toCanvasRun(execution)
       activeExecutions.value = { ...activeExecutions.value, [execution.id]: run.value }
       void pollExecution(execution, plan, canvasId, pollToken, pollInterval)
       await loadExecutions(canvasId)
     } catch (caught) {
       error.value = caught.message
+      if (!run.value?.id && runToken.value === pollToken) {
+        run.value = { ...run.value, status: 'failed', nodeRuns: Object.fromEntries(Object.entries(run.value?.nodeRuns || {}).map(([nodeId, nodeRun]) => [nodeId, { ...nodeRun, status: 'failed', error: caught.message }])) }
+        nodeRuns.value = { ...nodeRuns.value, ...run.value.nodeRuns }
+      }
       // Mark whichever node was mid-flight as failed so the canvas stops spinning.
       if (run.value) {
         const nodeRunEntries = Object.entries(run.value.nodeRuns).map(([id, nodeRun]) => (

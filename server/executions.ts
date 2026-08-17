@@ -7,6 +7,19 @@ import { latestNodeRuns } from './node-state.js'
 import { tripoNodeOutput } from './tripo-mapping.js'
 
 const TRIPO_FAILURE_STATUSES = new Set(['failed', 'banned', 'expired', 'cancelled'])
+const ACTIVE_EXECUTION_STATUSES = new Set(['queued', 'running', 'cancelling'])
+export const MAX_ACTIVE_EXECUTIONS_PER_PROJECT = 3
+
+export function assertProjectExecutionCapacity(runs, projectId) {
+  const activeTaskCount = runs.filter((run) => (run.projectId || run.canvasId) === projectId && ACTIVE_EXECUTION_STATUSES.has(run.status)).length
+  if (activeTaskCount < MAX_ACTIVE_EXECUTIONS_PER_PROJECT) return
+  const error = new Error(`This project already has ${activeTaskCount} active tasks. Wait for one to finish before creating another.`)
+  error.statusCode = 409
+  error.code = 'ACTIVE_TASK_LIMIT_REACHED'
+  error.limit = MAX_ACTIVE_EXECUTIONS_PER_PROJECT
+  error.activeTaskCount = activeTaskCount
+  throw error
+}
 
 export async function syncExecutionWithTripo(run, getTripoTask) {
   if (!run || !getTripoTask) return run
@@ -62,6 +75,8 @@ export function executionDto(run) {
     entryNodeId: run.entryNodeId || Object.keys(run.nodeRuns || {})[0] || null,
     entryNodeName: run.entryNodeName || null,
     canvasId: run.canvasId,
+    input: run.input || null,
+    parameters: run.parameters || null,
     canvasRevision: run.canvasRevision,
     mode: run.mode || 'node',
     status: run.status,
@@ -97,7 +112,7 @@ export function paginateAssets(assets, url) {
   return { items, nextCursor: hasMore ? items.at(-1)?.id || null : null, hasMore }
 }
 
-export function createExecution(runs, canvas, entryNode, mode = 'downstream') {
+export function createExecution(runs, canvas, entryNode, mode = 'downstream', { nodeIds = null, idempotencyKey = null, parameters = null } = {}) {
   if (!['node', 'downstream'].includes(mode)) {
     const error = new Error('Invalid execution mode')
     error.statusCode = 400
@@ -123,14 +138,50 @@ export function createExecution(runs, canvas, entryNode, mode = 'downstream') {
     ? downstreamCanvas(canvas, entryNode.id)
     : { ...structuredClone(canvas), nodes: [structuredClone(entryNode)], edges: [] }
   const nodes = executionNodes(executionCanvas)
+  const plannedNodeIds = nodes.map((node) => node.id)
+  if (nodeIds !== null && (!Array.isArray(nodeIds) || !nodeIds.length || nodeIds.some((nodeId) => typeof nodeId !== 'string'))) {
+    const error = new Error('nodeIds must be a non-empty array of node IDs')
+    error.statusCode = 400
+    throw error
+  }
+  if (nodeIds !== null && (nodeIds.length !== plannedNodeIds.length || nodeIds.some((nodeId, index) => nodeId !== plannedNodeIds[index]))) {
+    const error = new Error('nodeIds must match the execution plan for entryNodeId and mode')
+    error.statusCode = 409
+    throw error
+  }
+  if (idempotencyKey !== null && (typeof idempotencyKey !== 'string' || !idempotencyKey.trim())) {
+    const error = new Error('idempotencyKey must be a non-empty string')
+    error.statusCode = 400
+    throw error
+  }
+  if (parameters !== null && (typeof parameters !== 'object' || Array.isArray(parameters))) {
+    const error = new Error('parameters must be an object keyed by node ID')
+    error.statusCode = 400
+    throw error
+  }
+  for (const [nodeId, config] of Object.entries(parameters || {})) {
+    const node = nodes.find((candidate) => candidate.id === nodeId)
+    if (!node || !config || typeof config !== 'object' || Array.isArray(config)) {
+      const error = new Error('parameters must contain object values for planned node IDs')
+      error.statusCode = 400
+      throw error
+    }
+    node.config = { ...(node.config || {}), ...structuredClone(config) }
+  }
+  const executionEntryNode = nodes.find((node) => node.id === entryNode.id) || entryNode
   const timestamp = new Date().toISOString()
   const run = {
     id: `run-${randomUUID()}`,
     canvasId: canvas.id,
+    projectId: canvas.id,
     canvasRevision: canvas.revision,
     entryNodeId: entryNode.id,
     entryNodeType: entryNode.type,
     entryNodeName: entryNode.name || entryNode.type,
+    nodeIds: plannedNodeIds,
+    ...(idempotencyKey ? { idempotencyKey: idempotencyKey.trim() } : {}),
+    input: { entryNode: structuredClone(executionEntryNode), nodes: structuredClone(nodes), edges: structuredClone(executionCanvas.edges || []) },
+    parameters: Object.fromEntries(nodes.map((node) => [node.id, structuredClone(node.config || {})])),
     mode,
     status: 'queued',
     cancelRequested: false,
