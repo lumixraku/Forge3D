@@ -1,5 +1,18 @@
 # Progress
 
+## 2026-08-19 - main
+
+- Corrected `NodeSlider` endpoint geometry by insetting its track by half the thumb diameter, so minimum and maximum values place the thumb center at each visible track endpoint.
+- Set native toggle inputs in `CanvasNode` to the light color scheme while retaining the node accent, restoring white checkmarks on selected green checkboxes.
+- Verification: `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning.
+- Remaining issues: None.
+
+## 2026-08-19 - main
+
+- Replaced the shared native parameter-toggle rendering with an accessible visually hidden checkbox and explicit white SVG checkmark, so every checked toggle consistently shows the white check over its node-accent green background.
+- Verification: `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning.
+- Remaining issues: None.
+
 ## 2026-08-15 - main
 
 - Replaced canvas-scoped Agent steering with coordinator-created task groups: independent general workers run concurrently, canvas-writing workers remain serialized, and a coordinator turn summarizes all worker outcomes.
