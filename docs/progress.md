@@ -2,6 +2,26 @@
 
 ## 2026-08-19 - main
 
+- Fixed the schema-driven parameter renderer so the `Advanced` trigger is always placed after all default controls, with Advanced controls rendered as a contiguous group beneath it.
+- Verification: `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning.
+- Remaining issues: None.
+
+## 2026-08-19 - main
+
+- Added schema-level `advanced` metadata to node parameters and grouped the model node's lower-frequency controls behind a collapsed `Advanced` section.
+- Kept the default view focused on the model selector, mesh quality, texture, and texture quality; topology, polycount, PBR, part generation, 8K texture, privacy, and AI Complete are Advanced controls.
+- Applied the same rendering behavior to every schema-generated node that declares Advanced parameters.
+- Verification: `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning.
+- Remaining issues: None.
+
+## 2026-08-19 - main
+
+- Removed the schema-driven node parameter editor's outer border, background, and padding while keeping the shared control layout and individual control borders intact across all generated nodes.
+- Verification: `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning.
+- Remaining issues: None.
+
+## 2026-08-19 - main
+
 - Corrected `NodeSlider` endpoint geometry by insetting its track by half the thumb diameter, so minimum and maximum values place the thumb center at each visible track endpoint.
 - Set native toggle inputs in `CanvasNode` to the light color scheme while retaining the node accent, restoring white checkmarks on selected green checkboxes.
 - Verification: `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning.

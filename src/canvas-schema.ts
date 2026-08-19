@@ -46,6 +46,7 @@ export interface NodeParameter {
   key: string
   label: string
   control: 'text' | 'textarea' | 'select' | 'segmented' | 'slider' | 'toggle'
+  advanced?: boolean
   options?: ParameterOption[]
   range?: ParameterRange
   placeholder?: string
@@ -103,15 +104,15 @@ const modelDefaults = { modelVersion: 'v3.1-20260211', geometryQuality: true, ai
 const modelParameters: NodeParameter[] = [
   { key: 'modelVersion', label: 'AI Model', control: 'select', options: modelVersions },
   { key: 'geometryQuality', label: 'Ultra Mesh Quality', control: 'toggle', visibleWhen: [{ field: 'modelVersion', equals: 'v3.1-20260211' }] },
-  { key: 'aiComplete', label: 'AI Complete', control: 'toggle' },
+  { key: 'aiComplete', label: 'AI Complete', control: 'toggle', advanced: true },
   { key: 'texture', label: 'Texture', control: 'toggle' },
   { key: 'textureQuality', label: 'Texture Quality', control: 'segmented', options: textureQualities, visibleWhen: [{ field: 'texture', equals: true }] },
-  { key: 'pbr', label: 'PBR', control: 'toggle', visibleWhen: [{ field: 'texture', equals: true }] },
-  { key: 'topology', label: 'Topology', control: 'segmented', options: topology },
-  { key: 'faceCount', label: 'Polycount', control: 'slider', range: { min: 500, max: 1000000, step: 500, rules: [{ when: [{ field: 'geometryQuality', equals: true }], max: 2000000 }, { when: [{ field: 'topology', equals: 'quad' }], max: 50000 }, { when: [{ field: 'generateParts', equals: true }], min: 10000 }] } },
-  { key: 'generateParts', label: 'Generate in Parts', control: 'toggle' },
-  { key: 'texture8k', label: '8K Texture', control: 'toggle', visibleWhen: [{ field: 'texture', equals: true }] },
-  { key: 'privacy', label: 'Privacy', control: 'select', options: options([['sharing-only', 'Sharing Only'], ['private', 'Private']]) },
+  { key: 'pbr', label: 'PBR', control: 'toggle', advanced: true, visibleWhen: [{ field: 'texture', equals: true }] },
+  { key: 'topology', label: 'Topology', control: 'segmented', advanced: true, options: topology },
+  { key: 'faceCount', label: 'Polycount', control: 'slider', advanced: true, range: { min: 500, max: 1000000, step: 500, rules: [{ when: [{ field: 'geometryQuality', equals: true }], max: 2000000 }, { when: [{ field: 'topology', equals: 'quad' }], max: 50000 }, { when: [{ field: 'generateParts', equals: true }], min: 10000 }] } },
+  { key: 'generateParts', label: 'Generate in Parts', control: 'toggle', advanced: true },
+  { key: 'texture8k', label: '8K Texture', control: 'toggle', advanced: true, visibleWhen: [{ field: 'texture', equals: true }] },
+  { key: 'privacy', label: 'Privacy', control: 'select', advanced: true, options: options([['sharing-only', 'Sharing Only'], ['private', 'Private']]) },
 ]
 const modelEffects: NodeEffect[] = [{ when: { field: 'generateParts', equals: true }, set: { topology: 'triangle', texture: false, pbr: false } }]
 
