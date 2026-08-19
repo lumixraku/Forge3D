@@ -4,6 +4,7 @@ import Placeholder from '@tiptap/extension-placeholder'
 import StarterKit from '@tiptap/starter-kit'
 import { request } from '../api'
 import { canContinueSelection, selectedOptionIds } from '../chat-selection'
+import { bizClass } from '../class-prefix'
 import { Attachment } from '../editor/attachment'
 
 // The copilot side of the app: the tiptap composer, the SSE agent stream, and the
@@ -28,7 +29,7 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
     ],
     editorProps: {
       attributes: {
-        class: 'composer-editor',
+        class: bizClass('composer-editor'),
         'aria-label': 'Describe a 3D canvas or ask for a change',
       },
       // Enter sends; Shift+Enter is the way to get a newline.

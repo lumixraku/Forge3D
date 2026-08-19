@@ -15,16 +15,16 @@ const edgePath = computed(() => getBezierPath({
 </script>
 
 <template>
-  <BaseEdge :path="edgePath" :marker-end="markerEnd" class="execution-edge-base" />
+  <BaseEdge :path="edgePath" :marker-end="markerEnd" class="forge3d-execution-edge-base" />
   <path
     v-if="data?.running"
     :d="edgePath"
-    class="execution-edge-flow"
+    class="forge3d-execution-edge-flow"
   />
 </template>
 
 <style scoped>
-.execution-edge-flow { fill: none; stroke: var(--acid); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 10 58; filter: drop-shadow(0 0 4px var(--acid)) drop-shadow(0 0 9px color-mix(in srgb, var(--acid) 65%, transparent)); animation: execution-edge-flow 1.05s linear infinite; pointer-events: none; }
+.forge3d-execution-edge-flow { fill: none; stroke: var(--acid); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 10 58; filter: drop-shadow(0 0 4px var(--acid)) drop-shadow(0 0 9px color-mix(in srgb, var(--acid) 65%, transparent)); animation: execution-edge-flow 1.05s linear infinite; pointer-events: none; }
 @keyframes execution-edge-flow { to { stroke-dashoffset: -68; } }
-@media (prefers-reduced-motion: reduce) { .execution-edge-flow { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .forge3d-execution-edge-flow { animation: none; } }
 </style>

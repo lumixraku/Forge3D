@@ -3,7 +3,7 @@ const props = defineProps<{ rails: any[]; total: number; loading?: boolean; canv
 const emit = defineEmits<{ preview: [preview: { src: string; alt: string }]; 'open-model-editor': [nodeId: string] }>()
 
 function scrollRail(event: MouseEvent, direction: number) {
-  const track = (event.currentTarget as HTMLElement).closest('.asset-rail')?.querySelector('.asset-rail-track')
+  const track = (event.currentTarget as HTMLElement).closest('.forge3d-asset-rail')?.querySelector('.forge3d-asset-rail-track')
   track?.scrollBy({ left: direction * Math.min(track.clientWidth * 0.85, 520), behavior: 'smooth' })
 }
 
@@ -13,33 +13,33 @@ function onCanvas(nodeId: string) {
 </script>
 
 <template>
-  <div class="row-start-2 flex min-h-0 flex-col gap-[22px] overflow-y-auto bg-bg-primary px-5 pb-[26px] pt-[22px]">
-    <div v-if="loading && !total" class="m-auto grid max-w-[340px] gap-1.5 text-center">
-      <strong class="font-mono text-xs font-semibold tracking-[.04em] text-text-secondary">Loading assets…</strong>
-      <span class="text-xs leading-normal text-text-muted">Reading this canvas's run history.</span>
+  <div class="forge:row-start-2 forge:flex forge:min-h-0 forge:flex-col forge:gap-[22px] forge:overflow-y-auto forge:bg-bg-primary forge:px-5 forge:pb-[26px] forge:pt-[22px]">
+    <div v-if="loading && !total" class="forge:m-auto forge:grid forge:max-w-[340px] forge:gap-1.5 forge:text-center">
+      <strong class="forge:font-mono forge:text-xs forge:font-semibold forge:tracking-[.04em] forge:text-text-secondary">Loading assets…</strong>
+      <span class="forge:text-xs forge:leading-normal forge:text-text-muted">Reading this canvas's run history.</span>
     </div>
-    <div v-else-if="!total" class="m-auto grid max-w-[340px] gap-1.5 text-center">
-      <strong class="font-mono text-xs font-semibold tracking-[.04em] text-text-secondary">No assets yet</strong>
-      <span class="text-xs leading-normal text-text-muted">References, generated 2D images and 3D models from every run of this canvas collect here.</span>
+    <div v-else-if="!total" class="forge:m-auto forge:grid forge:max-w-[340px] forge:gap-1.5 forge:text-center">
+      <strong class="forge:font-mono forge:text-xs forge:font-semibold forge:tracking-[.04em] forge:text-text-secondary">No assets yet</strong>
+      <span class="forge:text-xs forge:leading-normal forge:text-text-muted">References, generated 2D images and 3D models from every run of this canvas collect here.</span>
     </div>
     <template v-else>
-      <section v-for="rail in rails" :key="rail.key" class="asset-rail flex flex-col gap-[11px]">
-        <header class="flex items-center justify-between border-b border-line pb-[9px]">
-          <div class="flex items-baseline gap-2"><span class="font-mono text-[10px] font-semibold uppercase tracking-[.14em] text-text-secondary">{{ rail.title }}</span><b class="grid h-4 min-w-[18px] place-items-center rounded-lg bg-bg-input-hover px-[5px] font-mono text-[9px] font-semibold text-text-muted">{{ rail.items.length }}</b></div>
-          <div v-if="rail.items.length" class="flex gap-[5px]">
-            <button class="grid size-6 place-items-center rounded-md border border-line-subtle bg-bg-input p-0 text-sm leading-none text-text-muted transition-colors hover:border-line-strong hover:bg-bg-input-hover hover:text-acid" type="button" aria-label="Scroll left" @click="scrollRail($event, -1)">‹</button>
-            <button class="grid size-6 place-items-center rounded-md border border-line-subtle bg-bg-input p-0 text-sm leading-none text-text-muted transition-colors hover:border-line-strong hover:bg-bg-input-hover hover:text-acid" type="button" aria-label="Scroll right" @click="scrollRail($event, 1)">›</button>
+      <section v-for="rail in rails" :key="rail.key" class="forge3d-asset-rail forge:flex forge:flex-col forge:gap-[11px]">
+        <header class="forge:flex forge:items-center forge:justify-between forge:border-b forge:border-line forge:pb-[9px]">
+          <div class="forge:flex forge:items-baseline forge:gap-2"><span class="forge:font-mono forge:text-[10px] forge:font-semibold forge:uppercase forge:tracking-[.14em] forge:text-text-secondary">{{ rail.title }}</span><b class="forge:grid forge:h-4 forge:min-w-[18px] forge:place-items-center forge:rounded-lg forge:bg-bg-input-hover forge:px-[5px] forge:font-mono forge:text-[9px] forge:font-semibold forge:text-text-muted">{{ rail.items.length }}</b></div>
+          <div v-if="rail.items.length" class="forge:flex forge:gap-[5px]">
+            <button class="forge:grid forge:size-6 forge:place-items-center forge:rounded-md forge:border forge:border-line-subtle forge:bg-bg-input forge:p-0 forge:text-sm forge:leading-none forge:text-text-muted forge:transition-colors forge:hover:border-line-strong forge:hover:bg-bg-input-hover forge:hover:text-acid" type="button" aria-label="Scroll left" @click="scrollRail($event, -1)">‹</button>
+            <button class="forge:grid forge:size-6 forge:place-items-center forge:rounded-md forge:border forge:border-line-subtle forge:bg-bg-input forge:p-0 forge:text-sm forge:leading-none forge:text-text-muted forge:transition-colors forge:hover:border-line-strong forge:hover:bg-bg-input-hover forge:hover:text-acid" type="button" aria-label="Scroll right" @click="scrollRail($event, 1)">›</button>
           </div>
         </header>
-        <div v-if="rail.items.length" class="asset-rail-track flex snap-x snap-proximity gap-3 overflow-x-auto pb-1.5 [scrollbar-width:thin]">
-          <article v-for="item in rail.items" :key="item.id" class="group relative flex w-[168px] flex-none snap-start flex-col gap-2 rounded-[11px] border border-line bg-bg-card p-2 transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:border-line-strong hover:shadow-lg">
-            <button type="button" class="block aspect-square w-full cursor-zoom-in overflow-hidden rounded-lg border-0 bg-bg-input-hover p-0" @click="emit('preview', { src: item.src, alt: item.label })"><img class="block size-full object-cover" :src="item.src" :alt="item.label" loading="lazy" /></button>
-            <div class="flex items-center justify-between gap-1.5 px-0.5"><strong class="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11px] font-medium text-text-primary" :title="item.label">{{ item.label }}</strong><span class="flex-none rounded-[5px] bg-bg-input-hover px-1.5 py-0.5 font-mono text-[8px] font-semibold tracking-[.06em] text-text-muted">{{ rail.badge }}</span></div>
-            <div class="flex items-baseline justify-between gap-1.5 px-0.5 font-mono text-[9px] font-medium text-text-muted"><span class="uppercase tracking-[.06em] text-text-secondary" :title="item.runId">{{ item.runLabel }}</span><time class="overflow-hidden text-ellipsis whitespace-nowrap" :datetime="item.createdAt">{{ new Date(item.createdAt).toLocaleString() }}</time></div>
-            <button v-if="rail.key === 'models' && onCanvas(item.nodeId)" type="button" class="absolute right-3.5 top-3.5 grid size-[26px] place-items-center rounded-[7px] border-0 bg-[color-mix(in_srgb,var(--bg-card)_82%,transparent)] p-0 text-[13px] leading-none text-text-secondary opacity-0 backdrop-blur transition-[opacity,background,color] group-hover:opacity-100 hover:bg-acid hover:text-text-inverse" title="Open in Model Editor" @click="emit('open-model-editor', item.nodeId)">↗</button>
+        <div v-if="rail.items.length" class="forge3d-asset-rail-track forge:flex forge:snap-x forge:snap-proximity forge:gap-3 forge:overflow-x-auto forge:pb-1.5 forge:[scrollbar-width:thin]">
+          <article v-for="item in rail.items" :key="item.id" class="forge:group forge:relative forge:flex forge:w-[168px] forge:flex-none forge:snap-start forge:flex-col forge:gap-2 forge:rounded-[11px] forge:border forge:border-line forge:bg-bg-card forge:p-2 forge:transition-[border-color,box-shadow,transform] forge:duration-150 forge:hover:-translate-y-0.5 forge:hover:border-line-strong forge:hover:shadow-lg">
+            <button type="button" class="forge:block forge:aspect-square forge:w-full forge:cursor-zoom-in forge:overflow-hidden forge:rounded-lg forge:border-0 forge:bg-bg-input-hover forge:p-0" @click="emit('preview', { src: item.src, alt: item.label })"><img class="forge:block forge:size-full forge:object-cover" :src="item.src" :alt="item.label" loading="lazy" /></button>
+            <div class="forge:flex forge:items-center forge:justify-between forge:gap-1.5 forge:px-0.5"><strong class="forge:overflow-hidden forge:text-ellipsis forge:whitespace-nowrap forge:font-mono forge:text-[11px] forge:font-medium forge:text-text-primary" :title="item.label">{{ item.label }}</strong><span class="forge:flex-none forge:rounded-[5px] forge:bg-bg-input-hover forge:px-1.5 forge:py-0.5 forge:font-mono forge:text-[8px] forge:font-semibold forge:tracking-[.06em] forge:text-text-muted">{{ rail.badge }}</span></div>
+            <div class="forge:flex forge:items-baseline forge:justify-between forge:gap-1.5 forge:px-0.5 forge:font-mono forge:text-[9px] forge:font-medium forge:text-text-muted"><span class="forge:uppercase forge:tracking-[.06em] forge:text-text-secondary" :title="item.runId">{{ item.runLabel }}</span><time class="forge:overflow-hidden forge:text-ellipsis forge:whitespace-nowrap" :datetime="item.createdAt">{{ new Date(item.createdAt).toLocaleString() }}</time></div>
+            <button v-if="rail.key === 'models' && onCanvas(item.nodeId)" type="button" class="forge:absolute forge:right-3.5 forge:top-3.5 forge:grid forge:size-[26px] forge:place-items-center forge:rounded-[7px] forge:border-0 forge:bg-[color-mix(in_srgb,var(--bg-card)_82%,transparent)] forge:p-0 forge:text-[13px] forge:leading-none forge:text-text-secondary forge:opacity-0 forge:backdrop-blur forge:transition-[opacity,background,color] forge:group-hover:opacity-100 forge:hover:bg-acid forge:hover:text-text-inverse" title="Open in Model Editor" @click="emit('open-model-editor', item.nodeId)">↗</button>
           </article>
         </div>
-        <p v-else class="px-0.5 py-5 font-mono text-[10px] font-medium tracking-[.04em] text-text-muted">No {{ rail.title.toLowerCase() }} yet</p>
+        <p v-else class="forge:px-0.5 forge:py-5 forge:font-mono forge:text-[10px] forge:font-medium forge:tracking-[.04em] forge:text-text-muted">No {{ rail.title.toLowerCase() }} yet</p>
       </section>
     </template>
   </div>

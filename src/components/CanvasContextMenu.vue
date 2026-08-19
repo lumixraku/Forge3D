@@ -23,7 +23,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="fixed left-0 top-0 z-30 grid max-h-[calc(100vh-16px)] w-[236px] gap-[3px] overflow-y-auto rounded-lg border border-line-strong bg-bg-input p-[5px] shadow-popover animate-[popover-in_.12s_ease-out] [&>strong]:px-[9px] [&>strong]:pb-1 [&>strong]:pt-2 [&>strong]:font-mono [&>strong]:text-[8px] [&>strong]:font-semibold [&>strong]:uppercase [&>strong]:tracking-[.12em] [&>strong]:text-text-muted [&>button]:grid [&>button]:min-h-[34px] [&>button]:w-full [&>button]:rounded-md [&>button]:border [&>button]:border-transparent [&>button]:bg-transparent [&>button]:px-[9px] [&>button]:py-[7px] [&>button]:text-left [&>button]:transition-colors [&>button]:hover:border-line-strong [&>button]:hover:bg-bg-input-hover [&>button_span]:font-sans [&>button_span]:text-[10px] [&>button_span]:font-medium [&>button_span]:text-text-primary" :style="{ left: `${context.left}px`, top: `${context.top}px`, maxWidth: `${context.maxWidth}px`, maxHeight: `${context.maxHeight}px` }" @pointerdown.stop>
+  <div class="forge:fixed forge:left-0 forge:top-0 forge:z-30 forge:grid forge:max-h-[calc(100vh-16px)] forge:w-[236px] forge:gap-[3px] forge:overflow-y-auto forge:rounded-lg forge:border forge:border-line-strong forge:bg-bg-input forge:p-[5px] forge:shadow-popover forge:animate-[popover-in_.12s_ease-out] forge:[&>strong]:px-[9px] forge:[&>strong]:pb-1 forge:[&>strong]:pt-2 forge:[&>strong]:font-mono forge:[&>strong]:text-[8px] forge:[&>strong]:font-semibold forge:[&>strong]:uppercase forge:[&>strong]:tracking-[.12em] forge:[&>strong]:text-text-muted forge:[&>button]:grid forge:[&>button]:min-h-[34px] forge:[&>button]:w-full forge:[&>button]:rounded-md forge:[&>button]:border forge:[&>button]:border-transparent forge:[&>button]:bg-transparent forge:[&>button]:px-[9px] forge:[&>button]:py-[7px] forge:[&>button]:text-left forge:[&>button]:transition-colors forge:[&>button]:hover:border-line-strong forge:[&>button]:hover:bg-bg-input-hover forge:[&>button_span]:font-sans forge:[&>button_span]:text-[10px] forge:[&>button_span]:font-medium forge:[&>button_span]:text-text-primary" :style="{ left: `${context.left}px`, top: `${context.top}px`, maxWidth: `${context.maxWidth}px`, maxHeight: `${context.maxHeight}px` }" @pointerdown.stop>
     <template v-if="context.kind === 'selection'">
       <strong>Selection</strong>
       <button type="button" :disabled="!canFrameSelection" @click="emit('frame-selection')"><span>Make as a section</span></button>
@@ -38,7 +38,7 @@ const emit = defineEmits<{
       <strong>Canvas</strong>
       <button type="button" :disabled="!hasClipboard" @click="emit('paste')"><span>Paste</span></button>
       <NodeCatalogMenu :catalog="catalog" :categories="categories" @select="emit('select-node-type', $event)" @dragstart="emit('drag-node-type', $event)" />
-      <small v-if="!catalog.length" class="px-[9px] py-3 text-text-muted">No compatible node types</small>
+      <small v-if="!catalog.length" class="forge:px-[9px] forge:py-3 forge:text-text-muted">No compatible node types</small>
     </template>
   </div>
 </template>

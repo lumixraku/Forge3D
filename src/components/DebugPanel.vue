@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { bizClass } from '../class-prefix'
 import { computed, ref } from 'vue'
 import type { RunProvider } from '../composables/useDebugSettings'
 
@@ -117,21 +118,21 @@ function onBallClick() {
 </script>
 
 <template>
-  <div class="fixed z-[60] flex flex-col items-start gap-2.5 pointer-events-none [&.at-top]:flex-col-reverse [&:not(.at-left)]:items-end [&>*]:pointer-events-auto [&.dragging_.debug-ball]:cursor-grabbing [&.dragging_.debug-ball]:transform-none" :class="{ 'at-top': atTop, 'at-left': atLeft, dragging }" :style="dockStyle">
-    <aside v-if="props.open" class="w-[268px] overflow-hidden rounded-[10px] border border-line-strong bg-bg-card font-sans shadow-popover" role="dialog" aria-label="Debug settings">
-      <header class="flex items-center justify-between border-b border-line px-3 py-[9px] font-mono text-[10px] font-semibold tracking-[.08em] text-text-secondary">
+  <div class="forge:fixed forge:z-[60] forge:flex forge:flex-col forge:items-start forge:gap-2.5 forge:pointer-events-none forge:[&.forge3d-at-top]:flex-col-reverse forge:[&:not(.forge3d-at-left)]:items-end forge:[&>*]:pointer-events-auto forge:[&.forge3d-dragging_.forge3d-debug-ball]:cursor-grabbing forge:[&.forge3d-dragging_.forge3d-debug-ball]:transform-none" :class="{ 'forge3d-at-top': atTop, 'forge3d-at-left': atLeft, 'forge3d-dragging': dragging }" :style="dockStyle">
+    <aside v-if="props.open" class="forge:w-[268px] forge:overflow-hidden forge:rounded-[10px] forge:border forge:border-line-strong forge:bg-bg-card forge:font-sans forge:shadow-popover" role="dialog" aria-label="Debug settings">
+      <header class="forge:flex forge:items-center forge:justify-between forge:border-b forge:border-line forge:px-3 forge:py-[9px] forge:font-mono forge:text-[10px] forge:font-semibold forge:tracking-[.08em] forge:text-text-secondary">
         <span>DEBUG</span>
-        <button class="border-0 bg-transparent text-[15px] leading-none text-text-muted hover:text-text-primary" type="button" aria-label="Close debug panel" @click="emit('update:open', false)">×</button>
+        <button class="forge:border-0 forge:bg-transparent forge:text-[15px] forge:leading-none forge:text-text-muted forge:hover:text-text-primary" type="button" aria-label="Close debug panel" @click="emit('update:open', false)">×</button>
       </header>
 
-      <section class="p-3 [&_h3]:mb-2 [&_h3]:mt-0 [&_h3]:font-mono [&_h3]:text-[9px] [&_h3]:font-semibold [&_h3]:uppercase [&_h3]:tracking-[.07em] [&_h3]:text-text-muted">
+      <section class="forge:p-3 forge:[&_h3]:mb-2 forge:[&_h3]:mt-0 forge:[&_h3]:font-mono forge:[&_h3]:text-[9px] forge:[&_h3]:font-semibold forge:[&_h3]:uppercase forge:[&_h3]:tracking-[.07em] forge:[&_h3]:text-text-muted">
         <h3>Node execution</h3>
-        <div class="flex flex-col gap-[5px] [&_button]:flex [&_button]:flex-col [&_button]:gap-px [&_button]:rounded-md [&_button]:border [&_button]:border-line [&_button]:bg-bg-input [&_button]:px-[9px] [&_button]:py-[7px] [&_button]:text-left [&_button]:hover:bg-bg-input-hover [&_button.selected]:border-acid [&_button.selected]:bg-bg-active [&_strong]:text-xs [&_strong]:font-medium [&_strong]:text-text-primary [&_small]:text-[10px] [&_small]:text-text-muted" role="radiogroup" aria-label="Execution provider">
+        <div class="forge:flex forge:flex-col forge:gap-[5px] forge:[&_button]:flex forge:[&_button]:flex-col forge:[&_button]:gap-px forge:[&_button]:rounded-md forge:[&_button]:border forge:[&_button]:border-line forge:[&_button]:bg-bg-input forge:[&_button]:px-[9px] forge:[&_button]:py-[7px] forge:[&_button]:text-left forge:[&_button]:hover:bg-bg-input-hover forge:[&_button.forge3d-selected]:border-acid forge:[&_button.forge3d-selected]:bg-bg-active forge:[&_strong]:text-xs forge:[&_strong]:font-medium forge:[&_strong]:text-text-primary forge:[&_small]:text-[10px] forge:[&_small]:text-text-muted" role="radiogroup" aria-label="Execution provider">
           <button
             type="button"
             role="radio"
             :aria-checked="props.selectedProvider === null"
-            :class="{ selected: props.selectedProvider === null }"
+            :class="{ 'forge3d-selected': props.selectedProvider === null }"
             @click="emit('set-provider', null)"
           >
             <strong>Auto</strong>
@@ -141,7 +142,7 @@ function onBallClick() {
             type="button"
             role="radio"
             :aria-checked="props.selectedProvider === 'mock'"
-            :class="{ selected: props.selectedProvider === 'mock' }"
+            :class="{ 'forge3d-selected': props.selectedProvider === 'mock' }"
             @click="emit('set-provider', 'mock')"
           >
             <strong>Mock</strong>
@@ -152,7 +153,7 @@ function onBallClick() {
             role="radio"
             :aria-checked="props.selectedProvider === 'tripo'"
             :disabled="!props.tripoAvailable"
-            :class="{ selected: props.selectedProvider === 'tripo' }"
+            :class="{ 'forge3d-selected': props.selectedProvider === 'tripo' }"
             :title="props.tripoAvailable ? '' : 'Set TRIPO_API_KEY and restart the API server'"
             @click="emit('set-provider', 'tripo')"
           >
@@ -162,23 +163,23 @@ function onBallClick() {
         </div>
       </section>
 
-      <section class="border-t border-line-subtle p-3 [&_h3]:mb-2 [&_h3]:mt-0 [&_h3]:font-mono [&_h3]:text-[9px] [&_h3]:font-semibold [&_h3]:uppercase [&_h3]:tracking-[.07em] [&_h3]:text-text-muted">
+      <section class="forge:border-t forge:border-line-subtle forge:p-3 forge:[&_h3]:mb-2 forge:[&_h3]:mt-0 forge:[&_h3]:font-mono forge:[&_h3]:text-[9px] forge:[&_h3]:font-semibold forge:[&_h3]:uppercase forge:[&_h3]:tracking-[.07em] forge:[&_h3]:text-text-muted">
         <h3>Active</h3>
-        <p class="m-0 flex items-center gap-[7px] text-xs text-text-primary [&_i]:size-[7px] [&_i]:rounded-full [&_i]:bg-text-muted [&.tripo_i]:bg-acid [&.tripo_i]:shadow-[0_0_6px_var(--acid)] [&_b]:ml-auto [&_b]:font-mono [&_b]:text-[9px] [&_b]:font-medium [&_b]:tracking-[.04em] [&_b]:text-acid" :class="props.activeProvider">
+        <p class="forge:m-0 forge:flex forge:items-center forge:gap-[7px] forge:text-xs forge:text-text-primary forge:[&_i]:size-[7px] forge:[&_i]:rounded-full forge:[&_i]:bg-text-muted forge:[&.forge3d-tripo_i]:bg-acid forge:[&.forge3d-tripo_i]:shadow-[0_0_6px_var(--acid)] forge:[&_b]:ml-auto forge:[&_b]:font-mono forge:[&_b]:text-[9px] forge:[&_b]:font-medium forge:[&_b]:tracking-[.04em] forge:[&_b]:text-acid" :class="bizClass(props.activeProvider)">
           <i />
           <span>{{ props.activeProvider === 'tripo' ? 'Tripo API' : 'Mock' }}</span>
           <b v-if="props.activeProvider === 'tripo'">spends credits</b>
         </p>
-        <p v-if="props.activeProvider === 'tripo'" class="mb-0 mt-[7px] text-[10px] leading-[1.45] text-text-muted">
+        <p v-if="props.activeProvider === 'tripo'" class="forge:mb-0 forge:mt-[7px] forge:text-[10px] forge:leading-[1.45] forge:text-text-muted">
           Backed by Tripo: {{ props.tripoNodeTypes.join(', ') }}. Other node types stay simulated.
         </p>
-        <p v-if="props.error" class="mb-0 mt-[7px] text-[10px] leading-[1.45] text-status-failed">{{ props.error }}</p>
+        <p v-if="props.error" class="forge:mb-0 forge:mt-[7px] forge:text-[10px] forge:leading-[1.45] forge:text-status-failed">{{ props.error }}</p>
       </section>
     </aside>
 
     <button
       type="button"
-      class="debug-ball flex size-[52px] cursor-pointer flex-col items-center justify-center gap-0.5 rounded-full border border-line-strong bg-bg-card font-mono text-[9px] font-semibold tracking-[.04em] text-text-secondary shadow-md transition-[transform,border-color,color] hover:-translate-y-px hover:border-acid hover:text-text-primary [&.open]:border-acid [&.open]:text-text-primary [&_i]:size-[7px] [&_i]:rounded-full [&_i]:bg-text-muted [&.tripo_i]:bg-acid [&.tripo_i]:shadow-[0_0_6px_var(--acid)] [&.tripo]:text-text-primary"
+      class="forge3d-debug-ball forge:flex forge:size-[52px] forge:cursor-pointer forge:flex-col forge:items-center forge:justify-center forge:gap-0.5 forge:rounded-full forge:border forge:border-line-strong forge:bg-bg-card forge:font-mono forge:text-[9px] forge:font-semibold forge:tracking-[.04em] forge:text-text-secondary forge:shadow-md forge:transition-[transform,border-color,color] forge:hover:-translate-y-px forge:hover:border-acid forge:hover:text-text-primary forge:[&.forge3d-open]:border-acid forge:[&.forge3d-open]:text-text-primary forge:[&_i]:size-[7px] forge:[&_i]:rounded-full forge:[&_i]:bg-text-muted forge:[&.forge3d-tripo_i]:bg-acid forge:[&.forge3d-tripo_i]:shadow-[0_0_6px_var(--acid)] forge:[&.forge3d-tripo]:text-text-primary"
       :class="[props.activeProvider, { open: props.open }]"
       :aria-expanded="props.open"
       :aria-label="`Debug settings · running on ${props.activeProvider === 'tripo' ? 'Tripo API' : 'Mock'} · drag to move`"

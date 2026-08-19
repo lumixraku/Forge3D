@@ -5,9 +5,9 @@ const emit = defineEmits<{ close: [] }>()
 
 <template>
   <Teleport to="body">
-    <div v-if="preview" class="group fixed inset-0 z-[2000] grid place-items-center bg-bg-overlay p-12 backdrop-blur-[10px] animate-[backdrop-in_.15s_ease-out] max-[760px]:p-5" role="dialog" aria-modal="true" :aria-label="preview.alt" @click.self="emit('close')">
-      <button type="button" class="fixed right-6 top-5 z-[1] grid size-[38px] place-items-center rounded-full border border-white/20 bg-[rgba(18,21,20,.86)] p-0 text-2xl leading-none text-white transition-[border-color,color,transform] hover:scale-108 hover:border-acid hover:text-acid focus-visible:scale-108 focus-visible:border-acid focus-visible:text-acid focus-visible:outline-none" aria-label="Close image preview" @click="emit('close')">×</button>
-      <img class="block max-h-[88vh] max-w-[min(1200px,92vw)] rounded-[10px] border border-white/20 bg-[#111] object-contain shadow-[0_24px_80px_rgba(0,0,0,.6)] transition-transform duration-150 group-hover:scale-[1.01] max-[760px]:max-h-[82vh] max-[760px]:max-w-full" :src="preview.src" :alt="preview.alt" />
+    <div v-if="preview" class="forge:group forge:fixed forge:inset-0 forge:z-[2000] forge:grid forge:place-items-center forge:bg-bg-overlay forge:p-12 forge:backdrop-blur-[10px] forge:animate-[backdrop-in_.15s_ease-out] forge:max-[760px]:p-5" role="dialog" aria-modal="true" :aria-label="preview.alt" @click.self="emit('close')">
+      <button type="button" class="forge:fixed forge:right-6 forge:top-5 forge:z-[1] forge:grid forge:size-[38px] forge:place-items-center forge:rounded-full forge:border forge:border-white/20 forge:bg-[rgba(18,21,20,.86)] forge:p-0 forge:text-2xl forge:leading-none forge:text-white forge:transition-[border-color,color,transform] forge:hover:scale-108 forge:hover:border-acid forge:hover:text-acid forge:focus-visible:scale-108 forge:focus-visible:border-acid forge:focus-visible:text-acid forge:focus-visible:outline-none" aria-label="Close image preview" @click="emit('close')">×</button>
+      <img class="forge:block forge:max-h-[88vh] forge:max-w-[min(1200px,92vw)] forge:rounded-[10px] forge:border forge:border-white/20 forge:bg-[#111] forge:object-contain forge:shadow-[0_24px_80px_rgba(0,0,0,.6)] forge:transition-transform forge:duration-150 forge:group-hover:scale-[1.01] forge:max-[760px]:max-h-[82vh] forge:max-[760px]:max-w-full" :src="preview.src" :alt="preview.alt" />
     </div>
   </Teleport>
 </template>

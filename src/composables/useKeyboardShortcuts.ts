@@ -81,7 +81,7 @@ export function useKeyboardShortcuts({
     }
     if (event.key === '/') {
       event.preventDefault()
-      const canvas = document.querySelector('.flow-canvas')?.getBoundingClientRect()
+      const canvas = document.querySelector('.forge3d-flow-canvas')?.getBoundingClientRect()
       if (canvas) openNodeMenuAt(canvas.left + canvas.width / 2, canvas.top + canvas.height / 2)
       return
     }

@@ -229,16 +229,16 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="host" class="model3d nodrag nopan relative h-full min-h-[180px] w-full" />
+  <div ref="host" class="forge3d-model3d nodrag nopan forge:relative forge:h-full forge:min-h-[180px] forge:w-full" />
 </template>
 
 <style scoped>
-.model3d :deep(canvas) {
+.forge3d-model3d :deep(canvas) {
   display: block;
   width: 100% !important;
   height: 100% !important;
   border-radius: inherit;
   cursor: grab;
 }
-.model3d :deep(canvas:active) { cursor: grabbing; }
+.forge3d-model3d :deep(canvas:active) { cursor: grabbing; }
 </style>

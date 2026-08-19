@@ -428,7 +428,7 @@ function nodePosition(sourceId) {
 }
 
 function canvasCenterPosition() {
-  const bounds = document.querySelector('.flow-canvas')?.getBoundingClientRect()
+  const bounds = document.querySelector('.forge3d-flow-canvas')?.getBoundingClientRect()
   if (!bounds) return { x: 120, y: 120 }
   return screenToFlowCoordinate({ x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 })
 }
@@ -605,7 +605,7 @@ async function constrainContextMenu() {
   await nextTick()
   const menu = contextMenu.value?.$el
   if (!menu || !nodeMenuContext.value) return
-  const panel = document.querySelector('.flow-canvas')?.getBoundingClientRect()
+  const panel = document.querySelector('.forge3d-flow-canvas')?.getBoundingClientRect()
   if (!panel) return
   const gap = 8
   nodeMenuContext.value.maxWidth = Math.max(0, panel.width - gap * 2)
@@ -719,7 +719,7 @@ function preventNativePinchZoom(event: Event) {
 }
 
 function preventPageTrackpadPinchZoom(event: WheelEvent) {
-  if (event.ctrlKey && !(event.target instanceof Element && event.target.closest('.flow-canvas'))) event.preventDefault()
+  if (event.ctrlKey && !(event.target instanceof Element && event.target.closest('.forge3d-flow-canvas'))) event.preventDefault()
 }
 
 async function releaseOnBlur() {
@@ -771,8 +771,8 @@ onUnmounted(() => {
 
 
 <template>
-  <main class="grid h-full w-full grid-rows-[68px_minmax(0,1fr)] bg-bg-primary transition-colors duration-200 max-[760px]:h-auto max-[760px]:min-h-full max-[760px]:grid-rows-[58px_auto]">
-    <div v-if="editLockedNoticeOpen" class="fixed left-1/2 top-4 z-[1000] flex min-w-[300px] -translate-x-1/2 items-center gap-[18px] rounded-[10px] border border-line-strong bg-bg-panel py-3 pl-4 pr-3 text-[13px] text-text-primary shadow-popover" role="alert">
+  <main class="forge:grid forge:h-full forge:w-full forge:grid-rows-[68px_minmax(0,1fr)] forge:bg-bg-primary forge:transition-colors forge:duration-200 forge:max-[760px]:h-auto forge:max-[760px]:min-h-full forge:max-[760px]:grid-rows-[58px_auto]">
+    <div v-if="editLockedNoticeOpen" class="forge:fixed forge:left-1/2 forge:top-4 forge:z-[1000] forge:flex forge:min-w-[300px] forge:-translate-x-1/2 forge:items-center forge:gap-[18px] forge:rounded-[10px] forge:border forge:border-line-strong forge:bg-bg-panel forge:py-3 forge:pl-4 forge:pr-3 forge:text-[13px] forge:text-text-primary forge:shadow-popover" role="alert">
       <span><strong>{{ editLockedNoticeName }}</strong> 正在编辑此画布</span>
     </div>
     <TopBar
@@ -794,13 +794,13 @@ onUnmounted(() => {
       @update:canvas-view="canvasView = $event"
     />
 
-    <div v-if="canvasMenu" class="fixed z-40 grid w-[164px] gap-[3px] rounded-lg border border-line-strong bg-bg-input p-[5px] shadow-popover" :style="{ left: `${canvasMenu.left}px`, top: `${canvasMenu.top}px` }" @pointerdown.stop>
-      <button class="min-h-[34px] rounded-md border border-transparent bg-transparent px-[9px] py-[7px] text-left text-[10px] font-medium transition-colors hover:border-line-strong hover:bg-bg-input-hover" type="button" @click="runCanvasMenuAction(exportCanvas)">Export JSON</button>
-      <button class="min-h-[34px] rounded-md border border-transparent bg-transparent px-[9px] py-[7px] text-left text-[10px] font-medium transition-colors hover:border-line-strong hover:bg-bg-input-hover" type="button" @click="runCanvasMenuAction(duplicateCanvas)">Duplicate</button>
-      <button class="min-h-[34px] rounded-md border border-transparent bg-transparent px-[9px] py-[7px] text-left text-[10px] font-medium text-status-failed transition-colors hover:border-line-strong hover:bg-[color-mix(in_srgb,var(--status-failed)_10%,transparent)]" type="button" @click="runCanvasMenuAction(deleteCanvas)">Delete</button>
+    <div v-if="canvasMenu" class="forge:fixed forge:z-40 forge:grid forge:w-[164px] forge:gap-[3px] forge:rounded-lg forge:border forge:border-line-strong forge:bg-bg-input forge:p-[5px] forge:shadow-popover" :style="{ left: `${canvasMenu.left}px`, top: `${canvasMenu.top}px` }" @pointerdown.stop>
+      <button class="forge:min-h-[34px] forge:rounded-md forge:border forge:border-transparent forge:bg-transparent forge:px-[9px] forge:py-[7px] forge:text-left forge:text-[10px] forge:font-medium forge:transition-colors forge:hover:border-line-strong forge:hover:bg-bg-input-hover" type="button" @click="runCanvasMenuAction(exportCanvas)">Export JSON</button>
+      <button class="forge:min-h-[34px] forge:rounded-md forge:border forge:border-transparent forge:bg-transparent forge:px-[9px] forge:py-[7px] forge:text-left forge:text-[10px] forge:font-medium forge:transition-colors forge:hover:border-line-strong forge:hover:bg-bg-input-hover" type="button" @click="runCanvasMenuAction(duplicateCanvas)">Duplicate</button>
+      <button class="forge:min-h-[34px] forge:rounded-md forge:border forge:border-transparent forge:bg-transparent forge:px-[9px] forge:py-[7px] forge:text-left forge:text-[10px] forge:font-medium forge:text-status-failed forge:transition-colors forge:hover:border-line-strong forge:hover:bg-[color-mix(in_srgb,var(--status-failed)_10%,transparent)]" type="button" @click="runCanvasMenuAction(deleteCanvas)">Delete</button>
     </div>
 
-    <section v-if="workspaceMode === 'canvas'" class="relative grid min-h-0 grid-cols-[350px_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] overflow-hidden max-[1200px]:grid-cols-[310px_minmax(0,1fr)] max-[760px]:grid-cols-1 max-[760px]:grid-rows-[480px_620px]">
+    <section v-if="workspaceMode === 'canvas'" class="forge:relative forge:grid forge:min-h-0 forge:grid-cols-[350px_minmax(0,1fr)] forge:grid-rows-[minmax(0,1fr)] forge:overflow-hidden forge:max-[1200px]:grid-cols-[310px_minmax(0,1fr)] forge:max-[760px]:grid-cols-1 forge:max-[760px]:grid-rows-[480px_620px]">
       <ChatPanel
         :messages="messages"
         :editor="composer"
@@ -819,7 +819,7 @@ onUnmounted(() => {
         @retry="retryMessage"
       />
 
-      <section class="canvas-panel relative grid min-h-0 min-w-0 grid-rows-[62px_minmax(0,1fr)_auto_27px] overflow-hidden bg-bg-secondary transition-colors duration-200" @pointerdown.capture="selectCanvasEdge" @pointerdown="closeContextMenu">
+      <section class="forge3d-canvas-panel forge:relative forge:grid forge:min-h-0 forge:min-w-0 forge:grid-rows-[62px_minmax(0,1fr)_auto_27px] forge:overflow-hidden forge:bg-bg-secondary forge:transition-colors forge:duration-200" @pointerdown.capture="selectCanvasEdge" @pointerdown="closeContextMenu">
         <CanvasToolbar
           :canvas-view="canvasView"
           :canvas-mode="canvasMode"
@@ -862,7 +862,7 @@ onUnmounted(() => {
           @select-node-type="selectNodeType"
           @drag-node-type="startNodeDrag($event.event, $event.type)"
         />
-        <VueFlow v-show="canvasView === 'canvas'" v-model:nodes="nodes" :edges="executionEdges" @update:edges="edges = $event" :class="['flow-canvas bg-bg-primary touch-none transition-colors duration-200', `canvas-mode-${canvasMode}`]" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="canvasMode === 'select' ? true : null" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @viewport-change-start="dismissCanvasPopups" @pointerdown.capture="onCanvasPointerDown" @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
+        <VueFlow v-show="canvasView === 'canvas'" v-model:nodes="nodes" :edges="executionEdges" @update:edges="edges = $event" :class="['forge3d-flow-canvas forge:bg-bg-primary forge:touch-none forge:transition-colors forge:duration-200', `forge3d-canvas-mode-${canvasMode}`]" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="canvasMode === 'select' ? true : null" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @viewport-change-start="dismissCanvasPopups" @pointerdown.capture="onCanvasPointerDown" @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
           <template #node-frame="props"><FrameNode v-bind="props" :zoom="viewport.zoom" :running="sectionIsRunning(props.id)" @update-name="updateNodeName(props.id, $event)" @resize-start="onFrameResizeStart(props.id)" @resize-end="onFrameResizeEnd" @run="runSection(props.id)" @stop-run="cancelRun" /></template>
           <template #node-canvas="props"><CanvasNode v-bind="props" :node-run="nodeRuns[props.id] || null" :run-id="run?.id || null" :run-entry-node-id="run?.entryNodeId || null" :run-mode="run?.mode || null" :run-status="run?.status || null" :inbound-type="inboundExportTarget(props.id)" :inbound-image="inboundImage(props.id)" :node-catalog="compatibleNodeTypes(props.data.canvasType)" :viewport-dismiss-version="viewportDismissVersion" @update-config="updateNodeConfig(props.id, $event)" @update-name="updateNodeName(props.id, $event)" @open-model-editor="openModelEditor(props.id)" @preview-image="openImagePreview" @add-next="addNode($event, props.id)" @run-canvas="runCanvas($event, 'node')" @run-downstream="runCanvas($event, 'downstream')" @stop-run="cancelRun" /></template>
           <template #edge-execution="props"><ExecutionEdge v-bind="props" /></template>
@@ -872,13 +872,13 @@ onUnmounted(() => {
         </VueFlow>
         <AssetLibraryView v-if="canvasView === 'assets'" :rails="assetRails" :total="assetLibrary.total" :loading="assetsLoading" :canvas-node-ids="canvasNodeIds" @preview="openImagePreview" @open-model-editor="openModelEditor" />
         <RunLogPanel v-if="runDetails && runSummaryOpen" :details="runDetails" @close="runSummaryOpen = false" />
-        <footer class="row-start-4 flex min-h-0 items-center justify-between border-t border-line px-[13px] font-mono text-[8px] font-medium leading-none text-text-muted"><div class="flex h-full items-center gap-[9px] whitespace-nowrap"><span class="flex h-full items-center gap-[7px] uppercase"><i class="size-[7px] rounded-full bg-acid shadow-[0_0_9px_color-mix(in_srgb,var(--acid)_60%,transparent)]" />{{ runSummary }}</span><button v-if="runDetails" class="flex h-[19px] items-center gap-[5px] rounded border border-line-strong bg-bg-input px-[7px] font-mono text-[7px] font-semibold uppercase tracking-[.06em] text-acid transition-colors hover:bg-bg-input-hover" type="button" :aria-expanded="runSummaryOpen" @click="runSummaryOpen = !runSummaryOpen">{{ runSummaryOpen ? 'Hide logs' : 'Logs' }} <b class="text-[9px] font-medium">{{ runSummaryOpen ? '↓' : '↑' }}</b></button></div><span class="overflow-hidden text-ellipsis whitespace-nowrap max-[760px]:hidden">Click or drag a node from Add node · Drop a connection on empty canvas to create a compatible node · Press / to add</span></footer>
+        <footer class="forge:row-start-4 forge:flex forge:min-h-0 forge:items-center forge:justify-between forge:border-t forge:border-line forge:px-[13px] forge:font-mono forge:text-[8px] forge:font-medium forge:leading-none forge:text-text-muted"><div class="forge:flex forge:h-full forge:items-center forge:gap-[9px] forge:whitespace-nowrap"><span class="forge:flex forge:h-full forge:items-center forge:gap-[7px] forge:uppercase"><i class="forge:size-[7px] forge:rounded-full forge:bg-acid forge:shadow-[0_0_9px_color-mix(in_srgb,var(--acid)_60%,transparent)]" />{{ runSummary }}</span><button v-if="runDetails" class="forge:flex forge:h-[19px] forge:items-center forge:gap-[5px] forge:rounded forge:border forge:border-line-strong forge:bg-bg-input forge:px-[7px] forge:font-mono forge:text-[7px] forge:font-semibold forge:uppercase forge:tracking-[.06em] forge:text-acid forge:transition-colors forge:hover:bg-bg-input-hover" type="button" :aria-expanded="runSummaryOpen" @click="runSummaryOpen = !runSummaryOpen">{{ runSummaryOpen ? 'Hide logs' : 'Logs' }} <b class="forge:text-[9px] forge:font-medium">{{ runSummaryOpen ? '↓' : '↑' }}</b></button></div><span class="forge:overflow-hidden forge:text-ellipsis forge:whitespace-nowrap forge:max-[760px]:hidden">Click or drag a node from Add node · Drop a connection on empty canvas to create a compatible node · Press / to add</span></footer>
       </section>
-      <button class="absolute right-0 top-[76px] z-[21] flex h-[42px] w-9 items-center justify-center gap-[3px] rounded-l-lg border border-r-0 border-line bg-bg-card font-mono text-[11px] font-semibold text-acid shadow-[-5px_4px_14px_rgba(20,26,22,.1)] transition-[right] duration-200 has-[+_.is-open]:right-[300px] max-[1200px]:has-[+_.is-open]:right-[270px] max-[760px]:has-[+_.is-open]:right-[min(300px,90vw)]" type="button" :aria-expanded="taskQueueOpen" aria-controls="task-queue-panel" @click="taskQueueOpen = !taskQueueOpen">
+      <button class="forge:absolute forge:right-0 forge:top-[76px] forge:z-[21] forge:flex forge:h-[42px] forge:w-9 forge:items-center forge:justify-center forge:gap-[3px] forge:rounded-l-lg forge:border forge:border-r-0 forge:border-line forge:bg-bg-card forge:font-mono forge:text-[11px] forge:font-semibold forge:text-acid forge:shadow-[-5px_4px_14px_rgba(20,26,22,.1)] forge:transition-[right] forge:duration-200 forge:has-[+_.is-open]:right-[300px] forge:max-[1200px]:has-[+_.is-open]:right-[270px] forge:max-[760px]:has-[+_.is-open]:right-[min(300px,90vw)]" type="button" :aria-expanded="taskQueueOpen" aria-controls="task-queue-panel" @click="taskQueueOpen = !taskQueueOpen">
         <span aria-hidden="true">{{ taskQueueOpen ? '→' : '←' }}</span>
-        <b class="text-[9px] text-text-secondary">{{ executions.length + (run?.id && !executions.some((execution) => execution.id === run.id) ? 1 : 0) }}</b>
+        <b class="forge:text-[9px] forge:text-text-secondary">{{ executions.length + (run?.id && !executions.some((execution) => execution.id === run.id) ? 1 : 0) }}</b>
       </button>
-      <ExecutionOutputPanel id="task-queue-panel" :class="{ 'is-open': taskQueueOpen }" :executions="executions" :active-execution="run" :active-executions="activeExecutions" :loading="executionsLoading" />
+      <ExecutionOutputPanel id="task-queue-panel" :class="{ 'forge3d-is-open': taskQueueOpen }" :executions="executions" :active-execution="run" :active-executions="activeExecutions" :loading="executionsLoading" />
     </section>
     <ModelEditor v-else-if="modelEditorNode" :node="modelEditorNode" @back="closeModelEditor" @update-config="updateNodeConfig(modelEditorNode.id, $event)" />
     <ImagePreviewOverlay :preview="imagePreview" @close="closeImagePreview" />
@@ -895,11 +895,11 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-:deep(.flow-canvas .vue-flow__pane), :deep(.flow-canvas .vue-flow__node.draggable), :deep(.flow-canvas .vue-flow__nodesselection-rect) { cursor: default; }
-:deep(.flow-canvas.canvas-mode-select .vue-flow__pane.selection) { cursor: default; }
-:deep(.flow-canvas.canvas-mode-move .vue-flow__pane) { cursor: default; }
-:deep(.flow-canvas.canvas-mode-move .vue-flow__pane.dragging) { cursor: grabbing; }
-:deep(.flow-canvas .vue-flow__node.draggable.dragging), :deep(.flow-canvas .vue-flow__nodesselection-rect.dragging) { cursor: grabbing; }
+:deep(.forge3d-flow-canvas .vue-flow__pane), :deep(.forge3d-flow-canvas .vue-flow__node.draggable), :deep(.forge3d-flow-canvas .vue-flow__nodesselection-rect) { cursor: default; }
+:deep(.forge3d-flow-canvas.forge3d-canvas-mode-select .vue-flow__pane.selection) { cursor: default; }
+:deep(.forge3d-flow-canvas.forge3d-canvas-mode-move .vue-flow__pane) { cursor: default; }
+:deep(.forge3d-flow-canvas.forge3d-canvas-mode-move .vue-flow__pane.dragging) { cursor: grabbing; }
+:deep(.forge3d-flow-canvas .vue-flow__node.draggable.dragging), :deep(.forge3d-flow-canvas .vue-flow__nodesselection-rect.dragging) { cursor: grabbing; }
 :deep(.vue-flow__node-frame) { z-index: 2 !important; }
 :deep(.vue-flow__node-canvas) { z-index: 1 !important; }
 :deep(.vue-flow__node-canvas:focus), :deep(.vue-flow__node-canvas:focus-visible) { outline: none; }
