@@ -2,6 +2,13 @@
 
 ## 2026-08-19 - main
 
+- Cherry-picked `tripo` commit `e1abe5e789d778205d2f093115153da63648b8e7` as `3081034`, prefixing Tailwind utilities with `forge:` and application-owned classes with `forge3d-` for safe host-app embedding.
+- Resolved component conflicts while preserving schema-driven Advanced controls, the accessible custom parameter toggle, themed node-port rings, task titles, task kinds, and both chat stop controls.
+- Verification: `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning.
+- Remaining issues: None.
+
+## 2026-08-19 - main
+
 - Fixed the schema-driven parameter renderer so the `Advanced` trigger is always placed after all default controls, with Advanced controls rendered as a contiguous group beneath it.
 - Verification: `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning.
 - Remaining issues: None.
