@@ -13,14 +13,16 @@ const modelUrl = computed(() => {
   const output = props.nodeRun?.output
   if (typeof output?.modelUrl === 'string') return output.modelUrl
   const download = Array.isArray(output?.outputs) ? output.outputs.find((item) => item?.downloadUrl) : null
-  return typeof download?.downloadUrl === 'string' ? download.downloadUrl : ''
+  if (typeof download?.downloadUrl === 'string') return download.downloadUrl
+  return props.node.data.canvasType === 'reference-image' && props.node.data.config.assetType === 'model' && typeof props.node.data.config.modelUrl === 'string' ? props.node.data.config.modelUrl : ''
 })
 const segmentedUrl = computed(() => modelUrl.value)
 const downloadName = computed(() => modelUrl.value.split('/').pop()?.split('?')[0] || 'model.glb')
+const canPreviewModel = computed(() => /\.(glb|gltf)(?:$|[?#])/i.test(modelUrl.value))
 const previewImage = computed(() => props.nodeRun?.output?.preview || '')
 // Names the provider that actually produced the file, so a simulated result is
 // not passed off as a real one.
-const assetSummary = computed(() => `${props.nodeRun?.tripoTaskId ? 'Tripo' : 'Mock'} result · GLB`)
+const assetSummary = computed(() => props.node.data.canvasType === 'reference-image' ? 'Uploaded asset' : `${props.nodeRun?.tripoTaskId ? 'Tripo' : 'Mock'} result · GLB`)
 
 const editorMode = computed(() => {
   const type = props.node.data.canvasType
@@ -57,13 +59,13 @@ function update(key: string, value: unknown) {
         <div class="forge:flex forge:gap-1.5 forge:[&>*]:inline-flex forge:[&>*]:min-h-[30px] forge:[&>*]:items-center forge:[&>*]:rounded-md forge:[&>*]:border forge:[&>*]:border-line-strong forge:[&>*]:bg-bg-input forge:[&>*]:px-[10px] forge:[&>*]:font-mono forge:[&>*]:text-[8px] forge:[&>*]:font-medium forge:[&>*]:text-text-muted forge:[&>*]:no-underline forge:[&>*]:transition-colors forge:[&>*]:hover:bg-bg-input-hover forge:[&>*]:hover:text-text-primary forge:[&_.forge3d-primary]:border-acid forge:[&_.forge3d-primary]:bg-acid forge:[&_.forge3d-primary]:text-text-inverse forge:[&_.forge3d-primary]:hover:brightness-108 forge:max-[760px]:[&>*:not(.forge3d-primary)]:hidden">
           <button>Compare</button>
           <button>Snapshot</button>
-          <a v-if="modelUrl" class="forge3d-primary" :href="modelUrl" :download="downloadName">Download GLB</a>
+          <a v-if="modelUrl" class="forge3d-primary" :href="modelUrl" :download="downloadName">Download model</a>
         </div>
       </header>
 
       <div class="forge:relative forge:min-h-0 forge:min-w-0 forge:overflow-hidden forge:bg-[#202322] forge:bg-[linear-gradient(rgba(255,255,255,.018)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.018)_1px,transparent_1px),radial-gradient(circle_at_50%_45%,rgba(108,122,109,.18),transparent_52%)] forge:bg-[size:32px_32px,32px_32px,auto] forge:light:bg-[linear-gradient(rgba(28,40,31,.035)_1px,transparent_1px),linear-gradient(90deg,rgba(28,40,31,.035)_1px,transparent_1px),radial-gradient(circle_at_50%_45%,rgba(196,207,198,.2),transparent_52%)] forge:after:pointer-events-none forge:after:absolute forge:after:bottom-[15%] forge:after:left-0 forge:after:right-0 forge:after:h-px forge:after:bg-[linear-gradient(90deg,transparent,color-mix(in_srgb,var(--acid)_20%,transparent),transparent)]">
-        <Model3D v-if="modelUrl" :mode="editorMode" :src="modelUrl" :seg-src="segmentedUrl" :auto-rotate="node.data.config.autoRotate !== false" />
-        <div v-else class="forge:absolute forge:inset-0 forge:grid forge:place-items-center forge:font-mono forge:text-[9px] forge:font-medium forge:text-text-muted">This run did not produce a model file.</div>
+        <Model3D v-if="canPreviewModel" :mode="editorMode" :src="modelUrl" :seg-src="segmentedUrl" :auto-rotate="node.data.config.autoRotate !== false" />
+        <div v-else class="forge:absolute forge:inset-0 forge:grid forge:place-items-center forge:px-8 forge:text-center forge:font-mono forge:text-[9px] forge:font-medium forge:text-text-muted">{{ modelUrl ? 'This model format is available for download but cannot be previewed here.' : 'This run did not produce a model file.' }}</div>
         <div class="forge:absolute forge:bottom-[14px] forge:left-4 forge:z-[2] forge:flex forge:items-center forge:gap-[7px] forge:font-mono forge:text-[8px] forge:font-medium forge:text-text-muted forge:pointer-events-none"><i class="forge:size-1.5 forge:rounded-full forge:bg-acid forge:shadow-[0_0_8px_color-mix(in_srgb,var(--acid)_70%,transparent)]" /> REALTIME · GLB · {{ editorMode === 'split' ? 'SEGMENTS' : editorMode === 'rig' ? 'RIG' : 'PBR' }}</div>
         <div class="forge:absolute forge:bottom-[14px] forge:right-4 forge:z-[2] forge:font-mono forge:text-[8px] forge:font-medium forge:text-text-muted forge:pointer-events-none forge:max-[760px]:hidden">Drag to orbit · Scroll to zoom · Double-click to focus</div>
         <div class="forge:absolute forge:left-5 forge:top-5 forge:z-[2] forge:size-[54px] forge:font-mono forge:text-[8px] forge:font-semibold forge:text-[#d2d7d2] forge:pointer-events-none forge:before:absolute forge:before:bottom-3 forge:before:left-[25px] forge:before:h-8 forge:before:w-px forge:before:origin-bottom forge:before:bg-[#e47676] forge:after:absolute forge:after:bottom-3 forge:after:left-[25px] forge:after:h-8 forge:after:w-px forge:after:origin-bottom forge:after:rotate-90 forge:after:bg-[#70afef]"><b class="forge:absolute forge:left-[22px] forge:top-0 forge:text-[#e47676]">Z</b><span class="forge:absolute forge:bottom-2 forge:right-0 forge:text-[#70afef]">X</span><i class="forge:absolute forge:bottom-0 forge:left-[3px] forge:not-italic forge:text-[#7aca8a]">Y</i></div>

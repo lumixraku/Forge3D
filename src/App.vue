@@ -386,7 +386,8 @@ function updateNodeName(id, name) {
 function openModelEditor(id) {
   if (!id) return
   const node = nodes.value.find((candidate) => candidate.id === id)
-  if (!node || !hasModelEditor(node.data.canvasType) || nodeRuns.value[id]?.status !== 'succeeded') return
+  const uploadedModel = node?.data.canvasType === 'reference-image' && node.data.config.assetType === 'model' && typeof node.data.config.modelUrl === 'string'
+  if (!node || !hasModelEditor(node.data.canvasType) || (!uploadedModel && nodeRuns.value[id]?.status !== 'succeeded')) return
   modelEditorNodeId.value = node.id
   workspaceMode.value = 'model-editor'
   nextTick(() => window.scrollTo({ top: 0 }))

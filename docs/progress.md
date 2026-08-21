@@ -2,6 +2,18 @@
 
 ## 2026-08-21 - main
 
+- Added a one-time GLB/GLTF thumbnail pipeline for Asset Upload. The browser renders a 512px PNG once after the model is uploaded, persists it through `/api/assets`, and saves its real URL as `thumbnailUrl`; canvas nodes subsequently use only this static image. Other accepted model formats continue to use the lightweight generic card.
+- Verification: `pnpm run typecheck`, `pnpm test` (261 passing), `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning.
+- Remaining issues: None.
+
+## 2026-08-21 - main
+
+- Replaced the in-node interactive model render with a lightweight static 3D asset card. Clicking the card now opens the existing Model Editor, which loads uploaded GLB/GLTF models on demand; unsupported uploaded 3D formats remain downloadable without starting a failed viewer. This avoids one WebGL renderer and parsed geometry per visible canvas node.
+- Verification: `pnpm run typecheck`, `pnpm test` (261 passing), `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning.
+- Remaining issues: None.
+
+## 2026-08-21 - main
+
 - Added the same full-card loading overlay to image previews while an Asset Upload request is in flight, using the existing upload spinner and `Uploading asset` status. The upload drop zone remains disabled for the duration.
 - Verification: `pnpm run typecheck`, `pnpm test` (261 passing), `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning.
 - Remaining issues: None.

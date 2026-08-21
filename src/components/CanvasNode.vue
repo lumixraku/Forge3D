@@ -2,7 +2,7 @@
 import { bizClass } from '../class-prefix'
 import { computed, nextTick, ref, watch } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
-import Model3D from './Model3D.vue'
+import { createModelThumbnail } from '../model-thumbnail'
 import NodeSelect from './NodeSelect.vue'
 import NodeSlider from './NodeSlider.vue'
 
@@ -51,8 +51,7 @@ const firstAdvancedParameter = computed(() => renderParameters.value.find((param
 const isReferenceAsset = computed(() => props.data.canvasType === 'reference-image')
 const referenceAssetType = computed(() => props.data.config.assetType === 'model' ? 'model' : 'image')
 const referenceAssetUrl = computed(() => typeof props.data.config.assetUrl === 'string' ? props.data.config.assetUrl : runtimePreview.value)
-const referenceModelPreviewUrl = computed(() => referenceAssetType.value === 'model' ? (localAssetPreview.value || referenceAssetUrl.value) : '')
-const hasRenderableModelPreview = computed(() => /\.(glb|gltf)(?:$|[?#])/i.test(referenceModelPreviewUrl.value))
+const referenceThumbnailUrl = computed(() => typeof props.data.config.thumbnailUrl === 'string' ? props.data.config.thumbnailUrl : '')
 const showResult = computed(() => Boolean(
   runtimePreview.value || runtimePreviews.value.length || Object.keys(runtimeViewPreviews.value).length,
 ))
@@ -176,7 +175,7 @@ async function uploadAsset(file: File) {
     return
   }
 
-  const preview = (isImage || ['glb', 'gltf'].includes(extension)) ? URL.createObjectURL(file) : ''
+  const preview = isImage ? URL.createObjectURL(file) : ''
   localAssetPreview.value = preview
   assetUploading.value = true
   try {
@@ -187,8 +186,23 @@ async function uploadAsset(file: File) {
     })
     const result = await response.json().catch(() => null)
     if (!response.ok || typeof result?.url !== 'string') throw new Error(result?.error || 'Upload failed')
+    let thumbnailUrl = ''
+    if (isModel && ['glb', 'gltf'].includes(extension)) {
+      try {
+        const thumbnail = await createModelThumbnail(file)
+        const thumbnailResponse = await fetch('/api/assets', {
+          method: 'POST',
+          headers: { 'content-type': 'image/png', 'x-file-name': `${file.name}.thumbnail.png` },
+          body: thumbnail,
+        })
+        const thumbnailResult = await thumbnailResponse.json().catch(() => null)
+        if (thumbnailResponse.ok && typeof thumbnailResult?.url === 'string') thumbnailUrl = thumbnailResult.url
+      } catch {
+        // The asset is usable even if this optional, one-time thumbnail render fails.
+      }
+    }
     localAssetPreview.value = ''
-    emit('update-config', { ...props.data.config, reference: file.name, assetType: isModel ? 'model' : 'image', assetUrl: result.url, ...(isImage ? { preview: result.url } : { modelUrl: result.url }) })
+    emit('update-config', { ...props.data.config, reference: file.name, assetType: isModel ? 'model' : 'image', assetUrl: result.url, ...(isImage ? { preview: result.url } : { modelUrl: result.url, ...(thumbnailUrl ? { thumbnailUrl } : {}) }) })
     if (preview) URL.revokeObjectURL(preview)
   } catch (error) {
     localAssetPreview.value = ''
@@ -232,17 +246,13 @@ async function uploadAsset(file: File) {
       </button>
       <div v-if="isExecuting" class="forge3d-node-output-loading forge:absolute forge:inset-0 forge:z-[5] forge:grid forge:place-content-center forge:justify-items-center forge:gap-[9px] forge:bg-[color-mix(in_srgb,var(--bg-input)_76%,transparent)] forge:text-center forge:text-text-primary forge:backdrop-blur-[3px]" role="status"><span class="forge3d-node-run-indicator" /><strong>{{ runtimeStatus === 'queued' ? 'Queued' : runtimeStatus === 'cancelling' ? 'Stopping' : 'Generating' }}</strong><div v-if="runtimeStatus === 'running'" class="forge3d-node-progress" :class="{ 'forge3d-indeterminate': runProgress === null }" :style="progressStyle"><span /><b>{{ runProgress === null ? 'Working' : `${runProgress}%` }}</b></div></div>
     </div>
-    <div v-else-if="isReferenceAsset && referenceAssetType === 'model' && hasRenderableModelPreview" class="forge3d-node-output nodrag nopan forge:relative forge:mb-[11px] forge:h-[146px] forge:w-full forge:overflow-hidden forge:rounded-lg forge:border forge:border-line-subtle forge:bg-[radial-gradient(circle_at_50%_45%,#30352f,#111412_72%)] forge:transition-[border-color,box-shadow] forge:hover:border-[var(--node-accent)]">
-      <Model3D :src="referenceModelPreviewUrl" :auto-rotate="true" />
-      <span class="forge:pointer-events-none forge:absolute forge:bottom-[7px] forge:right-[7px] forge:z-[3] forge:rounded forge:border forge:border-white/15 forge:bg-[rgba(12,15,13,.76)] forge:px-1.5 forge:py-1 forge:font-mono forge:text-[7px] forge:font-medium forge:uppercase forge:text-[#dce2dd] forge:backdrop-blur-[5px]">3D asset</span>
+    <button v-else-if="isReferenceAsset && referenceAssetType === 'model' && referenceAssetUrl" type="button" class="forge3d-node-output nodrag nopan forge:relative forge:mb-[11px] forge:grid forge:h-[146px] forge:w-full forge:place-content-center forge:justify-items-center forge:overflow-hidden forge:rounded-lg forge:border forge:border-line-subtle forge:bg-[radial-gradient(circle_at_50%_45%,#30352f,#111412_72%)] forge:p-4 forge:text-center forge:text-text-primary forge:transition-[border-color,box-shadow] forge:hover:border-[var(--node-accent)] forge:focus-visible:outline forge:focus-visible:outline-2 forge:focus-visible:outline-offset-2 forge:focus-visible:outline-[var(--node-accent)] forge:[&>img]:absolute forge:[&>img]:inset-0 forge:[&>img]:size-full forge:[&>img]:object-cover" :aria-label="`Open ${data.label} in Model Editor`" @click.stop="emit('open-model-editor')">
+      <img v-if="referenceThumbnailUrl" :src="referenceThumbnailUrl" :alt="`${data.label} thumbnail`" />
+      <svg v-if="!referenceThumbnailUrl" class="forge:mb-2 forge:size-11 forge:text-[var(--node-accent)] forge:drop-shadow-[0_0_14px_color-mix(in_srgb,var(--node-accent)_50%,transparent)]" viewBox="0 0 48 48" fill="none" aria-hidden="true"><path d="m24 5 15 8.5v17L24 39l-15-8.5v-17L24 5Z" stroke="currentColor" stroke-width="1.5"/><path d="m9 13.5 15 8.5 15-8.5M24 22v17" stroke="currentColor" stroke-width="1.5"/></svg>
+      <strong class="forge:relative forge:z-[1] forge:max-w-full forge:overflow-hidden forge:text-ellipsis forge:whitespace-nowrap forge:font-mono forge:text-[9px] forge:font-semibold forge:uppercase" :class="{ 'forge:rounded forge:bg-black/60 forge:px-1.5 forge:py-1': referenceThumbnailUrl }">{{ data.config.reference }}</strong>
+      <small class="forge:relative forge:z-[1] forge:mt-1 forge:font-mono forge:text-[8px] forge:text-text-muted" :class="{ 'forge:rounded forge:bg-black/60 forge:px-1.5 forge:py-1 forge:text-white': referenceThumbnailUrl }">3D asset · click to preview</small>
       <span v-if="assetUploading" class="forge3d-node-output-loading forge:absolute forge:inset-0 forge:z-[5] forge:grid forge:place-content-center forge:justify-items-center forge:gap-[9px] forge:bg-[color-mix(in_srgb,var(--bg-input)_76%,transparent)] forge:text-center forge:text-text-primary forge:backdrop-blur-[3px]" role="status"><span class="forge3d-node-run-indicator" /><strong>Uploading</strong></span>
-    </div>
-    <a v-else-if="isReferenceAsset && referenceAssetType === 'model' && referenceAssetUrl" class="forge3d-node-output nodrag nopan forge:relative forge:mb-[11px] forge:grid forge:h-[146px] forge:w-full forge:place-content-center forge:justify-items-center forge:overflow-hidden forge:rounded-lg forge:border forge:border-line-subtle forge:bg-[radial-gradient(circle_at_50%_45%,#30352f,#111412_72%)] forge:p-4 forge:text-center forge:text-text-primary forge:no-underline forge:transition-[border-color,box-shadow] forge:hover:border-[var(--node-accent)] forge:focus-visible:outline forge:focus-visible:outline-2 forge:focus-visible:outline-offset-2 forge:focus-visible:outline-[var(--node-accent)]" :href="referenceAssetUrl" :download="data.config.reference" @click.stop>
-      <svg class="forge:mb-2 forge:size-11 forge:text-[var(--node-accent)] forge:drop-shadow-[0_0_14px_color-mix(in_srgb,var(--node-accent)_50%,transparent)]" viewBox="0 0 48 48" fill="none" aria-hidden="true"><path d="m24 5 15 8.5v17L24 39l-15-8.5v-17L24 5Z" stroke="currentColor" stroke-width="1.5"/><path d="m9 13.5 15 8.5 15-8.5M24 22v17" stroke="currentColor" stroke-width="1.5"/></svg>
-      <strong class="forge:max-w-full forge:overflow-hidden forge:text-ellipsis forge:whitespace-nowrap forge:font-mono forge:text-[9px] forge:font-semibold forge:uppercase">{{ data.config.reference }}</strong>
-      <small class="forge:mt-1 forge:font-mono forge:text-[8px] forge:text-text-muted">3D asset · click to download</small>
-      <span v-if="assetUploading" class="forge3d-node-output-loading forge:absolute forge:inset-0 forge:z-[5] forge:grid forge:place-content-center forge:justify-items-center forge:gap-[9px] forge:bg-[color-mix(in_srgb,var(--bg-input)_76%,transparent)] forge:text-center forge:text-text-primary forge:backdrop-blur-[3px]" role="status"><span class="forge3d-node-run-indicator" /><strong>Uploading</strong></span>
-    </a>
+    </button>
     <button v-else-if="['reference-image', 'generated-image', 'generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'texture', 'rigging', 'segments', 'model-preview'].includes(data.canvasType) && showResult" type="button" class="forge3d-node-output nodrag nopan forge:relative forge:mb-[11px] forge:block forge:h-[146px] forge:w-full forge:overflow-hidden forge:rounded-lg forge:border forge:border-line-subtle forge:bg-[radial-gradient(circle_at_50%_45%,#edf1ed,#dfe5e0_72%)] forge:p-0 forge:text-left forge:transition-[border-color,box-shadow] forge:hover:border-[var(--node-accent)] forge:focus-visible:outline forge:focus-visible:outline-2 forge:focus-visible:outline-offset-2 forge:focus-visible:outline-[var(--node-accent)] forge:dark:bg-[radial-gradient(circle_at_50%_45%,#30352f,#111412_72%)] forge:[&>img]:size-full forge:[&>img]:object-cover forge:[&.forge3d-model-output>img]:relative forge:[&.forge3d-model-output>img]:z-[1] forge:[&.forge3d-model-output>img]:object-contain forge:[&.forge3d-model-output>img]:drop-shadow-[0_12px_12px_rgba(0,0,0,.45)] forge:[&.forge3d-model-output>img]:transition-[filter] forge:[&.forge3d-model-output:hover>img]:drop-shadow-[0_16px_16px_rgba(0,0,0,.5)]" :class="{ 'forge3d-model-output': !['reference-image', 'generated-image'].includes(data.canvasType) }" :aria-label="['reference-image', 'generated-image'].includes(data.canvasType) ? `Preview ${data.label} image` : `Open ${data.label} in Model Editor`" @click.stop="['reference-image', 'generated-image'].includes(data.canvasType) ? emit('preview-image', { src: runtimePreview, alt: `${data.label} result` }) : emit('open-model-editor')">
       <img :src="runtimePreview" :alt="`${data.label} result`" />
       <div v-if="!['reference-image', 'generated-image', 'image-decomposition'].includes(data.canvasType)" class="forge:absolute forge:inset-[16px_30px_25px] forge:z-0 forge:rotate-[-12deg] forge:rounded-[50%] forge:border forge:border-[color-mix(in_srgb,var(--node-accent)_24%,transparent)] forge:[&_span]:absolute forge:[&_span]:size-1 forge:[&_span]:rounded-full forge:[&_span]:bg-[var(--node-accent)] forge:[&_span]:shadow-[0_0_8px_var(--node-accent)] forge:[&_span:nth-child(1)]:left-[21px] forge:[&_span:nth-child(1)]:top-2 forge:[&_span:nth-child(2)]:bottom-7 forge:[&_span:nth-child(2)]:right-0.5 forge:[&_span:nth-child(3)]:bottom-[-2px] forge:[&_span:nth-child(3)]:left-[44%]"><span /><span /><span /></div>
