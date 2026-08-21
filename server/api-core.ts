@@ -869,6 +869,7 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
       const contentType = request.headers.get('content-type') || 'application/octet-stream'
       const bytes = new Uint8Array(await request.arrayBuffer())
       if (!bytes.length) return json({ error: 'Asset file is empty' }, 400)
+      if (bytes.byteLength > 100 * 1024 * 1024) return json({ error: 'Asset file must be 100 MB or smaller' }, 413)
       const url = await config.uploadAsset(bytes, contentType, request.headers.get('x-file-name') || '')
       return json({ url, contentType })
     }

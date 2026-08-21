@@ -42,7 +42,7 @@ export function nodeOutputPorts(type: string): NodePort[] {
 export function canConnectPorts(sourceType: string, sourcePortId: string, targetType: string, targetPortId: string) {
   const sourcePort = nodeOutputPorts(sourceType).find((port) => port.id === sourcePortId)
   const targetPort = nodeInputPorts(targetType).find((port) => port.id === targetPortId)
-  return Boolean(sourcePort && targetPort && (targetPort.type === 'any' || sourcePort.type === targetPort.type))
+  return Boolean(sourcePort && targetPort && (sourcePort.type === 'any' || targetPort.type === 'any' || sourcePort.type === targetPort.type))
 }
 
 export function compatibleNodeTypes(sourceType: string) {
@@ -73,7 +73,7 @@ export function resolveEdgePorts(sourceType: string | undefined, targetType: str
   const sourcePort = sourcePorts.find((port) => port.id === edge.source?.port)
     || (!edge.source?.port || edge.source.port === 'output' ? sourcePorts[0] : undefined)
   const targetPort = targetPorts.find((port) => port.id === edge.target?.port)
-    || (!edge.target?.port || edge.target.port === 'input' ? targetPorts.find((port) => sourcePort && (port.type === 'any' || port.type === sourcePort.type)) : undefined)
+    || (!edge.target?.port || edge.target.port === 'input' ? targetPorts.find((port) => sourcePort && (sourcePort.type === 'any' || port.type === 'any' || port.type === sourcePort.type)) : undefined)
   return sourcePort && targetPort ? { sourcePort, targetPort } : null
 }
 
@@ -91,7 +91,7 @@ export function resolveEdgePortPairs(sourceType: string | undefined, targetType:
   const named = edge.source?.port && edge.source.port !== 'output'
   if (named || !pair.targetPort.multiple) return [pair]
   return nodeOutputPorts(sourceType)
-    .filter((sourcePort) => pair.targetPort.type === 'any' || sourcePort.type === pair.targetPort.type)
+    .filter((sourcePort) => sourcePort.type === 'any' || pair.targetPort.type === 'any' || sourcePort.type === pair.targetPort.type)
     .map((sourcePort) => ({ sourcePort, targetPort: pair.targetPort }))
 }
 
@@ -120,7 +120,9 @@ export function nodeOutputPortValues(node: CanvasGraphNode, produced?: Record<st
     // A port named after a view reads that view; an image port otherwise takes
     // the node's single result, and `previews` being a candidate list means its
     // selected entry wins.
-    const fallback = port.type === 'model'
+    const fallback = node.type === 'reference-image'
+      ? config.assetType === 'model' ? config.modelUrl ?? config.assetUrl : config.preview ?? config.assetUrl
+      : port.type === 'model'
       ? produced?.modelUrl ?? config.modelUrl
       : port.type === 'text'
         ? produced?.text ?? config.prompt
@@ -224,7 +226,7 @@ export function validateCanvasGraph(nodes: CanvasGraphNode[], edges: CanvasGraph
       issues.push({ nodeId: target?.id, port: edge.target?.port, code: 'invalid_edge', message: 'Connection references a node or port that does not exist.' })
       continue
     }
-    if (targetPort.type !== 'any' && targetPort.type !== sourcePort.type) {
+    if (sourcePort.type !== 'any' && targetPort.type !== 'any' && targetPort.type !== sourcePort.type) {
       issues.push({ nodeId: target.id, port: targetPort.id, code: 'incompatible_ports', message: `${targetPort.label} accepts ${targetPort.type}, not ${sourcePort.type}.` })
       continue
     }

@@ -4,7 +4,7 @@ import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, nodeCatalog,
 import { normalizeNodeConfig, canvasNodeSchema } from './canvas-schema.js'
 
 test('uses Lychee node names while preserving unmatched node names', () => {
-  assert.equal(nodeDisplayName('reference-image', 'Reference Image'), 'Image Upload')
+  assert.equal(nodeDisplayName('reference-image', 'Reference Image'), 'Asset Upload')
   assert.equal(nodeDisplayName('prompt', 'Prompt'), 'Text Prompt')
   assert.equal(nodeDisplayName('generate-image', 'Generate Concept'), 'Gen Image')
   assert.equal(nodeDisplayName('generate-model', 'Generate 3D Model'), 'Gen HD Model')
@@ -37,6 +37,7 @@ test('removes legacy bundled previews while retaining uploaded assets', () => {
 })
 
 test('exposes schema-defined typed input and output handles', () => {
+  assert.deepEqual(nodeOutputPorts('reference-image'), [{ id: 'image', label: 'Asset', type: 'any' }])
   assert.deepEqual(nodeInputPorts('generate-model').map(({ id, type }) => ({ id, type })), [
     { id: 'image', type: 'image' },
     { id: 'front', type: 'image' }, { id: 'back', type: 'image' }, { id: 'left', type: 'image' }, { id: 'right', type: 'image' },
@@ -59,6 +60,7 @@ test('exposes schema-defined typed input and output handles', () => {
 test('connects only compatible port types', () => {
   assert.equal(canConnectNodeTypes('prompt', 'generate-image'), true)
   assert.equal(canConnectNodeTypes('reference-image', 'generate-image'), true)
+  assert.equal(canConnectNodeTypes('reference-image', 'retopology'), true)
   assert.equal(canConnectNodeTypes('generate-image', 'generate-model'), true)
   assert.equal(canConnectNodeTypes('generate-multiview-images', 'multiview-to-3d'), true)
   assert.equal(canConnectNodeTypes('generate-model', 'texture'), true)
@@ -70,6 +72,7 @@ test('connects only compatible port types', () => {
 
 test('connects matching named ports only', () => {
   assert.equal(canConnectPorts('reference-image', 'image', 'multiview-to-3d', 'front'), true)
+  assert.equal(canConnectPorts('reference-image', 'image', 'retopology', 'model'), true)
   assert.equal(canConnectPorts('generate-multiview-images', 'front', 'multiview-to-3d', 'front'), true)
   assert.equal(canConnectPorts('generate-model', 'model', 'texture', 'model'), true)
   assert.equal(canConnectPorts('generate-multiview-images', 'front', 'multiview-to-3d', 'back'), true)

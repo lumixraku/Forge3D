@@ -72,6 +72,13 @@ test('stores an uploaded image in the local asset cache', async () => {
   assert.deepEqual([...await readFile(path.join(target, url.slice(assetUrlPrefix.length)))], [137, 80, 78, 71])
 })
 
+test('stores an uploaded model with its supported extension', async () => {
+  const target = await directory()
+  const url = await persistUploadedAsset(new Uint8Array([103, 108, 84, 70]), 'model/gltf-binary', 'reference.glb', { directory: target })
+
+  assert.match(url, /^\/api\/assets\/[a-f0-9]{32}\.glb$/)
+})
+
 test('identical content is stored once and fetched once per call', async () => {
   const target = await directory()
   let downloads = 0

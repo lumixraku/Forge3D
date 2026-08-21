@@ -77,7 +77,7 @@ export function rebuildDagEdges(nodes) {
       // Prefer an exact key match so a view port (front/back/left/right) pairs
       // with its namesake instead of collapsing onto a generic same-type port.
       const targetPort = inputs.find((candidate) => !usedTargetPorts.has(candidate.id) && candidate.id === sourcePort.id)
-        || inputs.find((candidate) => !usedTargetPorts.has(candidate.id) && (candidate.type === sourcePort.type || candidate.type === 'any'))
+        || inputs.find((candidate) => !usedTargetPorts.has(candidate.id) && (sourcePort.type === 'any' || candidate.type === sourcePort.type || candidate.type === 'any'))
       if (!targetPort) continue
       usedTargetPorts.add(targetPort.id)
       edges.push({

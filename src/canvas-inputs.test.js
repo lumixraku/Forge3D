@@ -86,6 +86,15 @@ test('an image and a mesh reaching one node land on their own ports', () => {
   assert.deepEqual(resolveNodeInputs(texture, canvas), { model: '/mesh.glb', image: '/ref.png' })
 })
 
+test('an uploaded model uses the asset upload output as a model input', () => {
+  const upload = node('upload', 'reference-image', { assetType: 'model', modelUrl: '/model.glb' })
+  const retopo = node('retopo', 'retopology')
+  const canvas = { nodes: [upload, retopo], edges: [edge('upload', 'image', 'retopo', 'model')] }
+
+  assert.deepEqual(nodeOutputPortValues(upload), { image: '/model.glb' })
+  assert.deepEqual(resolveNodeInputs(retopo, canvas), { model: '/model.glb' })
+})
+
 test('reports which upstream node and port feeds each input', () => {
   const model = node('model', 'generate-model', { modelUrl: '/mesh.glb' })
   const retopo = node('retopo', 'retopology')
