@@ -2,6 +2,12 @@
 
 ## 2026-08-21 - main
 
+- Added connection-drag feedback for typed canvas edges: during an output-handle drag, every incompatible target node is dimmed and desaturated, while its input handle turns red with a prohibition glow. The feedback clears on connect completion or cancellation.
+- Verification: `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning. Reloaded the existing Chrome MCP localhost canvas session to confirm the updated app loads; synthetic pointer dispatch did not initiate Vue Flow's drag interaction, so the drag-state visual was not browser-automated.
+- Remaining issues: None.
+
+## 2026-08-21 - main
+
 - Added Agent API regression coverage for a normal single-agent canvas turn, generated canvas persistence, absence of coordinator metadata, and user-selection pause/resume.
 - Verification: `pnpm test` passed 259 tests; `pnpm run typecheck` passed; `git diff --check` passed. A first draft of a queue-ordering test was removed after it exposed a test-harness synchronization issue, not a product failure. `pnpm run build` was not rerun because the full test suite consumed the verification window; the prior build remains passing with its existing large-chunk warning.
 - Remaining issues: None.
