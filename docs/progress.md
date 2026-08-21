@@ -2,6 +2,18 @@
 
 ## 2026-08-21 - main
 
+- Added the same full-card loading overlay to image previews while an Asset Upload request is in flight, using the existing upload spinner and `Uploading asset` status. The upload drop zone remains disabled for the duration.
+- Verification: `pnpm run typecheck`, `pnpm test` (261 passing), `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning.
+- Remaining issues: None.
+
+## 2026-08-21 - main
+
+- Added an interactive in-node preview for uploaded `.glb` and self-contained `.gltf` assets. It starts from a component-local blob URL during upload, then reloads from the persisted `/api/assets/...` URL on success; neither temporary URL is serialized. Other accepted 3D formats remain download cards because the existing Three.js GLTF loader cannot render them directly.
+- Verification: `pnpm test` passed 261 tests; `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning.
+- Remaining issues: None.
+
+## 2026-08-21 - main
+
 - Corrected Asset Upload serialization: the temporary browser blob URL is now component-only preview state and is never emitted into canvas configuration. The saved image/model URL is set only after `POST /api/assets` returns its persistent `/api/assets/...` URL; upload failure clears the temporary preview.
 - Verification: `pnpm test` passed 261 tests; `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning.
 - Remaining issues: None.
