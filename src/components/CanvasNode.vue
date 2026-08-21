@@ -34,6 +34,7 @@ const assetInput = ref<HTMLInputElement | null>(null)
 const assetDragging = ref(false)
 const assetUploadError = ref('')
 const assetUploading = ref(false)
+const localAssetPreview = ref('')
 watch(() => props.viewportDismissVersion, () => { nextMenuOpen.value = false })
 const runtimeStatus = computed(() => props.nodeRun?.status || props.data.status)
 const schema = computed(() => nodeSchema(props.data.canvasType))
@@ -81,7 +82,7 @@ const runStateDetail = computed(() => {
   // A real task reports progress and can take tens of seconds; a simulated one cannot.
   return runProgress.value === null ? 'Execution is in progress' : `Tripo task in progress · ${runProgress.value}%`
 })
-const runtimePreview = computed(() => props.nodeRun?.output?.preview || (!isExecutableNode.value ? props.data.config.preview : ''))
+const runtimePreview = computed(() => localAssetPreview.value || props.nodeRun?.output?.preview || (!isExecutableNode.value ? props.data.config.preview : ''))
 // The run downloads the export once as it finishes, which is no help after a
 // reload, so a finished export also offers the file directly.
 const exportDownloads = computed(() => {
@@ -156,6 +157,7 @@ function dropImage(event: DragEvent) {
 }
 
 async function uploadAsset(file: File) {
+  if (assetUploading.value) return
   const allowedTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
   const modelExtensions = new Set(['glb', 'gltf', 'fbx', 'usdz', 'obj', 'stl', '3mf'])
   const extension = file.name.split('.').pop()?.toLowerCase() || ''
@@ -172,7 +174,7 @@ async function uploadAsset(file: File) {
   }
 
   const preview = isImage ? URL.createObjectURL(file) : ''
-  emit('update-config', { ...props.data.config, reference: file.name, assetType: isModel ? 'model' : 'image', assetUrl: preview, ...(isImage ? { preview } : { modelUrl: preview }) })
+  localAssetPreview.value = preview
   assetUploading.value = true
   try {
     const response = await fetch('/api/assets', {
@@ -182,9 +184,12 @@ async function uploadAsset(file: File) {
     })
     const result = await response.json().catch(() => null)
     if (!response.ok || typeof result?.url !== 'string') throw new Error(result?.error || 'Upload failed')
+    localAssetPreview.value = ''
     emit('update-config', { ...props.data.config, reference: file.name, assetType: isModel ? 'model' : 'image', assetUrl: result.url, ...(isImage ? { preview: result.url } : { modelUrl: result.url }) })
     if (preview) URL.revokeObjectURL(preview)
   } catch (error) {
+    localAssetPreview.value = ''
+    if (preview) URL.revokeObjectURL(preview)
     assetUploadError.value = error instanceof Error ? error.message : 'Could not upload this asset'
   } finally {
     assetUploading.value = false

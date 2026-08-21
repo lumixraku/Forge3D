@@ -2,6 +2,12 @@
 
 ## 2026-08-21 - main
 
+- Corrected Asset Upload serialization: the temporary browser blob URL is now component-only preview state and is never emitted into canvas configuration. The saved image/model URL is set only after `POST /api/assets` returns its persistent `/api/assets/...` URL; upload failure clears the temporary preview.
+- Verification: `pnpm test` passed 261 tests; `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning.
+- Remaining issues: None.
+
+## 2026-08-21 - main
+
 - Expanded the existing reference-image input into an Asset Upload node that accepts supported image and 3D model files, previews images immediately, presents uploaded models as downloadable file cards, and replaces local blob previews with persistent server asset URLs after upload.
 - Kept the existing `image` port ID for persisted-canvas compatibility while declaring it as `any`, allowing either image or model assets to connect to compatible downstream inputs. Added client/server 100 MB upload limits and coverage for model asset persistence and graph input resolution.
 - Verification: `pnpm test` passed 261 tests; `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning.
