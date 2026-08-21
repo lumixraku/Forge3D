@@ -1,5 +1,5 @@
 import { createServer } from 'node:http'
-import { coordinateTasks, startPiAgent, summarizeTasks, type LiveRun } from './run.js'
+import { startPiAgent, type LiveRun } from './run.js'
 import { listenOnAvailablePort } from '../server/listen.js'
 
 // Standalone Node service that runs the Pi-framework agent. It streams NDJSON:
@@ -8,8 +8,7 @@ import { listenOnAvailablePort } from '../server/listen.js'
 // Cloudflare Worker because Pi depends on Node built-ins (node:fs/os) that the
 // Workers runtime does not provide.
 //
-// The coordinator endpoints split and summarize work. Each /agent request owns
-// an independent task-scoped Pi run and NDJSON stream.
+// Each /agent request owns an independent Pi run and NDJSON stream.
 
 const port = Number(process.env.AGENT_SERVICE_PORT || 8788)
 
@@ -49,38 +48,6 @@ const server = createServer(async (req, res) => {
     }
     return
   }
-  if (req.method === 'POST' && req.url === '/coordinator') {
-    try {
-      const input = JSON.parse(await readBody(req))
-      if (!input.apiKey) throw new Error('Missing apiKey')
-      const tasks = await coordinateTasks({
-        apiKey: input.apiKey,
-        baseUrl: input.baseUrl,
-        model: input.model,
-        message: input.message,
-        timeoutMs: Number(process.env.COORDINATOR_TIMEOUT_MS || 30_000),
-      })
-      res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ tasks }))
-    } catch (error: any) {
-      res.writeHead(502, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ error: error?.message || 'Coordinator failure' }))
-    }
-    return
-  }
-  if (req.method === 'POST' && req.url === '/coordinator/summarize') {
-    try {
-      const input = JSON.parse(await readBody(req))
-      if (!input.apiKey) throw new Error('Missing apiKey')
-      const reply = await summarizeTasks({ apiKey: input.apiKey, baseUrl: input.baseUrl, model: input.model, message: input.message, results: input.results, timeoutMs: Number(process.env.COORDINATOR_TIMEOUT_MS || 30_000) })
-      res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ reply }))
-    } catch (error: any) {
-      res.writeHead(502, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ error: error?.message || 'Coordinator summary failure' }))
-    }
-    return
-  }
   if (req.method !== 'POST' || req.url !== '/agent') {
     res.writeHead(404, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ error: 'Not found' }))
@@ -109,7 +76,6 @@ const server = createServer(async (req, res) => {
       account: input.account,
       executions: input.executions,
       checkpoint: input.checkpoint,
-      taskKind: input.taskKind,
       onProgress: (event) => write({ type: 'progress', event }),
       onTrace: (event) => write({ type: 'trace', event }),
       onCheckpoint: (checkpoint) => write({ type: 'checkpoint', checkpoint }),

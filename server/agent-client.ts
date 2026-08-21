@@ -4,11 +4,11 @@
 // streams, so it runs in both Node and the Cloudflare Workers runtime.
 
 export async function runAgentViaService(opts: any) {
-  const { serviceUrl, taskId, taskKind, turnId, apiKey, baseUrl, model, message, canvas, account, executions, checkpoint, signal, onProgress = async () => {}, onTrace = async () => {}, onCheckpoint = async () => {} } = opts
+  const { serviceUrl, taskId, turnId, apiKey, baseUrl, model, message, canvas, account, executions, checkpoint, signal, onProgress = async () => {}, onTrace = async () => {}, onCheckpoint = async () => {} } = opts
   const response = await fetch(serviceUrl, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ taskId: taskId || turnId, taskKind, turnId, apiKey, baseUrl, model, message, canvas, account, executions, checkpoint }),
+    body: JSON.stringify({ taskId: taskId || turnId, turnId, apiKey, baseUrl, model, message, canvas, account, executions, checkpoint }),
     signal,
   })
   if (!response.ok || !response.body) {
@@ -20,7 +20,6 @@ export async function runAgentViaService(opts: any) {
   const decoder = new TextDecoder()
   let buffer = ''
   let plan: any
-  let steered = false
   let cancelled = false
   let serviceError: string | undefined
 
@@ -32,7 +31,6 @@ export async function runAgentViaService(opts: any) {
     else if (message.type === 'trace') await onTrace(message.event)
     else if (message.type === 'checkpoint') await onCheckpoint(message.checkpoint)
     else if (message.type === 'result') plan = message.plan
-    else if (message.type === 'steered') steered = true
     else if (message.type === 'cancelled') cancelled = true
     else if (message.type === 'error') serviceError = message.error
   }
@@ -55,8 +53,6 @@ export async function runAgentViaService(opts: any) {
     error.name = 'AbortError'
     throw error
   }
-  // The message was injected into an already-running run; no plan of its own.
-  if (steered) return { steered: true }
   if (!plan) throw new Error('Agent service returned no result')
   return plan
 }
@@ -68,27 +64,4 @@ export async function cancelAgentViaService(serviceUrl: string, turnId: string) 
     body: JSON.stringify({ taskId: turnId, turnId }),
   })
   if (!response.ok) throw new Error('Agent service could not stop the run')
-}
-
-export async function coordinateTasksViaService(opts: any) {
-  const response = await fetch(new URL('../coordinator', opts.serviceUrl), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ apiKey: opts.apiKey, baseUrl: opts.baseUrl, model: opts.model, message: opts.message }),
-    signal: opts.signal,
-  })
-  const body: any = await response.json().catch(() => ({}))
-  if (!response.ok || !Array.isArray(body.tasks)) throw new Error(body.error || 'Coordinator service failed')
-  return body.tasks
-}
-
-export async function summarizeTasksViaService(opts: any) {
-  const response = await fetch(new URL('../coordinator/summarize', opts.serviceUrl), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ apiKey: opts.apiKey, baseUrl: opts.baseUrl, model: opts.model, message: opts.message, results: opts.results }),
-  })
-  const body: any = await response.json().catch(() => ({}))
-  if (!response.ok || typeof body.reply !== 'string') throw new Error(body.error || 'Coordinator summary failed')
-  return body.reply
 }

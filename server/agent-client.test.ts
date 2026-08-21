@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { cancelAgentViaService, coordinateTasksViaService, runAgentViaService, summarizeTasksViaService } from './agent-client.js'
+import { cancelAgentViaService, runAgentViaService } from './agent-client.js'
 
 test('passes the turn id to the agent service and surfaces cancellation', async () => {
   const originalFetch = globalThis.fetch
@@ -35,39 +35,6 @@ test('calls the agent service cancel endpoint for a turn', async () => {
   try {
     await cancelAgentViaService('http://agent.test/agent', 'turn-2')
     assert.deepEqual(request, { url: 'http://agent.test/agent/cancel', body: { taskId: 'turn-2', turnId: 'turn-2' } })
-  } finally {
-    globalThis.fetch = originalFetch
-  }
-})
-
-test('coordinates independent tasks through the coordinator endpoint', async () => {
-  const originalFetch = globalThis.fetch
-  let request: any
-  globalThis.fetch = async (url, init) => {
-    request = { url: String(url), body: JSON.parse(String(init?.body)) }
-    return Response.json({ tasks: [{ title: 'Research', message: 'Find sources', kind: 'general' }] })
-  }
-  try {
-    const tasks = await coordinateTasksViaService({ serviceUrl: 'http://agent.test/agent', apiKey: 'secret', message: 'Research and build' })
-    assert.equal(request.url, 'http://agent.test/coordinator')
-    assert.equal(request.body.message, 'Research and build')
-    assert.equal(tasks[0].kind, 'general')
-  } finally {
-    globalThis.fetch = originalFetch
-  }
-})
-
-test('summarizes worker results through the coordinator endpoint', async () => {
-  const originalFetch = globalThis.fetch
-  let request: any
-  globalThis.fetch = async (url, init) => {
-    request = { url: String(url), body: JSON.parse(String(init?.body)) }
-    return Response.json({ reply: 'Combined answer' })
-  }
-  try {
-    const reply = await summarizeTasksViaService({ serviceUrl: 'http://agent.test/agent', apiKey: 'secret', message: 'Do both', results: [{ status: 'succeeded' }] })
-    assert.equal(request.url, 'http://agent.test/coordinator/summarize')
-    assert.equal(reply, 'Combined answer')
   } finally {
     globalThis.fetch = originalFetch
   }

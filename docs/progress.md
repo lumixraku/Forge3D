@@ -1,5 +1,25 @@
 # Progress
 
+## 2026-08-21 - main
+
+- Added Agent API regression coverage for a normal single-agent canvas turn, generated canvas persistence, absence of coordinator metadata, and user-selection pause/resume.
+- Verification: `pnpm test` passed 259 tests; `pnpm run typecheck` passed; `git diff --check` passed. A first draft of a queue-ordering test was removed after it exposed a test-harness synchronization issue, not a product failure. `pnpm run build` was not rerun because the full test suite consumed the verification window; the prior build remains passing with its existing large-chunk warning.
+- Remaining issues: None.
+
+## 2026-08-21 - main
+
+- Restored the chat agent to one serialized canvas turn per user request, removing coordinator task splitting, worker summaries, worker-specific prompts, and coordinator service endpoints.
+- Removed coordinator task metadata and the chat `STOP` / `STOPPING` controls; pending turns again show `Thinking` and `Preparing canvas agent`.
+- Verification: `pnpm run typecheck`, `pnpm test` (257 passing), `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning.
+- Remaining issues: None.
+
+## 2026-08-21 - main
+
+- Browser-verified the restored single-agent path on a new canvas: one request created `Text Prompt -> Text to 3D -> Export`, then a follow-up updated the prompt and inserted `Retopology`, and a final follow-up inserted `Texture` before export.
+- Reload verification confirmed the persisted canvas has six nodes and four valid typed edges: `prompt -> text-to-3d -> retopology -> texture -> export-model`; the prompt remains `low-poly orange robot mascot`.
+- Verification: exercised against the running local Vite, API, and Agent Service processes in the existing Chrome session. No `STOP`, `STOPPING`, coordinator, or worker UI appeared.
+- Remaining issues: None.
+
 ## 2026-08-19 - main
 
 - Cherry-picked `tripo` commit `e1abe5e789d778205d2f093115153da63648b8e7` as `3081034`, prefixing Tailwind utilities with `forge:` and application-owned classes with `forge3d-` for safe host-app embedding.

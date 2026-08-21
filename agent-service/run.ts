@@ -46,16 +46,9 @@ export interface RunOptions {
   account: { id: string; name: string; balance: number; executionCost: number }
   executions?: any[]
   checkpoint?: any
-  taskKind?: 'canvas' | 'general'
   onProgress?: (event: ProgressEvent) => void | Promise<void>
   onTrace?: (event: any) => void | Promise<void>
   onCheckpoint?: (checkpoint: any) => void | Promise<void>
-}
-
-export interface CoordinatedTask {
-  title: string
-  message: string
-  kind: 'canvas' | 'general'
 }
 
 function isPrivateAddress(address: string) {
@@ -84,65 +77,6 @@ async function fetchPublicPage(input: string) {
     url = new URL(location, url)
   }
   throw new Error('Too many redirects.')
-}
-
-export async function coordinateTasks(opts: Pick<RunOptions, 'apiKey' | 'baseUrl' | 'model' | 'message' | 'timeoutMs'>): Promise<CoordinatedTask[]> {
-  const model = {
-    id: opts.model || 'deepseek-chat',
-    name: 'DeepSeek',
-    api: 'openai-completions',
-    provider: 'deepseek',
-    baseUrl: opts.baseUrl || 'https://api.deepseek.com',
-    reasoning: false,
-    input: ['text'],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 65536,
-    maxTokens: 2048,
-  }
-  const prompt = `You are a task coordinator. Split the user's request into independent tasks that can run concurrently. Return JSON only, with this exact shape: {"tasks":[{"title":"short title","message":"self-contained worker instruction","kind":"canvas"|"general"}]}. Use kind canvas for work that reads or changes the 3D node canvas. Use kind general for analysis, writing, or research. Keep dependent work in one task. Do not create a task that waits for, combines, summarizes, reports, or verifies other tasks; the coordinator always performs the final synthesis after every worker finishes. Create at most 4 tasks.\n\nUser request:\n${opts.message}`
-  const agent = new Agent({
-    initialState: { systemPrompt: 'Return only valid JSON. Do not use markdown fences.', model, tools: [] },
-    streamFn: ((currentModel: any, context: any, options: any) => streamSimple(currentModel, context, { ...options, timeoutMs: opts.timeoutMs || 30_000 })) as any,
-    getApiKey: () => opts.apiKey,
-  })
-  let reply = ''
-  agent.subscribe((event: any) => {
-    if (event.type === 'message_end' && event.message?.role === 'assistant') {
-      reply = (event.message.content || []).filter((part: any) => part.type === 'text').map((part: any) => part.text).join('')
-    }
-  })
-  await agent.prompt(prompt)
-  let parsed: any
-  try {
-    parsed = JSON.parse(reply.trim().replace(/^```json\s*|\s*```$/g, ''))
-  } catch {
-    return [{ title: opts.message.trim().slice(0, 60) || 'Canvas task', message: opts.message, kind: 'canvas' }]
-  }
-  if (!Array.isArray(parsed.tasks) || !parsed.tasks.length) throw new Error('Coordinator returned no tasks')
-  return parsed.tasks.slice(0, 4).map((task: any, index: number) => ({
-    title: typeof task.title === 'string' && task.title.trim() ? task.title.trim() : `Task ${index + 1}`,
-    message: typeof task.message === 'string' && task.message.trim() ? task.message.trim() : opts.message,
-    kind: task.kind === 'general' ? 'general' : 'canvas',
-  }))
-}
-
-export async function summarizeTasks(opts: Pick<RunOptions, 'apiKey' | 'baseUrl' | 'model' | 'message' | 'timeoutMs'> & { results: any[] }): Promise<string> {
-  const model = {
-    id: opts.model || 'deepseek-chat', name: 'DeepSeek', api: 'openai-completions', provider: 'deepseek',
-    baseUrl: opts.baseUrl || 'https://api.deepseek.com', reasoning: false, input: ['text'],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 65536, maxTokens: 4096,
-  }
-  const agent = new Agent({
-    initialState: { systemPrompt: 'You are the coordinator. Give the user one concise final answer that combines the worker results. Mention failures clearly. Do not expose internal orchestration JSON.', model, tools: [] },
-    streamFn: ((currentModel: any, context: any, options: any) => streamSimple(currentModel, context, { ...options, timeoutMs: opts.timeoutMs || 30_000 })) as any,
-    getApiKey: () => opts.apiKey,
-  })
-  let reply = ''
-  agent.subscribe((event: any) => {
-    if (event.type === 'message_end' && event.message?.role === 'assistant') reply = (event.message.content || []).filter((part: any) => part.type === 'text').map((part: any) => part.text).join('')
-  })
-  await agent.prompt(`Original request:\n${opts.message}\n\nWorker results:\n${JSON.stringify(opts.results)}`)
-  return reply || 'The requested tasks have finished.'
 }
 
 // Labels are prefixed with "Pi ·" so the UI's Thought process makes it obvious
@@ -425,10 +359,7 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     },
   ]
 
-  const enabledTools = opts.taskKind === 'general'
-    ? toolImplementations.filter((tool) => ['web_search', 'fetch_web_page', 'get_canvas_structure', 'get_canvas_parameters', 'list_canvas_executions', 'get_execution_status'].includes(tool.name))
-    : toolImplementations.filter((tool) => !['web_search', 'fetch_web_page'].includes(tool.name))
-  const tools = enabledTools.map((tool) => ({
+  const tools = toolImplementations.filter((tool) => !['web_search', 'fetch_web_page'].includes(tool.name)).map((tool) => ({
     ...tool,
     execute: async (...args: any[]) => {
       const startedAt = Date.now()
@@ -444,11 +375,8 @@ export function startPiAgent(opts: RunOptions): LiveRun {
     },
   }))
 
-  const workerPrompt = opts.taskKind === 'general'
-    ? 'You are an independent research and analysis worker. Complete only the assigned task and report a concise answer in the user\'s language. Canvas tools are read-only context; never claim to modify the canvas. Use at most 1 web tool call. If the instruction gives an authoritative URL, fetch it directly. Otherwise, search once and answer from the returned snippets. After that single call, stop using tools and answer with concrete findings and source URLs.'
-    : systemPrompt
   const agent = new Agent({
-    initialState: { systemPrompt: workerPrompt, model, tools },
+    initialState: { systemPrompt, model, tools },
     streamFn: ((model: any, context: any, options: any) => streamSimple(model, context, { ...options, timeoutMs })) as any,
     getApiKey: () => opts.apiKey,
     // Drain every queued steering message at the next turn boundary.

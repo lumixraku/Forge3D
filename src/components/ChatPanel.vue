@@ -13,8 +13,6 @@ const props = defineProps<{
   error: string
   composerHasContent: boolean
   continuingTurnId: string | null
-  runningTurnId: string | null
-  stoppingTurnId: string | null
   selectedOptions: Record<string, string[]>
 }>()
 const emit = defineEmits<{
@@ -22,7 +20,6 @@ const emit = defineEmits<{
   'attach-files': [files: File[]]
   'toggle-option': [payload: { message: any; optionId: string }]
   'continue-turn': [message: any]
-  'stop-turn': [turnId: string]
   retry: [message: any]
 }>()
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -67,10 +64,7 @@ function userContent(message) {
       <article v-for="message in messages" :key="message.id" class="forge:mb-6 forge:min-w-0 forge:[&>span]:mb-[7px] forge:[&>span]:block forge:[&>span]:font-mono forge:[&>span]:text-[8px] forge:[&>span]:font-semibold forge:[&>span]:tracking-[.12em] forge:[&>span]:text-text-muted forge:[&.forge3d-assistant>span]:text-acid forge:[&.forge3d-pending_p]:text-text-muted forge:[&.forge3d-user]:ml-auto forge:[&.forge3d-user]:w-[min(100%,360px)] forge:[&.forge3d-user]:rounded-[14px_14px_3px_14px] forge:[&.forge3d-user]:border forge:[&.forge3d-user]:border-line-strong forge:[&.forge3d-user]:bg-bg-input forge:[&.forge3d-user]:p-[13px] forge:[&.forge3d-user]:shadow-sm forge:[&.forge3d-user>span]:mb-[9px] forge:[&.forge3d-user>span]:text-right forge:[&.forge3d-user>span]:text-acid forge:[&.forge3d-user_p]:text-text-primary" :class="[bizClass(message.role), { 'forge3d-pending': message.pending }]">
         <span>{{ message.role === 'assistant' ? 'FORGE' : 'YOU' }}</span>
         <template v-if="message.role === 'assistant'">
-          <div v-if="message.pending" class="forge:grid forge:gap-[5px] forge:text-[13px] forge:text-text-secondary">
-            <div class="forge:flex forge:items-center forge:justify-between forge:gap-3"><b class="forge:text-[13px] forge:text-text-primary">{{ message.taskTitle || (stoppingTurnId === message.turnId ? 'Stopping' : 'Working') }}</b><button class="forge:rounded forge:border forge:border-line-strong forge:bg-transparent forge:px-2 forge:py-1 forge:font-mono forge:text-[8px] forge:text-text-muted forge:hover:border-status-failed forge:hover:text-status-failed" type="button" :disabled="stoppingTurnId === message.turnId" @click="emit('stop-turn', message.turnId)">{{ stoppingTurnId === message.turnId ? 'STOPPING' : 'STOP' }}</button></div>
-            <span class="forge:after:content-['...'] forge:after:animate-[thinking-ellipsis_1.1s_steps(4,end)_infinite]">{{ message.progress.at(-1)?.label || `Preparing ${message.taskKind || 'agent'} worker` }}</span>
-          </div>
+          <div v-if="message.pending" class="forge:grid forge:gap-[5px] forge:text-[13px] forge:text-text-secondary"><b class="forge:text-[13px] forge:text-text-primary">Thinking</b><span class="forge:after:content-['...'] forge:after:animate-[thinking-ellipsis_1.1s_steps(4,end)_infinite]">{{ message.progress.at(-1)?.label || 'Preparing canvas agent' }}</span></div>
           <details v-else-if="message.progress?.length" class="forge3d-thought-process forge:mb-[10px] forge:border-l-2 forge:border-line-strong forge:text-[11px] forge:text-text-muted forge:[&>span]:ml-[17px] forge:[&>span]:mt-[7px] forge:[&>span]:block forge:[&_summary]:cursor-pointer forge:[&_summary]:list-none forge:[&_summary]:pl-[9px] forge:[&_summary]:transition-colors forge:[&_summary]:hover:text-text-primary forge:[&_summary_small]:ml-[5px] forge:[&_summary_small]:font-mono forge:[&_summary_small]:text-[9px] forge:[&_summary_small]:text-text-muted"><summary>Thought process <small>Tool activity</small></summary><span v-for="(event, index) in message.progress" :key="`${event.label}-${index}`">{{ event.label }}</span></details>
           <div v-if="message.content" class="forge3d-message-content forge:text-[13px] forge:leading-[1.55] forge:text-text-secondary forge:[overflow-wrap:anywhere]" v-html="renderAssistantMarkdown(message.content)" />
           <button v-if="message.failed" class="forge:mt-[9px] forge:grid forge:size-7 forge:place-items-center forge:rounded-md forge:border-0 forge:bg-transparent forge:p-0 forge:text-text-muted forge:transition-colors forge:hover:bg-bg-input-hover forge:hover:text-acid forge:focus-visible:bg-bg-input-hover forge:focus-visible:text-acid forge:focus-visible:outline-0 forge:[&_svg]:size-[15px] forge:[&_svg]:fill-none forge:[&_svg]:stroke-current forge:[&_svg]:stroke-[1.8]" type="button" title="重试" aria-label="重试" :disabled="busy" @click="emit('retry', message)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5" /><path d="M19 12a7 7 0 1 0-2.05 4.95" /></svg></button>
@@ -103,7 +97,7 @@ function userContent(message) {
       <input ref="fileInput" class="forge:hidden" type="file" multiple @change="addFiles" />
       <div class="forge:mt-[5px] forge:flex forge:items-center forge:justify-end forge:gap-[7px] forge:[&_button]:grid forge:[&_button]:size-[30px] forge:[&_button]:place-items-center forge:[&_button]:rounded-full forge:[&_button]:border-0 forge:[&_button]:bg-acid forge:[&_button]:p-0 forge:[&_button]:text-text-inverse forge:[&_button]:transition-[transform,filter,box-shadow] forge:[&_button]:hover:-translate-y-px forge:[&_button]:hover:brightness-108 forge:[&_button]:focus-visible:outline-none forge:[&_button]:focus-visible:shadow-[0_0_0_2px_var(--bg-primary),0_0_0_4px_color-mix(in_srgb,var(--acid)_50%,transparent)] forge:[&_svg]:size-[15px] forge:[&_svg]:fill-none forge:[&_svg]:stroke-current forge:[&_svg]:stroke-[1.8]">
         <button class="forge:!border forge:!border-line-subtle forge:!bg-bg-input-hover forge:!text-text-muted forge:hover:!border-acid forge:hover:!text-acid" type="button" title="Attach files" aria-label="Attach files" @click="fileInput.click()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20.5 11.5-8.8 8.8a6 6 0 0 1-8.5-8.5l9.5-9.5a4 4 0 0 1 5.7 5.7l-9.6 9.5a2 2 0 0 1-2.8-2.8l8.8-8.8" /></svg></button>
-        <div class="forge:flex forge:items-center forge:gap-1.5"><button :class="{ 'forge:!border forge:!border-[color-mix(in_srgb,var(--status-failed)_55%,var(--line-strong))] forge:!bg-[color-mix(in_srgb,var(--status-failed)_8%,transparent)] forge:!text-status-failed': runningTurnId }" :type="runningTurnId ? 'button' : 'submit'" :title="runningTurnId ? (stoppingTurnId ? 'Stopping' : 'Stop') : 'Send'" :aria-label="runningTurnId ? (stoppingTurnId ? 'Stopping' : 'Stop') : 'Send'" :disabled="runningTurnId ? Boolean(stoppingTurnId) : busy || !composerHasContent" @click="runningTurnId && emit('stop-turn', runningTurnId)"><svg v-if="runningTurnId" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1" /></svg><svg v-else viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4 14-3-6-7-1Z" /><path d="m12 13 7-8" /></svg></button></div>
+        <div class="forge:flex forge:items-center forge:gap-1.5"><button type="submit" title="Send" aria-label="Send" :disabled="busy || !composerHasContent"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4 14-3-6-7-1Z" /><path d="m12 13 7-8" /></svg></button></div>
       </div>
     </form>
   </section>

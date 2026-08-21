@@ -192,9 +192,9 @@ const {
 })
 
 const {
-  composer, composerHasContent, messages, selectedOptions, continuingTurnId, runningTurnId, stoppingTurnId, addComposerFiles,
+  composer, composerHasContent, messages, selectedOptions, continuingTurnId, addComposerFiles,
   loadSessions, restoreTurns, subscribeCanvasEvents, closeCanvasEvents, toggleSelectedOption,
-  continueTurn, stopTurn, sendMessage, retryMessage,
+  continueTurn, sendMessage, retryMessage,
 } = useAgentChat({
   activeCanvas,
   activeSession,
@@ -213,7 +213,7 @@ const {
 
 configureIdleRelease({
   flush: () => flushPendingSave({ detectChanges: true }),
-  isBusy: () => saving.value || agentBusy.value || isRunning.value || Boolean(runningTurnId.value),
+  isBusy: () => saving.value || agentBusy.value || isRunning.value,
 })
 
 const { capabilitiesError, debugPanelOpen, selectedProvider, activeProvider, tripoAvailable, tripoNodeTypes, setProvider } = useDebugSettings()
@@ -808,14 +808,11 @@ onUnmounted(() => {
         :error="error"
         :composer-has-content="composerHasContent"
         :continuing-turn-id="continuingTurnId"
-        :running-turn-id="runningTurnId"
-        :stopping-turn-id="stoppingTurnId"
         :selected-options="selectedOptions"
         @send="sendMessage"
         @attach-files="addComposerFiles"
         @toggle-option="toggleSelectedOption($event.message, $event.optionId)"
         @continue-turn="continueTurn"
-        @stop-turn="stopTurn"
         @retry="retryMessage"
       />
 

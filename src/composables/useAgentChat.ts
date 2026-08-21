@@ -13,14 +13,12 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
   const composerVersion = ref(0)
   const selectedOptions = ref({})
   const continuingTurnId = ref(null)
-  const stoppingTurnId = ref(null)
   let events = null
   const messages = computed(() => activeSession.value?.messages || [])
 
   function displayAgentError(message) {
     return typeof message === 'string' && message.trim() ? message : '请求失败，请重试。'
   }
-  const runningTurnId = computed(() => messages.value.find((message) => message.role === 'assistant' && message.pending && message.turnId)?.turnId || null)
   const composer = useEditor({
     extensions: [
       StarterKit,
@@ -168,7 +166,6 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
         pending.stopped = true
         pending.content = 'Stopped'
       }
-      if (stoppingTurnId.value === event.turn_id) stoppingTurnId.value = null
     }
   }
 
@@ -225,8 +222,6 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
           content: '',
           progress: turn.progress,
           turnId: turn.id,
-          taskTitle: turn.title,
-          taskKind: turn.kind,
           createdAt: turn.createdAt,
           pending: !turn.request,
           request: turn.request || null,
@@ -268,25 +263,6 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
     }
   }
 
-  async function stopTurn(turnId) {
-    if (!turnId || stoppingTurnId.value) return
-    stoppingTurnId.value = turnId
-    error.value = ''
-    try {
-      await request(`/api/turns/${encodeURIComponent(turnId)}/cancel`, { method: 'POST' })
-      const pending = activeSession.value?.messages.find((item) => item.turnId === turnId)
-      if (pending) {
-        pending.pending = false
-        pending.stopped = true
-        pending.content = 'Stopped'
-      }
-    } catch (caught) {
-      error.value = caught.message
-    } finally {
-      stoppingTurnId.value = null
-    }
-  }
-
   async function sendMessage(retryOf) {
     const message = retryOf?.content || composerMessage()
     if (!message) return
@@ -322,34 +298,13 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
       }
       busy.value = false
       // 202 with the turn; its events arrive on the project's canvas channel.
-      const group = await request(`/api/sessions/${sessionId}/turns`, {
+      const turn = await request(`/api/sessions/${sessionId}/turns`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ clientId, message, attachments }),
       })
       const current = activeSession.value?.messages.find((item) => item.id === pendingAssistantId)
-      const tasks = group.tasks || [group]
-      if (current && tasks.length) {
-        const claimedTask = tasks.find((task) => task.id === current.turnId) || tasks[0]
-        Object.assign(current, { turnId: claimedTask.id, taskTitle: claimedTask.title, taskKind: claimedTask.kind })
-        const index = activeSession.value.messages.indexOf(current)
-        activeSession.value.messages.splice(index + 1, 0, ...tasks.filter((task) => task.id !== claimedTask.id).map((task) => ({
-          id: `pending-assistant-${task.id}`,
-          role: 'assistant',
-          content: '',
-          progress: [],
-          turnId: task.id,
-          taskTitle: task.title,
-          taskKind: task.kind,
-          createdAt,
-          pending: true,
-        })))
-      }
-      const coordinator = tasks.find((task) => task.kind === 'coordinator')
-      if (coordinator) {
-        const coordinatorMessage = activeSession.value.messages.find((item) => item.turnId === coordinator.id)
-        if (coordinatorMessage) coordinatorMessage.pending = true
-      }
+      if (current) current.turnId = turn.id
     } catch (caught) {
       const current = activeSession.value?.messages.find((item) => item.id === pendingAssistantId)
       if (current) {
@@ -383,8 +338,6 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
     messages,
     selectedOptions,
     continuingTurnId,
-    runningTurnId,
-    stoppingTurnId,
     addComposerFiles,
     loadSessions,
     restoreTurns,
@@ -392,7 +345,6 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
     closeCanvasEvents,
     toggleSelectedOption,
     continueTurn,
-    stopTurn,
     sendMessage,
     retryMessage,
   }
