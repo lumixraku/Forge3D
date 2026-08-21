@@ -241,6 +241,12 @@ watch([() => run.value?.id, () => run.value?.status], ([runId]) => {
 
 watch(() => activeCanvas.value?.id, (canvasId) => { loadExecutions(canvasId) }, { immediate: true })
 
+// Cover every insertion and removal path, including Vue Flow's native delete
+// event, while the document's debounced scheduler coalesces rapid changes.
+watch(() => nodes.value.length, () => {
+  scheduleSave()
+}, { flush: 'sync' })
+
 // A section runs from its first executable child that nothing inside the section
 // feeds, falling back to the first executable child when they are all fed.
 function sectionEntryNodeId(frameId) {

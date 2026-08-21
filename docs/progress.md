@@ -2,6 +2,18 @@
 
 ## 2026-08-21 - main
 
+- Added a synchronous watcher for the canvas node count so every insertion or removal path, including Vue Flow's native delete event, queues the existing debounced workflow save. The existing 700ms scheduler coalesces repeated changes and preserves the immediate save path used before execution.
+- Verification: `pnpm run typecheck`, `pnpm test` (259 passing), `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning.
+- Remaining issues: None.
+
+## 2026-08-21 - main
+
+- Removed the Text to 3D-only `Parameters` accordion and its UI state. Schema-declared non-advanced parameters now render directly for every node, while `parameters[].advanced` remains the single schema-driven control for the `Advanced` disclosure.
+- Verification: `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. Reloaded the existing Chrome MCP localhost session and confirmed no `Parameters` button is rendered. The production build retains the existing large-chunk warning.
+- Remaining issues: None.
+
+## 2026-08-21 - main
+
 - Added connection-drag feedback for typed canvas edges: during an output-handle drag, every incompatible target node is dimmed and desaturated, while its input handle turns red with a prohibition glow. The feedback clears on connect completion or cancellation.
 - Verification: `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning. Reloaded the existing Chrome MCP localhost canvas session to confirm the updated app loads; synthetic pointer dispatch did not initiate Vue Flow's drag interaction, so the drag-state visual was not browser-automated.
 - Remaining issues: None.
