@@ -85,7 +85,7 @@ const executionEdges = computed(() => edges.value.map((edge) => ({
   data: { ...edge.data, running: nodeRuns.value[edge.target]?.status === 'running' },
 })))
 
-const { fitView, screenToFlowCoordinate, updateNodeInternals, viewport } = useVueFlow()
+const { findNode, fitView, screenToFlowCoordinate, updateNodeInternals, viewport } = useVueFlow()
 const { theme, resolvedTheme, setTheme } = useTheme()
 const {
   clientId, canEdit, editorName, acquireEditLease, markEditActivity, configureIdleRelease,
@@ -485,11 +485,24 @@ function canvasCenterPosition() {
   return screenToFlowCoordinate({ x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 })
 }
 
+// fitView silently ignores nodes it has not measured yet, and a freshly added
+// node is measured by a ResizeObserver whose timing we cannot predict, so wait
+// for real dimensions rather than a fixed number of frames.
+async function waitForNodeDimensions(ids, attempts = 30) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (ids.every((id) => {
+      const node = findNode(id)
+      return node && node.dimensions.width > 0 && node.dimensions.height > 0
+    })) return true
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+  }
+  return false
+}
+
 async function focusNodes(ids, padding = 0.25) {
   if (!ids.length) return
   await nextTick()
-  await new Promise((resolve) => requestAnimationFrame(resolve))
-  await nextTick()
+  await waitForNodeDimensions(ids)
   fitView({ nodes: ids, padding, maxZoom: 1, duration: 350 })
 }
 
@@ -555,8 +568,10 @@ function addNode(type, sourceId, position) {
     if (sourceId) {
       addConnection({ source: sourceId, sourceHandle: 'output', target: node.id, targetHandle: 'input' })
     }
-    fitView({ nodes: [node.id], padding: 1.5, maxZoom: 1, duration: 350 })
   })
+  // fitView ignores nodes it has not measured yet, so this has to wait for the
+  // node to render or the viewport would never move.
+  focusNode(node.id)
 }
 
 // Generated images are paid artifacts, so a rerun never overwrites an earlier
