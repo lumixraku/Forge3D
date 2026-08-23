@@ -2,6 +2,13 @@
 
 ## 2026-08-21 - main
 
+- Replaced click-to-place Section with drag-to-draw. Both entry points (the toolbar `Section` button and the `Section` item in `+ Add node`) now arm a `frame` canvas mode with a crosshair cursor instead of dropping a 900x600 frame at the viewport centre. A press on the canvas shows a live dashed preview with a size readout that tracks the cursor from pointerdown onward; release commits the drawn rectangle as the Section and returns the mode to `select`. Nodes the rectangle overlaps at all are adopted as children, except frames and nodes another frame already owns. The drawn size is kept and flagged `manualSize`, so `fitFrameNodes` never shrinks it to its contents. A drag under 4px falls back to the previous centred default frame. Escape aborts an in-flight rectangle, and (when no menu is open) disarms the tool.
+- New `buildDrawnFrame` in `src/frame-geometry.ts` and new `src/composables/useFrameDraw.ts`; `src/App.vue`, `src/components/CanvasToolbar.vue` and `src/composables/useKeyboardShortcuts.ts` wire them up. In draw mode `nodes-draggable` and `elements-selectable` are both off, which makes Vue Flow drop pointer events on its nodes so the whole pane answers the gesture; the trailing pane click is swallowed once so the new Section stays selected.
+- Verification: `pnpm test` (265 passing, 4 new `buildDrawnFrame` cases), `pnpm run typecheck`, `pnpm run build` and `git diff --check` passed. Also exercised live in Chrome against the dev server: preview present at pointerdown and tracking 1:1 with drag distance, commit creating one frame and clearing the preview, mode and button state resetting, adoption on partial overlap, refusal to steal a node owned by another frame, Escape disarming, and drawn size plus parentage surviving the save round-trip. Test frames created during that check were deleted, restoring the local dev canvas to its prior state. The production build retains the existing large-chunk warning.
+- Remaining issues: None.
+
+## 2026-08-21 - main
+
 - Added a one-time GLB/GLTF thumbnail pipeline for Asset Upload. The browser renders a 512px PNG once after the model is uploaded, persists it through `/api/assets`, and saves its real URL as `thumbnailUrl`; canvas nodes subsequently use only this static image. Other accepted model formats continue to use the lightweight generic card.
 - Verification: `pnpm run typecheck`, `pnpm test` (261 passing), `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning.
 - Remaining issues: None.

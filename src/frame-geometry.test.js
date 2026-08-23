@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { adoptNodesCoveredByDraggedFrames, applyLayoutPositions, buildSelectionFrame, fitFrameNodes, pointInAnyFrame, reparentDraggedNodes } from './frame-geometry.js'
+import { adoptNodesCoveredByDraggedFrames, applyLayoutPositions, buildDrawnFrame, buildSelectionFrame, fitFrameNodes, pointInAnyFrame, reparentDraggedNodes } from './frame-geometry.js'
 import { frameInsets } from './canvas-layout.js'
 
 const insets = { left: 10, right: 20, top: 30, bottom: 40 }
@@ -111,6 +111,49 @@ test('wraps a selection in a frame and converts children to local coordinates', 
   assert.deepEqual(rest[0].position, { x: 10, y: 30 })
   assert.deepEqual(rest[1].position, { x: 410, y: 130 })
   assert.equal(rest.some((item) => item.selected), false)
+})
+
+test('builds a drawn frame at the drawn rectangle and adopts what it overlaps', () => {
+  const nodes = [node('a', { x: 100, y: 100 }), node('b', { x: 2000, y: 0 })]
+
+  const [created, ...rest] = buildDrawnFrame(nodes, { left: 50, top: 40, right: 950, bottom: 640 }, { frameId: 'frame-2' })
+
+  assert.deepEqual(created.position, { x: 50, y: 40 })
+  assert.equal(created.width, 900)
+  assert.equal(created.height, 600)
+  assert.equal(created.selected, true)
+  assert.equal(created.data.manualSize, true)
+  assert.equal(created.data.label, 'New canvas section')
+  assert.deepEqual(rest.map((item) => item.parentNode), ['frame-2', undefined])
+  assert.deepEqual(rest[0].position, { x: 50, y: 60 })
+  assert.equal(rest.some((item) => item.selected), false)
+})
+
+test('a drawn frame adopts a one pixel overlap but not an edge touch', () => {
+  const nodes = [node('overlap', { x: 899, y: 100 }), node('touching', { x: 900, y: 300 })]
+
+  const [, overlapping, touching] = buildDrawnFrame(nodes, { left: 0, top: 0, right: 900, bottom: 900 }, { frameId: 'f' })
+
+  assert.equal(overlapping.parentNode, 'f')
+  assert.equal(touching.parentNode, undefined)
+})
+
+test('a drawn frame never nests frames or steals another frame owned child', () => {
+  const nodes = [frame('existing', { x: 0, y: 0 }, 900, 600), node('owned', { x: 10, y: 10 }, {}, { parentNode: 'existing' }), node('root', { x: 20, y: 20 })]
+
+  const [created, ...rest] = buildDrawnFrame(nodes, { left: 0, top: 0, right: 900, bottom: 600 }, { frameId: 'f' })
+
+  assert.equal(created.id, 'f')
+  assert.deepEqual(rest.map((item) => item.parentNode), [undefined, 'existing', 'f'])
+  assert.deepEqual(rest[1].position, { x: 10, y: 10 })
+})
+
+test('a drawn frame normalizes an inverted rectangle and clamps a tiny one', () => {
+  const [created] = buildDrawnFrame([], { left: 400, top: 300, right: 390, bottom: 295 }, { frameId: 'f' })
+
+  assert.deepEqual(created.position, { x: 390, y: 295 })
+  assert.equal(created.width, 260)
+  assert.equal(created.height, 180)
 })
 
 test('anchors frames to their laid out children and keeps children local', () => {

@@ -10,6 +10,9 @@ export function useKeyboardShortcuts({
   nodeMenuOpen,
   canvasMenu,
   hasSelection,
+  canvasMode,
+  frameDrawing,
+  cancelFrameDraw,
   closeImagePreview,
   closeModelEditor,
   closeCanvasSwitcher,
@@ -48,9 +51,22 @@ export function useKeyboardShortcuts({
       return
     }
     const modifier = event.metaKey || event.ctrlKey
+    // An in-flight section rectangle outranks the menus; an armed-but-idle draw
+    // tool does not, so a menu still closes first while the tool stays armed.
+    if (event.key === 'Escape' && frameDrawing.value) {
+      event.preventDefault()
+      cancelFrameDraw()
+      canvasMode.value = 'select'
+      return
+    }
     if (event.key === 'Escape' && (nodeMenuOpen.value || canvasMenu.value)) {
       closeContextMenu()
       closeCanvasMenu()
+      return
+    }
+    if (event.key === 'Escape' && canvasMode.value === 'frame') {
+      event.preventDefault()
+      canvasMode.value = 'select'
       return
     }
     if (modifier && event.code === 'KeyD') {

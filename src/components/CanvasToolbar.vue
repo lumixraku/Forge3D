@@ -22,7 +22,7 @@ const emit = defineEmits<{
   'toggle-menu': []
   'select-node-type': [type: string]
   'drag-node-type': [payload: { event: DragEvent; type: string }]
-  'add-frame': []
+  'toggle-frame-mode': []
   'fit-view': []
   'auto-layout': []
 }>()
@@ -51,7 +51,7 @@ const emit = defineEmits<{
             <NodeCatalogMenu :catalog="catalog" :categories="categories" @select="emit('select-node-type', $event)" @dragstart="emit('drag-node-type', $event)" />
           </div>
         </div>
-        <button class="forge:h-[30px] forge:min-w-[30px] forge:rounded-md forge:border forge:border-line-subtle forge:bg-bg-input forge:px-[9px] forge:font-mono forge:text-[10px] forge:font-medium forge:text-text-muted forge:transition-colors forge:hover:border-line-strong forge:hover:bg-bg-input-hover forge:hover:text-acid" :disabled="!hasCanvas" @click="emit('add-frame')">Section</button>
+        <button class="forge:h-[30px] forge:min-w-[30px] forge:rounded-md forge:border forge:border-line-subtle forge:bg-bg-input forge:px-[9px] forge:font-mono forge:text-[10px] forge:font-medium forge:text-text-muted forge:transition-colors forge:hover:border-line-strong forge:hover:bg-bg-input-hover forge:hover:text-acid forge:aria-pressed:border-acid forge:aria-pressed:bg-[color-mix(in_srgb,var(--acid)_12%,var(--bg-input))] forge:aria-pressed:text-acid" :disabled="!hasCanvas" :aria-pressed="canvasMode === 'frame'" title="Draw a section on the canvas" @click="emit('toggle-frame-mode')">Section</button>
         <button class="forge:h-[30px] forge:min-w-[30px] forge:rounded-md forge:border forge:border-line-subtle forge:bg-bg-input forge:px-[9px] forge:font-mono forge:text-[10px] forge:font-medium forge:text-text-muted forge:transition-colors forge:hover:border-line-strong forge:hover:bg-bg-input-hover forge:hover:text-acid" @click="emit('fit-view')">Fit</button>
         <button class="forge:h-[30px] forge:min-w-[30px] forge:rounded-md forge:border forge:border-line-subtle forge:bg-bg-input forge:px-[9px] forge:font-mono forge:text-[10px] forge:font-medium forge:text-text-muted forge:transition-colors forge:hover:border-line-strong forge:hover:bg-bg-input-hover forge:hover:text-acid" :disabled="busy || saving || !nodeCount" @click="emit('auto-layout')">Auto layout</button>
       </template>

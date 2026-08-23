@@ -252,6 +252,46 @@ export function buildSelectionFrame(nodes: GeometryNode[], selected: GeometryNod
   return [frame, ...children]
 }
 
+// Wrap whatever a drawn rectangle covers in a new frame. Unlike a selection
+// frame the drawn rectangle *is* the frame, so no insets are applied and the
+// size is marked manual — fitFrameNodes must not shrink it back to its contents.
+export function buildDrawnFrame(nodes: GeometryNode[], bounds: Bounds, { frameId, label = 'New canvas section', minWidth = 260, minHeight = 180 }: { frameId: string; label?: string; minWidth?: number; minHeight?: number }) {
+  // The rectangle arrives in whichever direction it was dragged, and a tiny one
+  // is grown from its top-left to the size the resize handles already enforce.
+  const left = Math.min(bounds.left, bounds.right)
+  const top = Math.min(bounds.top, bounds.bottom)
+  const width = Math.max(Math.abs(bounds.right - bounds.left), minWidth)
+  const height = Math.max(Math.abs(bounds.bottom - bounds.top), minHeight)
+  const framePosition = { x: left, y: top }
+  const frameBox = { width, height }
+  const nodeMap = indexNodes(nodes)
+
+  const frame = {
+    id: frameId,
+    type: 'frame',
+    position: framePosition,
+    width,
+    height,
+    selected: true,
+    style: { pointerEvents: 'none' },
+    data: { label, description: '', manualSize: true },
+  }
+  const rest = nodes.map((node) => {
+    // Frames are never nested, and a node another frame already owns stays put.
+    if (node.type === 'frame' || node.parentNode) return { ...node, selected: false }
+    const position = absoluteNodePosition(node, nodeMap)
+    if (overlapArea(position, nodeSize(node), framePosition, frameBox) <= 0) return { ...node, selected: false }
+    return {
+      ...node,
+      parentNode: frameId,
+      position: { x: position.x - framePosition.x, y: position.y - framePosition.y },
+      selected: false,
+    }
+  })
+
+  return [frame, ...rest]
+}
+
 // The auto layout works in a single global space, but a framed child's position
 // is stored relative to its frame's origin. Anchor each frame to the top-left of
 // its (padded) children, then convert children back into that local space.
