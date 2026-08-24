@@ -4,12 +4,10 @@ import { frameComponentGap, frameInsets, layoutSelection } from '../canvas-layou
 
 // Frames (sections) are plain Vue Flow parent nodes, so their size and their
 // children's parentage are maintained here in response to canvas interaction.
-export function useCanvasFrames({ nodes, edges, fitView, screenToFlowCoordinate, updateNodeInternals, scheduleSave, scheduleLayoutSave, frameableSelectedNodes, nextNodeId, focusNode }) {
+export function useCanvasFrames({ nodes, edges, screenToFlowCoordinate, updateNodeInternals, scheduleSave, scheduleLayoutSave, frameableSelectedNodes, nextNodeId, focusNode }) {
   let frameFitQueued = false
-  let frameFitShouldSave = false
   let frameFitSuppressed = false
   let dragging = false
-  let resizingFrameId = null
   let marqueeSelecting = false
   let marqueeStartedInFrame = false
 
@@ -19,17 +17,13 @@ export function useCanvasFrames({ nodes, edges, fitView, screenToFlowCoordinate,
     return fitted.changed
   }
 
-  function queueFrameFit({ persist = false } = {}) {
-    frameFitShouldSave ||= persist
+  // Visual-only: the callers that own a frame's persisted size save it themselves.
+  function queueFrameFit() {
     if (frameFitQueued) return
     frameFitQueued = true
     nextTick(async () => {
       frameFitQueued = false
-      const shouldSave = frameFitShouldSave
-      frameFitShouldSave = false
-      await new Promise((resolve) => requestAnimationFrame(resolve))
-      await nextTick()
-      if (fitFrames() && shouldSave) scheduleLayoutSave()
+      await fitFramesAfterRender()
     })
   }
 
@@ -83,31 +77,25 @@ export function useCanvasFrames({ nodes, edges, fitView, screenToFlowCoordinate,
       }
     }
     if (frameFitSuppressed) return
-    const hasDimensions = changes.some((change) => change.type === 'dimensions' && change.id !== resizingFrameId)
-    // Resize frames to their children only once settled: on a node's own size change,
-    // or on a position change that is NOT part of an in-flight drag. While the mouse is
-    // down we leave the frame untouched; onNodeDragStop refits on release.
-    if (hasDimensions || (!dragging && changes.some((change) => change.type === 'position'))) {
-      queueFrameFit({ persist: hasDimensions })
+    // A frame's size follows its children only on the three actions that own it:
+    // resizing it by hand, nodes entering or leaving it, and auto layout. A node's
+    // own measured height is NOT one of them — run states and expanding controls
+    // re-measure constantly, and refitting on that would resize (and save) the
+    // frame behind the user's back. Position changes still refit, but only once
+    // settled: while the mouse is down we leave the frame alone and onNodeDragStop
+    // refits on release.
+    if (!dragging && changes.some((change) => change.type === 'position')) {
+      queueFrameFit()
     }
     if (changes.some((change) => change.type === 'remove')) scheduleSave()
   }
 
   function suppressFrameFit(value) {
     frameFitSuppressed = value
-    if (value) {
-      frameFitQueued = false
-      frameFitShouldSave = false
-    }
-  }
-
-  function onFrameResizeStart(id) {
-    resizingFrameId = id
-    nodes.value = nodes.value.map((node) => node.id === id ? { ...node, data: { ...node.data, manualSize: true } } : node)
+    if (value) frameFitQueued = false
   }
 
   function onFrameResizeEnd() {
-    resizingFrameId = null
     scheduleLayoutSave()
   }
 
@@ -115,13 +103,16 @@ export function useCanvasFrames({ nodes, edges, fitView, screenToFlowCoordinate,
     dragging = true
   }
 
-  function onNodeDragStop({ nodes: draggedNodes = [] } = {}) {
+  async function onNodeDragStop({ nodes: draggedNodes = [] } = {}) {
     const reparented = reparentDraggedNodes(nodes.value, draggedNodes)
     if (reparented.changed) nodes.value = reparented.nodes
     const adopted = adoptNodesCoveredByDraggedFrames(nodes.value, draggedNodes)
     if (adopted.changed) nodes.value = adopted.nodes
     dragging = false
-    fitFrames()
+    // Vue Flow stretches a frame's rendered box to cover its children as they are
+    // reparented, so the fit has to run after that render and re-measure, or the
+    // frame keeps the size Vue Flow gave it while our state holds the fitted one.
+    await fitFramesAfterRender()
     if (reparented.changed || adopted.changed) scheduleSave()
     else scheduleLayoutSave()
   }
@@ -137,7 +128,6 @@ export function useCanvasFrames({ nodes, edges, fitView, screenToFlowCoordinate,
     }
     await nextTick()
     updateNodeInternals()
-    fitView({ padding: 0.18, duration: 500 })
     if (persist) scheduleLayoutSave()
   }
 
@@ -149,7 +139,6 @@ export function useCanvasFrames({ nodes, edges, fitView, screenToFlowCoordinate,
     onSelectionStart,
     onSelectionEnd,
     onElementsChange,
-    onFrameResizeStart,
     onFrameResizeEnd,
     onNodeDragStart,
     onNodeDragStop,

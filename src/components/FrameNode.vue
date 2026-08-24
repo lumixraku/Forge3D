@@ -5,7 +5,7 @@ import { NodeResizeControl, type ControlPosition } from '@vue-flow/node-resizer'
 interface FrameData { label: string; description?: string }
 
 const props = withDefaults(defineProps<{ id: string; data: FrameData; selected?: boolean; zoom?: number; running?: boolean }>(), { selected: false, zoom: 1, running: false })
-const emit = defineEmits<{ 'update-name': [name: string]; 'resize-start': []; 'resize-end': []; 'run': []; 'stop-run': [] }>()
+const emit = defineEmits<{ 'update-name': [name: string]; 'resize-end': []; 'run': []; 'stop-run': [] }>()
 const editingName = ref(false)
 const draftName = ref('')
 const nameInput = ref<HTMLInputElement | null>(null)
@@ -41,7 +41,7 @@ function cancelNameEdit() {
 
 <template>
   <section class="forge3d-canvas-frame forge:relative forge:h-full forge:min-h-full forge:w-full forge:min-w-full forge:rounded-[15px] forge:border forge:border-[color-mix(in_srgb,var(--acid)_44%,transparent)] forge:bg-[color-mix(in_srgb,var(--acid)_4.5%,transparent)] forge:px-5 forge:py-[17px] forge:transition-[border-color,box-shadow] forge:[&.forge3d-selected]:border-acid forge:[&.forge3d-selected]:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--acid)_25%,transparent)]">
-    <NodeResizeControl v-for="position in resizeCorners" :key="position" class="forge3d-frame-resize-handle nodrag nopan" :node-id="id" :position="position" :min-width="260" :min-height="180" :auto-scale="false" :style="resizeHandleStyle" @resize-start="emit('resize-start')" @resize-end="emit('resize-end')" />
+    <NodeResizeControl v-for="position in resizeCorners" :key="position" class="forge3d-frame-resize-handle nodrag nopan" :node-id="id" :position="position" :min-width="260" :min-height="180" :auto-scale="false" :style="resizeHandleStyle" @resize-end="emit('resize-end')" />
     <header class="forge:absolute forge:bottom-full forge:left-0 forge:inline-flex forge:h-[34px] forge:w-max forge:max-w-full forge:origin-bottom-left forge:cursor-pointer forge:items-center forge:gap-[10px] forge:rounded-lg forge:border forge:border-[color-mix(in_srgb,var(--acid)_48%,var(--line-strong))] forge:bg-[color-mix(in_srgb,var(--acid)_16%,var(--bg-input))] forge:px-2 forge:py-[5px] forge:shadow-sm forge:pointer-events-auto" :style="headerStyle">
       <span class="forge:grid forge:size-5 forge:flex-none forge:place-items-center forge:rounded-[5px] forge:border forge:border-[color-mix(in_srgb,var(--acid)_65%,var(--line-strong))] forge:bg-[color-mix(in_srgb,var(--acid)_10%,var(--bg-input))] forge:font-mono forge:text-[9px] forge:font-semibold forge:text-acid">S</span>
       <input v-if="editingName" ref="nameInput" v-model="draftName" class="nodrag nopan forge:h-4 forge:w-[min(260px,calc(100%-58px))] forge:min-w-0 forge:border-0 forge:bg-transparent forge:p-0 forge:text-[13px] forge:font-semibold forge:leading-4 forge:text-text-primary forge:caret-acid forge:outline-0" aria-label="Section name" @click.stop @dblclick.stop @pointerdown.stop @keydown.enter.prevent="saveName" @keydown.esc.prevent="cancelNameEdit" @blur="saveName" />

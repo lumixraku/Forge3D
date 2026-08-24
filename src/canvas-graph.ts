@@ -21,7 +21,7 @@ export function toCanvasGraph(canvas) {
         // Let the frame body pass clicks through to the edges/child nodes beneath
         // it; the header (see FrameNode.vue) re-enables pointer events as the handle.
         style: { pointerEvents: 'none' },
-        data: { label: node.name, description: node.config?.description || '', manualSize: Boolean(node.config?.manualSize) },
+        data: { label: node.name, description: node.config?.description || '' },
       }
     }
     const type = node.type === 'split' ? 'segments' : node.type
@@ -101,6 +101,13 @@ export function reconcileCanvasGraph(currentNodes, currentEdges, nextGraph) {
   return { nodes, edges }
 }
 
+// Drops the retired manualSize flag so a canvas saved before frames always
+// refit does not carry it forward.
+function frameConfig(storedNode) {
+  const { manualSize, ...config } = storedNode?.config || {}
+  return config
+}
+
 // Fold the canvas back into the stored canvas document, keeping the fields the
 // canvas does not own (ids, timestamps, agent metadata) from the loaded copy.
 export function toDomainCanvas(activeCanvas, nodes, edges) {
@@ -109,7 +116,7 @@ export function toDomainCanvas(activeCanvas, nodes, edges) {
   return {
     ...activeCanvas,
     nodes: nodes.map((node) => node.type === 'frame'
-      ? { ...nodeMap.get(node.id), id: node.id, type: 'frame', name: node.data.label, config: { ...nodeMap.get(node.id)?.config, description: node.data.description || '', manualSize: Boolean(node.data.manualSize) }, ui: { position: node.position, size: { width: Number(node.dimensions?.width || node.width || 900), height: Number(node.dimensions?.height || node.height || 600) } } }
+      ? { ...nodeMap.get(node.id), id: node.id, type: 'frame', name: node.data.label, config: { ...frameConfig(nodeMap.get(node.id)), description: node.data.description || '' }, ui: { position: node.position, size: { width: Number(node.dimensions?.width || node.width || 900), height: Number(node.dimensions?.height || node.height || 600) } } }
       : { ...nodeMap.get(node.id), id: node.id, name: node.data.label, type: node.data.canvasType, config: node.data.config, ui: { position: node.position, parentFrameId: node.parentNode } }),
     edges: edges.flatMap((edge) => {
       const sourceType = nodes.find((node) => node.id === edge.source)?.data?.canvasType

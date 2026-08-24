@@ -80,7 +80,6 @@ export function fitFrameNodes(nodes: GeometryNode[], insets: Insets, frameIds?: 
   const nodeIndexes = new Map(nextNodes.map((node, index) => [node.id, index]))
 
   for (const frame of nextNodes.filter((node) => node.type === 'frame' && (!frameIds || frameIds.has(node.id)))) {
-    if (frame.data?.manualSize) continue
     const children = nextNodes.filter((node) => node.parentNode === frame.id)
     if (!children.length) continue
     const bounds = boundsOf(children)
@@ -274,7 +273,7 @@ export function buildDrawnFrame(nodes: GeometryNode[], bounds: Bounds, { frameId
     height,
     selected: true,
     style: { pointerEvents: 'none' },
-    data: { label, description: '', manualSize: true },
+    data: { label, description: '' },
   }
   const rest = nodes.map((node) => {
     // Frames are never nested, and a node another frame already owns stays put.

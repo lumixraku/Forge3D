@@ -27,12 +27,16 @@ test('fits a frame to its children and shifts them into the insets', () => {
   assert.deepEqual(fitted[1].position, { x: insets.left, y: insets.top })
 })
 
-test('leaves a manually resized frame and an already fitting frame untouched', () => {
-  const manual = [frame('f', { x: 0, y: 0 }, 900, 600, { manualSize: true }), node('a', { x: 100, y: 200 }, {}, { parentNode: 'f' })]
-  assert.equal(fitFrameNodes(manual, insets).changed, false)
-
+test('leaves an already fitting frame untouched', () => {
   const fitting = [frame('f', { x: 0, y: 0 }, 290, 500), node('a', { x: insets.left, y: insets.top }, {}, { parentNode: 'f' })]
   assert.equal(fitFrameNodes(fitting, insets).changed, false)
+})
+
+test('refits a frame the user resized by hand once its children change', () => {
+  const resized = [frame('f', { x: 0, y: 0 }, 900, 600), node('a', { x: 100, y: 200 }, {}, { parentNode: 'f' })]
+  const fitted = fitFrameNodes(resized, insets)
+  assert.equal(fitted.changed, true)
+  assert.equal(fitted.nodes[0].width, 290)
 })
 
 test('re-parents a dragged node to the frame it overlaps most', () => {
@@ -122,7 +126,6 @@ test('builds a drawn frame at the drawn rectangle and adopts what it overlaps', 
   assert.equal(created.width, 900)
   assert.equal(created.height, 600)
   assert.equal(created.selected, true)
-  assert.equal(created.data.manualSize, true)
   assert.equal(created.data.label, 'New canvas section')
   assert.deepEqual(rest.map((item) => item.parentNode), ['frame-2', undefined])
   assert.deepEqual(rest[0].position, { x: 50, y: 60 })
