@@ -1,5 +1,13 @@
 # Progress
 
+## 2026-08-24 - main
+
+- Made the floating node-title frame use a 1px outward outline whenever its canvas node is selected, matching the selected node body without changing the title layout.
+- Audited every image-rendering path in canvas nodes and prevented browser broken-image icons and `alt` text from appearing when a URL is empty or fails to load. This covers generated/decomposed candidate grids, multi-view images, single-image and 3D-result cards, export previews, uploaded-model thumbnails, and Check-node previews. Failed images are removed from the preview list and the established clean run-state card remains visible instead.
+- Fixed Check nodes to display their connected upstream image when the node itself has no run output; an empty or failed image now uses the same clean status-card fallback.
+- Verification: `pnpm test` (all 64 tests passed), `pnpm run typecheck`, `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning. Used the existing Chrome session to confirm empty ordinary nodes render their clean run-state cards; the available project state had a stale Check preview from a different local server, so the invalid-image failure case was verified through the component guard and error path rather than changing user canvas data.
+- Remaining issues: None.
+
 ## 2026-08-21 - main
 
 - Replaced click-to-place Section with drag-to-draw. Both entry points (the toolbar `Section` button and the `Section` item in `+ Add node`) now arm a `frame` canvas mode with a crosshair cursor instead of dropping a 900x600 frame at the viewport centre. A press on the canvas shows a live dashed preview with a size readout that tracks the cursor from pointerdown onward; release commits the drawn rectangle as the Section and returns the mode to `select`. Nodes the rectangle overlaps at all are adopted as children, except frames and nodes another frame already owns. The drawn size is kept and flagged `manualSize`, so `fitFrameNodes` never shrinks it to its contents. A drag under 4px falls back to the previous centred default frame. Escape aborts an in-flight rectangle, and (when no menu is open) disarms the tool.
