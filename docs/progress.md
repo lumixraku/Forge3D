@@ -1448,3 +1448,22 @@ five nodes green, 80 credits.
   `toDomainCanvas` spreads from `activeCanvas`, so that clause can never differ.
   Left alone as out of scope. The reference commit also strips frame sizes before
   comparing nodes; not ported.
+
+## 2026-08-25 - main
+
+- Auto layout is no longer disabled while the canvas is busy or saving.
+  `CanvasToolbar.vue:56` gated the button on `busy || saving || !nodeCount`, and
+  `saving` goes true for the duration of every debounced PUT — so the button
+  greyed out for a moment after any edit, which is the "sometimes grey" the user
+  hit. Neither gate is needed: saves queue behind each other through
+  `savePromise` (`useCanvasDocument.ts:221`), so laying out mid-save is safe, and
+  nodes stay draggable during a run (`canvasInteractive` only checks frame mode),
+  so a run shouldn't block layout either. Now `:disabled="!nodeCount"` — an empty
+  canvas has nothing to lay out.
+- Dropped the now-unused `busy` and `saving` props from `CanvasToolbar` and their
+  bindings in `App.vue`. `isRunning` was already unused before this change and
+  was left alone.
+- Verification: `npm run typecheck` clean, `npm test` 284/284 pass. Not verified
+  in the browser this session.
+- Remaining issues: the user reports other broken functionality ("很多功能都坏了")
+  that has not been described yet — only auto layout was diagnosed here.
