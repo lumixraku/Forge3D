@@ -168,7 +168,7 @@ const { syncHistoryCanvas, recordHistory, undo, redo } = useCanvasHistory({
 
 const {
   hydrating, toCanvas, fromCanvas, syncCanvasSummary, loadCanvass, openCanvas, scheduleSave,
-  flushPendingSave, saveCanvas, stopPendingSave, duplicateCanvas, deleteCanvas, createCanvas,
+  flushPendingSave, stopPendingSave, duplicateCanvas, deleteCanvas, createCanvas,
   renameCanvas, exportCanvas, importCanvasFile, refreshCanvasFromServer,
 } = useCanvasDocument({
   canvases,
@@ -239,7 +239,7 @@ const { isRunning, runDetails, runSummary, runCanvas, cancelRun, executions, exe
   canvasBusy,
   error: canvasError,
   runToken: canvasRunToken,
-  saveCanvas: () => saveCanvas(),
+  flushPendingSave: () => flushPendingSave({ detectChanges: true }),
   materializeRunBatch: (sourceId, runId, previews) => materializeRunBatch(sourceId, runId, previews),
   onAccountChanged: loadAccount,
   // Null lets the server pick; the debug panel forces one backend.

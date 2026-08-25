@@ -96,6 +96,14 @@
 - Verification: `pnpm run typecheck`, `pnpm test` (257 passing), `pnpm run build`, and `git diff --check` passed. The production build retains the existing large-chunk warning.
 - Remaining issues: None.
 
+## 2026-08-25 - main
+
+- Gave the canvas one immediate-save entry point: a run now awaits `flushPendingSave({ detectChanges: true })` alongside its create-execution request instead of calling `saveCanvas()` directly, so a queued edit cannot sit out its 700ms debounce behind the request that reads the saved document.
+- Stopped exporting `saveCanvas` from `useCanvasDocument`; the only save paths a caller can reach are now the queued `scheduleSave()` and the immediate `flushPendingSave()`, the latter used by Agent turns, run start, canvas switching, and page blur/hide.
+- Documented the split on `scheduleSave` so the three immediate cases are stated where the queue is defined.
+- Verification: `npm test` passed 269 tests; `npm run typecheck`, `npm run build`, and `git diff --check` passed. Build retains the existing large-chunk warning.
+- Remaining issues: None.
+
 ## 2026-08-21 - main
 
 - Browser-verified the restored single-agent path on a new canvas: one request created `Text Prompt -> Text to 3D -> Export`, then a follow-up updated the prompt and inserted `Retopology`, and a final follow-up inserted `Texture` before export.

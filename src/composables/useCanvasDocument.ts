@@ -177,11 +177,13 @@ export function useCanvasDocument({
     return true
   }
 
-  // The canvas has one save: mark it dirty, save shortly after it settles. Only
-  // save what actually differs from the document we loaded — applying a
-  // collaborator's canvas re-measures the DOM and can queue a fit, and without
-  // this check that fit would broadcast a canvas we only received, leaving the
-  // two clients trading revisions forever.
+  // Every canvas edit queues here: mark it dirty, save shortly after it settles.
+  // The three moments that cannot wait out the debounce — an Agent turn, a run,
+  // and leaving the page — call flushPendingSave instead. Only save what actually
+  // differs from the document we loaded: applying a collaborator's canvas
+  // re-measures the DOM and can queue a fit, and without this check that fit
+  // would broadcast a canvas we only received, leaving the two clients trading
+  // revisions forever.
   function scheduleSave() {
     if (!hasUnsavedCanvasChanges()) return
     if (!markWorkflowDirty()) return
@@ -406,7 +408,6 @@ export function useCanvasDocument({
     scheduleSave,
     workflowDirty,
     flushPendingSave,
-    saveCanvas,
     stopPendingSave,
     refreshCanvasFromServer,
     duplicateCanvas,
