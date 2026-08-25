@@ -124,7 +124,7 @@ const {
   edges,
   activeCanvas,
   error,
-  scheduleSave: () => scheduleSave(),
+  saveCanvas: () => saveCanvas(),
   fromCanvas: () => fromCanvas(),
   toCanvas: (canvas) => toCanvas(canvas),
   loadCanvass: (preferredId) => loadCanvass(preferredId),
@@ -139,7 +139,7 @@ const {
   edges,
   screenToFlowCoordinate,
   updateNodeInternals,
-  scheduleSave: () => scheduleSave(),
+  saveCanvas: () => saveCanvas(),
   frameableSelectedNodes,
   nextNodeId,
   focusNode,
@@ -152,7 +152,7 @@ const { drawRect: frameDrawRect, drawing: frameDrawing, onFrameDrawPointerDown, 
   activeCanvas,
   screenToFlowCoordinate,
   nextNodeId,
-  scheduleSave: () => scheduleSave(),
+  saveCanvas: () => saveCanvas(),
   // A click that never became a drag falls back to the default centred section.
   createDefaultFrame: (point) => addNode('frame', null, point),
 })
@@ -163,11 +163,11 @@ const { syncHistoryCanvas, recordHistory, undo, redo } = useCanvasHistory({
   activeCanvas,
   hydrating: computed(() => hydrating.value),
   updateNodeInternals,
-  scheduleSave: () => scheduleSave(),
+  saveCanvas: () => saveCanvas(),
 })
 
 const {
-  hydrating, toCanvas, fromCanvas, syncCanvasSummary, loadCanvass, openCanvas, scheduleSave,
+  hydrating, toCanvas, fromCanvas, syncCanvasSummary, loadCanvass, openCanvas,
   saveCanvas, stopPendingSave, duplicateCanvas, deleteCanvas, createCanvas,
   renameCanvas, exportCanvas, importCanvasFile, refreshCanvasFromServer,
 } = useCanvasDocument({
@@ -215,7 +215,8 @@ const {
   runToken: agentToken,
   toCanvas: (canvas) => toCanvas(canvas),
   syncCanvasSummary: (canvas) => syncCanvasSummary(canvas),
-  saveCanvas: () => saveCanvas(),
+  // An Agent turn cannot wait out the debounce: the server reads the canvas.
+  saveCanvas: () => saveCanvas({ immediate: true }),
   onCanvasEvent: applyPresenceEvent,
   onCanvasDocumentEvent: () => Promise.all([refreshCanvasFromServer(), loadAccount()]),
   clientId,
@@ -224,7 +225,8 @@ const {
 })
 
 configureIdleRelease({
-  flush: () => saveCanvas(),
+  // Releasing the edit lease hands the canvas to someone else, so land it first.
+  flush: () => saveCanvas({ immediate: true }),
   isBusy: () => saving.value || agentBusy.value || isRunning.value,
 })
 
@@ -239,7 +241,8 @@ const { isRunning, runDetails, runSummary, runCanvas, cancelRun, executions, exe
   canvasBusy,
   error: canvasError,
   runToken: canvasRunToken,
-  saveCanvas: () => saveCanvas(),
+  // A run cannot wait out the debounce: creating it reads the saved canvas.
+  saveCanvas: () => saveCanvas({ immediate: true }),
   materializeRunBatch: (sourceId, runId, previews) => materializeRunBatch(sourceId, runId, previews),
   onAccountChanged: loadAccount,
   // Null lets the server pick; the debug panel forces one backend.
@@ -255,7 +258,7 @@ watch(() => activeCanvas.value?.id, (canvasId) => { loadExecutions(canvasId) }, 
 // Cover every insertion and removal path, including Vue Flow's native delete
 // event, while the document's debounced scheduler coalesces rapid changes.
 watch(() => nodes.value.length, () => {
-  scheduleSave()
+  saveCanvas()
 }, { flush: 'sync' })
 
 // A section runs from its first executable child that nothing inside the section
@@ -391,7 +394,7 @@ function addConnection(connection) {
     targetHandle: 'input',
     ...edgeDefaults,
   }, edges.value)
-  scheduleSave()
+  saveCanvas()
   return true
 }
 
@@ -421,7 +424,7 @@ function updateNodeConfig(id, config) {
   const node = nodes.value.find((candidate) => candidate.id === id)
   if (!node) return
   node.data = { ...node.data, config }
-  scheduleSave()
+  saveCanvas()
 }
 
 function updateNodeName(id, name) {
@@ -429,7 +432,7 @@ function updateNodeName(id, name) {
   const normalized = name.trim()
   if (!node || !normalized || normalized === node.data.label) return
   node.data = { ...node.data, label: normalized }
-  scheduleSave()
+  saveCanvas()
 }
 
 function openModelEditor(id) {
@@ -566,14 +569,14 @@ function addNode(type, sourceId, position) {
     }
     nodes.value = [frame, ...nodes.value.map((item) => ({ ...item, selected: false }))]
     closeContextMenu()
-    scheduleSave()
+    saveCanvas()
     focusNode(frame.id)
     return
   }
   const node = buildCanvasNode(type, { position: position || nodePosition(sourceId), selected: true })
   nodes.value = [...nodes.value.map((item) => ({ ...item, selected: false })), node]
   closeContextMenu()
-  scheduleSave()
+  saveCanvas()
   nextTick(() => {
     if (sourceId) {
       addConnection({ source: sourceId, sourceHandle: 'output', target: node.id, targetHandle: 'input' })
@@ -621,7 +624,7 @@ function materializeRunBatch(sourceId, runId, previews) {
     for (const node of created) {
       addConnection({ source: sourceId, sourceHandle: 'output', target: node.id, targetHandle: 'input' })
     }
-    scheduleSave()
+    saveCanvas()
   })
 }
 
@@ -816,7 +819,7 @@ function preventPageTrackpadPinchZoom(event: WheelEvent) {
 
 async function releaseOnBlur() {
   try {
-    await saveCanvas({ keepalive: true })
+    await saveCanvas({ immediate: true, keepalive: true })
   } finally {
     await releasePresence(undefined, { keepalive: true })
   }

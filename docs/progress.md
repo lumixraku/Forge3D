@@ -1409,3 +1409,42 @@ five nodes green, 80 credits.
   therefore unrunnable — `server/planner.ts:124` picks `export-model` when both
   exist, so `model-preview` gets no inbound edge. The planner fix was deliberately
   deferred; the scoping change above limits the damage to that node alone.
+
+## 2026-08-25 - main
+
+- Gave the canvas one save gate. `scheduleSave`, `flushPendingSave` and
+  `saveCanvas` collapsed into `saveCanvas({ immediate, keepalive })`: the default
+  joins the 700ms debounce, `immediate` sends now. Ported from
+  `fe-tripo-studio@fb12f60c3`, which arrived at the same shape.
+- Deleted the `pendingSaveSnapshot` / `localSequence` pair that tracked edits
+  across an in-flight request. It could lose state: refreshing the snapshot
+  without bumping the sequence let the returning save read
+  `savingSequence === localSequence`, conclude no edits had happened, and drop both
+  the pending snapshot and the local draft. Now the snapshot is taken inside
+  `putCanvas` at send time and an edit during flight only re-sets `workflowDirty`.
+- Saves stay serialized, by chaining rather than looping: `savePromise` queues the
+  next `putCanvas` behind the current one, so it sends against the revision the
+  first produced. The server accepts a canvas only against the revision it holds,
+  so concurrent sends would 409 the second and this codebase's own 409 branch —
+  written for a real collaborator conflict — would then replace those edits with
+  the server's copy.
+- Each queued link carries the `keepalive` of the call that queued it. Previously
+  one call captured the flag for the whole drain, so a later pass could send the
+  page-close save without it.
+- `workflow-draft.ts` dropped IndexedDB for plain localStorage (68 lines to 35).
+  Synchronous writes land as the page closes, and one storage layer means never
+  comparing which of two drafts is newer.
+- `immediate` at the three callers that cannot wait out the debounce: a run and an
+  Agent turn (the server reads the saved canvas), and the idle lease release
+  (it hands the canvas to someone else).
+- Verification: `npm test` passed 284 tests, `npm run typecheck` clean. New
+  `src/canvas-document.test.js` covers the save path in 7 cases (queue vs.
+  immediate, debounce not throttle, no-diff sends nothing, immediate cancels the
+  queued timer, an edit mid-flight is not dropped). Reverse-verified both
+  behaviours the tests exist for: replacing the chain with a bare
+  `savePromise = putCanvas(...)` fails the mid-flight case with a stale
+  `baseRevision` of 7 against 8, and it passes again restored.
+- Remaining issues: `hasUnsavedCanvasChanges` still compares `viewport`, which
+  `toDomainCanvas` spreads from `activeCanvas`, so that clause can never differ.
+  Left alone as out of scope. The reference commit also strips frame sizes before
+  comparing nodes; not ported.

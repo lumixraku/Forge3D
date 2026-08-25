@@ -43,8 +43,6 @@ export function useCanvasDocument({
   const workflowDirty = ref(false)
   let saveTimer
   let savePromise = null
-  let pendingSaveSnapshot = null
-  let localSequence = 0
   let openToken = 0
 
   async function toCanvas(canvas, { repairFrames = true, reconcile = false, suppressLayout = false } = {}) {
@@ -81,16 +79,14 @@ export function useCanvasDocument({
     return toDomainCanvas(activeCanvas.value, nodes.value, edges.value)
   }
 
-  async function restoreWorkflowDraft(remoteCanvas) {
-    const draft = await readWorkflowDraft(remoteCanvas.id).catch(() => null)
+  function restoreWorkflowDraft(remoteCanvas) {
+    const draft = readWorkflowDraft(remoteCanvas.id)
     if (!draft) return remoteCanvas
     if (draft.baseRevision !== remoteCanvas.revision) {
-      await deleteWorkflowDraft(remoteCanvas.id).catch(() => {})
+      deleteWorkflowDraft(remoteCanvas.id)
       return remoteCanvas
     }
-    localSequence = Math.max(localSequence, draft.localSequence || 0)
     workflowDirty.value = true
-    pendingSaveSnapshot = { ...draft.canvas, revision: remoteCanvas.revision }
     savedState.value = 'Unsaved changes'
     return { ...draft.canvas, revision: remoteCanvas.revision }
   }
@@ -121,8 +117,9 @@ export function useCanvasDocument({
   async function openCanvas(id, { replaceHistory = false } = {}) {
     const token = ++openToken
     const previousCanvasId = activeCanvas.value?.id
+    // Land the previous canvas's pending edits before resetWorkspace drops them.
     if (activeCanvas.value && activeCanvas.value.id !== id) {
-      await saveCanvas()
+      await saveCanvas({ immediate: true })
       await releasePresence(previousCanvasId)
     }
     if (token !== openToken) return
@@ -137,7 +134,7 @@ export function useCanvasDocument({
       loadSessions(id),
     ])
     if (token !== openToken) return
-    activeCanvas.value = await restoreWorkflowDraft(data.canvas)
+    activeCanvas.value = restoreWorkflowDraft(data.canvas)
     await canvasOpened(id)
     activeSession.value = session
     run.value = null
@@ -145,7 +142,7 @@ export function useCanvasDocument({
     await toCanvas(activeCanvas.value)
     if (workflowDirty.value) {
       acquireEditLease()
-      await saveCanvas()
+      await saveCanvas({ immediate: true })
     }
     if (token !== openToken) return
     await restoreTurns()
@@ -165,31 +162,30 @@ export function useCanvasDocument({
     recordHistory()
     workflowDirty.value = true
     savedState.value = 'Unsaved changes'
-    pendingSaveSnapshot = { ...fromCanvas(), revision: activeCanvas.value.revision }
     writeWorkflowDraft({
       schemaVersion: 1,
       canvasId: activeCanvas.value.id,
       baseRevision: activeCanvas.value.revision,
-      localSequence: ++localSequence,
       updatedAt: new Date().toISOString(),
-      canvas: pendingSaveSnapshot,
-    }).catch(() => {})
+      canvas: fromCanvas(),
+    })
     return true
   }
 
-  // Every canvas edit queues here: mark it dirty, save shortly after it settles.
-  // The moments that cannot wait out the debounce — an Agent turn, a run, and
-  // leaving the page — call saveCanvas directly. Only save what actually differs
-  // from the document we loaded: applying a collaborator's canvas re-measures the
-  // DOM and can queue a fit, and without this check that fit would broadcast a
-  // canvas we only received, leaving the two clients trading revisions forever.
-  function scheduleSave() {
+  // The queued path stands for "an edit just happened", so it always goes through
+  // markWorkflowDirty and records one undo step. Resetting the timer debounces
+  // rather than throttles: a burst of edits sends one request 700ms after the last
+  // one. Only save what actually differs from the document we loaded: applying a
+  // collaborator's canvas re-measures the DOM and can queue a fit, and without
+  // this check that fit would broadcast a canvas we only received, leaving the two
+  // clients trading revisions forever.
+  function queueSave() {
     if (!hasUnsavedCanvasChanges()) return
     if (!markWorkflowDirty()) return
     clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
       saveTimer = null
-      saveCanvas()
+      saveCanvas({ immediate: true })
     }, SAVE_DELAY_MS)
   }
 
@@ -201,59 +197,65 @@ export function useCanvasDocument({
       || JSON.stringify(current.viewport) !== JSON.stringify(activeCanvas.value.viewport)
   }
 
-  // Saves the canvas now, whether the queue's timer got here first or a caller
-  // that cannot wait for it did. An awaited call resolves once the canvas is on
-  // the server: with nothing left to send that means waiting out a save already
-  // in flight, which is what leaving the page and switching canvases need.
-  async function saveCanvas({ keepalive = false } = {}) {
+  // The canvas has exactly one save gate: anyone may call it, throttling is its own
+  // business. By default the edit joins the queue (see queueSave); `immediate` means
+  // "cannot wait out the debounce" — a run needs the server to read a saved canvas,
+  // and leaving the page has no 700ms to spare. Awaiting an immediate call means the
+  // canvas is on the server.
+  async function saveCanvas({ immediate = false, keepalive = false } = {}) {
+    if (!immediate) return queueSave()
+    // An immediate save is not a new edit, so an already-dirty canvas must not get
+    // a second undo step.
     if (!workflowDirty.value && hasUnsavedCanvasChanges()) markWorkflowDirty()
     if (!workflowDirty.value) return savePromise
+    // Drop the queued send: its canvas is older than the one going out below.
     clearTimeout(saveTimer)
     saveTimer = null
-    pendingSaveSnapshot = { ...fromCanvas(), revision: activeCanvas.value.revision }
-    // An in-flight save picks the new snapshot up on its next pass.
-    if (saving.value) return savePromise
     acquireEditLease()
+    // Saves go out one at a time. The server accepts a canvas only against the
+    // revision it currently holds, so two requests in flight means the second is
+    // rejected and its edits are replaced by the server's copy. Chaining rather
+    // than dropping is what keeps this call's edits: it sends once the save ahead
+    // of it lands, against the revision that save produced.
     saving.value = true
-    savedState.value = 'Saving…'
-    savePromise = (async () => {
-      while (workflowDirty.value && pendingSaveSnapshot) {
-        const savingCanvas = pendingSaveSnapshot
-        const savingSequence = localSequence
-        const savedCanvas = await request(`/api/canvases/${savingCanvas.id}`, {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ clientId, baseRevision: activeCanvas.value.revision, canvas: savingCanvas }),
-          keepalive,
-        })
-        if (activeCanvas.value?.id !== savedCanvas.id) return
-        activeCanvas.value = savedCanvas
-        syncCanvasSummary(savedCanvas)
-        if (savingSequence === localSequence) {
-          workflowDirty.value = false
-          pendingSaveSnapshot = null
-          await deleteWorkflowDraft(savedCanvas.id).catch(() => {})
-        } else {
-          pendingSaveSnapshot = { ...fromCanvas(), revision: savedCanvas.revision }
-          await writeWorkflowDraft({
-            schemaVersion: 1,
-            canvasId: savedCanvas.id,
-            baseRevision: savedCanvas.revision,
-            localSequence,
-            updatedAt: new Date().toISOString(),
-            canvas: pendingSaveSnapshot,
-          }).catch(() => {})
-        }
-      }
-    })()
+    savePromise = Promise.resolve(savePromise).then(() => workflowDirty.value && putCanvas(keepalive))
+    const queued = savePromise
     try {
-      await savePromise
-      if (!workflowDirty.value) savedState.value = 'Saved'
+      await queued
+    } finally {
+      // Only the last link clears the flag; an earlier one still has a request
+      // behind it and the canvas is still saving.
+      if (savePromise === queued) {
+        saving.value = false
+        savePromise = null
+      }
+    }
+  }
+
+  // Sends the canvas and folds the server's reply back in. The snapshot is taken
+  // here rather than by the caller, so what goes out is the canvas at send time.
+  async function putCanvas(keepalive) {
+    const savingCanvas = fromCanvas()
+    workflowDirty.value = false
+    savedState.value = 'Saving…'
+    try {
+      const savedCanvas = await request(`/api/canvases/${savingCanvas.id}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ clientId, baseRevision: activeCanvas.value.revision, canvas: savingCanvas }),
+        keepalive,
+      })
+      if (activeCanvas.value?.id !== savedCanvas.id) return
+      activeCanvas.value = savedCanvas
+      syncCanvasSummary(savedCanvas)
+      if (!workflowDirty.value) {
+        deleteWorkflowDraft(savedCanvas.id)
+        savedState.value = 'Saved'
+      }
     } catch (caught) {
       if (caught.status === 409 && caught.data?.canvas && activeCanvas.value?.id === caught.data.canvas.id) {
-        await deleteWorkflowDraft(caught.data.canvas.id).catch(() => {})
+        deleteWorkflowDraft(caught.data.canvas.id)
         workflowDirty.value = false
-        pendingSaveSnapshot = null
         activeCanvas.value = caught.data.canvas
         await toCanvas(caught.data.canvas, { repairFrames: false, reconcile: true, suppressLayout: true })
         syncCanvasSummary(caught.data.canvas)
@@ -262,9 +264,6 @@ export function useCanvasDocument({
         error.value = caught.message
         savedState.value = 'Save failed'
       }
-    } finally {
-      saving.value = false
-      savePromise = null
     }
   }
 
@@ -279,13 +278,12 @@ export function useCanvasDocument({
     const { canvas: remoteCanvas } = await request(`/api/canvases/${canvasId}`)
     if (activeCanvas.value?.id !== canvasId) return
     if (remoteCanvas.revision === activeCanvas.value.revision) {
-      if (workflowDirty.value) await saveCanvas()
+      if (workflowDirty.value) await saveCanvas({ immediate: true })
       return
     }
     if (workflowDirty.value) {
-      await deleteWorkflowDraft(canvasId).catch(() => {})
+      deleteWorkflowDraft(canvasId)
       workflowDirty.value = false
-      pendingSaveSnapshot = null
       clearTimeout(saveTimer)
       saveTimer = null
       savedState.value = 'Updated elsewhere'
@@ -312,7 +310,7 @@ export function useCanvasDocument({
     try {
       const deletingActiveCanvas = activeCanvas.value?.id === canvasId
       if (deletingActiveCanvas) {
-        await saveCanvas()
+        await saveCanvas({ immediate: true })
         closeCanvasEvents()
       }
       await request(`/api/projects/${canvasId}`, { method: 'DELETE' })
@@ -402,7 +400,6 @@ export function useCanvasDocument({
     syncCanvasSummary,
     loadCanvass,
     openCanvas,
-    scheduleSave,
     workflowDirty,
     saveCanvas,
     stopPendingSave,

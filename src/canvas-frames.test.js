@@ -24,7 +24,7 @@ function harness() {
     edges: ref([]),
     screenToFlowCoordinate: (point) => point,
     updateNodeInternals: () => calls.measured++,
-    scheduleSave: () => calls.save++,
+    saveCanvas: () => calls.save++,
     frameableSelectedNodes: ref([]),
     nextNodeId: () => 'f2',
     focusNode: () => {},

@@ -4,7 +4,7 @@ import { frameComponentGap, frameInsets, layoutSelection } from '../canvas-layou
 
 // Frames (sections) are plain Vue Flow parent nodes, so their size and their
 // children's parentage are maintained here in response to canvas interaction.
-export function useCanvasFrames({ nodes, edges, screenToFlowCoordinate, updateNodeInternals, scheduleSave, frameableSelectedNodes, nextNodeId, focusNode }) {
+export function useCanvasFrames({ nodes, edges, screenToFlowCoordinate, updateNodeInternals, saveCanvas, frameableSelectedNodes, nextNodeId, focusNode }) {
   let frameFitQueued = false
   let frameFitSuppressed = false
   let dragging = false
@@ -35,7 +35,7 @@ export function useCanvasFrames({ nodes, edges, screenToFlowCoordinate, updateNo
     // Handles use dynamic per-port positions, so refresh their measured bounds
     // after the DOM settles or edges connect to stale points.
     updateNodeInternals()
-    if (changed && persist) scheduleSave()
+    if (changed && persist) saveCanvas()
     return changed
   }
 
@@ -46,7 +46,7 @@ export function useCanvasFrames({ nodes, edges, screenToFlowCoordinate, updateNo
     const frameId = nextNodeId('frame')
     nodes.value = buildSelectionFrame(nodes.value, selected, { insets: frameInsets(), frameId })
     edges.value = edges.value.map((edge) => ({ ...edge, selected: false }))
-    scheduleSave()
+    saveCanvas()
     focusNode(frameId)
   }
 
@@ -87,7 +87,7 @@ export function useCanvasFrames({ nodes, edges, screenToFlowCoordinate, updateNo
     if (!dragging && changes.some((change) => change.type === 'position')) {
       queueFrameFit()
     }
-    if (changes.some((change) => change.type === 'remove')) scheduleSave()
+    if (changes.some((change) => change.type === 'remove')) saveCanvas()
   }
 
   function suppressFrameFit(value) {
@@ -96,7 +96,7 @@ export function useCanvasFrames({ nodes, edges, screenToFlowCoordinate, updateNo
   }
 
   function onFrameResizeEnd() {
-    scheduleSave()
+    saveCanvas()
   }
 
   function onNodeDragStart() {
@@ -113,7 +113,7 @@ export function useCanvasFrames({ nodes, edges, screenToFlowCoordinate, updateNo
     // reparented, so the fit has to run after that render and re-measure, or the
     // frame keeps the size Vue Flow gave it while our state holds the fitted one.
     await fitFramesAfterRender()
-    scheduleSave()
+    saveCanvas()
   }
 
   async function autoLayout({ persist = true } = {}) {
@@ -127,7 +127,7 @@ export function useCanvasFrames({ nodes, edges, screenToFlowCoordinate, updateNo
     }
     await nextTick()
     updateNodeInternals()
-    if (persist) scheduleSave()
+    if (persist) saveCanvas()
   }
 
   return {

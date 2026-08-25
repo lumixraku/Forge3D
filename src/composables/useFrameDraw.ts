@@ -7,7 +7,7 @@ const DRAW_THRESHOLD = 4
 // Drawing a section: the toolbar arms 'frame' mode, then a drag on the canvas
 // draws the rectangle that becomes the frame. The anchor is kept in flow space so
 // the rectangle stays glued to canvas content if the view pans mid-drag.
-export function useFrameDraw({ nodes, edges, canvasMode, activeCanvas, screenToFlowCoordinate, nextNodeId, scheduleSave, createDefaultFrame }) {
+export function useFrameDraw({ nodes, edges, canvasMode, activeCanvas, screenToFlowCoordinate, nextNodeId, saveCanvas, createDefaultFrame }) {
   const drawRect = ref(null)
   const drawing = ref(false)
   let anchor = null
@@ -91,7 +91,7 @@ export function useFrameDraw({ nodes, edges, canvasMode, activeCanvas, screenToF
     if (!activeCanvas.value) return
     nodes.value = buildDrawnFrame(nodes.value, bounds, { frameId: nextNodeId('frame') })
     edges.value = edges.value.map((edge) => ({ ...edge, selected: false }))
-    scheduleSave()
+    saveCanvas()
   }
 
   function cancelFrameDraw() {

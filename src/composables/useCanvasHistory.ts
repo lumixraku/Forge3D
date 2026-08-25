@@ -3,7 +3,7 @@ import { nextTick, ref } from 'vue'
 // Canvas undo/redo history: each entry is a JSON snapshot of { nodes, edges }.
 const HISTORY_LIMIT = 100
 
-export function useCanvasHistory({ nodes, edges, activeCanvas, hydrating, updateNodeInternals, scheduleSave }) {
+export function useCanvasHistory({ nodes, edges, activeCanvas, hydrating, updateNodeInternals, saveCanvas }) {
   let historyPast = []
   let historyFuture = []
   let historyPresent = null
@@ -91,7 +91,7 @@ export function useCanvasHistory({ nodes, edges, activeCanvas, hydrating, update
     restoringHistory = true
     nodes.value = parsed.nodes
     edges.value = parsed.edges
-    scheduleSave()
+    saveCanvas()
     await nextTick()
     parsed.nodes.forEach((node) => updateNodeInternals(node.id))
     restoringHistory = false
