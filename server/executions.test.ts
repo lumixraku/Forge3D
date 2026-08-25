@@ -6,7 +6,7 @@ const canvas = {
   id: 'canvas-1',
   revision: 4,
   nodes: [
-    { id: 'entry', type: 'generate-image', name: 'Generate', config: { previews: ['/a.png'] } },
+    { id: 'entry', type: 'generate-image', name: 'Generate', config: { prompt: 'a shark', previews: ['/a.png'] } },
     { id: 'model', type: 'generate-model', name: 'Model', config: { preview: '/model.png' } },
     { id: 'other', type: 'generate-model', name: 'Other', config: {} },
   ],
@@ -30,6 +30,42 @@ test('creates one structured execution for an entry node and its downstream grap
   const execution = await executeExecution(runs, pending.run, canvas, pending.executionCanvas, pending.nodes, canvas.nodes[0])
   assert.equal(execution.status, 'succeeded')
   assert.equal(execution.executedNodeCount, 2)
+})
+
+test('refuses a node with nothing feeding it', () => {
+  // `other` is the canvas fixture's unconnected model node.
+  assert.throws(() => createExecution([], canvas, canvas.nodes[2], 'node'), (error) => {
+    assert.equal(error.statusCode, 400)
+    assert.equal(error.issue.code, 'required_input_missing')
+    assert.equal(error.issue.nodeId, 'other')
+    return true
+  })
+})
+
+test('a half-built node elsewhere does not block a wired run', () => {
+  // `other` has no inbound content and cannot run, but it is not in this plan.
+  const runs = []
+  const pending = createExecution(runs, canvas, canvas.nodes[0], 'downstream')
+
+  assert.deepEqual(pending.nodes.map((node) => node.id), ['entry', 'model'])
+})
+
+test('a single node run sees the connections the canvas has', () => {
+  // The execution canvas for one node carries no edges, so checking inputs
+  // against it would report every wired node as unconnected.
+  const runs = []
+  const pending = createExecution(runs, canvas, canvas.nodes[1], 'node')
+
+  assert.deepEqual(pending.run.input.edges, [])
+  assert.equal(pending.run.nodeIds.length, 1)
+})
+
+test('a prompt supplied in parameters satisfies a required input', () => {
+  const bare = { ...canvas, nodes: [canvas.nodes[2]], edges: [] }
+
+  assert.throws(() => createExecution([], bare, bare.nodes[0], 'node'), /requires/)
+  const pending = createExecution([], bare, bare.nodes[0], 'node', { parameters: { other: { prompt: 'a shark' } } })
+  assert.equal(pending.nodes[0].config.prompt, 'a shark')
 })
 
 test('execution dto exposes the canvas that produced the execution', () => {

@@ -1,4 +1,4 @@
-import { canvasNodeSchema } from './canvas-schema'
+import { canvasNodeSchema, isExecutableNodeType } from './canvas-schema'
 import type { NodePort, NodePorts, PortType, CanvasNodeSchema } from './canvas-schema'
 
 export { applyNodeParameter, conditionsMatch, hasModelEditor, isExecutableNodeType, nodeDefaults, nodeSchema, parameterRange, canvasNodeSchema, canvasNodeSchemas } from './canvas-schema'
@@ -210,8 +210,18 @@ export interface CanvasGraphIssue {
   message: string
 }
 
-/** Validates the persisted graph rather than the UI handles that render it. */
-export function validateCanvasGraph(nodes: CanvasGraphNode[], edges: CanvasGraphEdge[], { requireInputs = false } = {}): CanvasGraphIssue[] {
+/**
+ * Validates the persisted graph rather than the UI handles that render it.
+ *
+ * `requireInputs` also checks that every node has the inbound content it needs
+ * to run. Pass a set of node ids to check only those: a run constrains the nodes
+ * it plans, so a half-built node elsewhere on the canvas cannot block it.
+ */
+export function validateCanvasGraph(
+  nodes: CanvasGraphNode[],
+  edges: CanvasGraphEdge[],
+  { requireInputs = false }: { requireInputs?: boolean | Iterable<string> } = {},
+): CanvasGraphIssue[] {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const issues: CanvasGraphIssue[] = []
   const inputCounts = new Map<string, number>()
@@ -239,13 +249,38 @@ export function validateCanvasGraph(nodes: CanvasGraphNode[], edges: CanvasGraph
   }
 
   if (requireInputs) {
+    const scope = typeof requireInputs === 'boolean' ? null : new Set(requireInputs)
     for (const node of nodes) {
-      for (const port of nodeInputPorts(node.type)) {
-        const hasConnection = Boolean(inputCounts.get(`${node.id}:${port.id}`))
-        const hasFallback = Boolean(port.fallbackConfig && node.config?.[port.fallbackConfig])
-        if (port.required && !hasConnection && !hasFallback) {
+      if (scope && !scope.has(node.id)) continue
+      // Reads the same way resolveNodeInputs does, so a whitespace-only prompt
+      // cannot satisfy the check here and then resolve to nothing at run time.
+      const satisfied = (port: NodePort) => {
+        if (inputCounts.get(`${node.id}:${port.id}`)) return true
+        if (!port.fallbackConfig) return false
+        const fallback = node.config?.[port.fallbackConfig]
+        return typeof fallback === 'string' ? Boolean(fallback.trim()) : fallback != null
+      }
+      const ports = nodeInputPorts(node.type)
+      for (const port of ports) {
+        if (port.required && !satisfied(port)) {
           issues.push({ nodeId: node.id, port: port.id, code: 'required_input_missing', message: `${node.name || node.type} requires ${port.label}.` })
         }
+      }
+      // A group is a set of alternatives: one satisfied port covers all of them.
+      const groups = new Map<string, NodePort[]>()
+      for (const port of ports) {
+        if (!port.requiredGroup) continue
+        const group = groups.get(port.requiredGroup) || []
+        group.push(port)
+        groups.set(port.requiredGroup, group)
+      }
+      for (const group of groups.values()) {
+        if (group.some(satisfied)) continue
+        const labels = group.map((port) => port.label)
+        const choices = labels.length > 2 ? `${labels.slice(0, -1).join(', ')}, or ${labels.at(-1)}`
+          : labels.length === 2 ? `${labels[0]} or ${labels[1]}`
+          : labels[0]
+        issues.push({ nodeId: node.id, port: group[0].id, code: 'required_input_missing', message: `${node.name || node.type} requires ${choices}.` })
       }
     }
   }
@@ -263,4 +298,19 @@ export function validateCanvasGraph(nodes: CanvasGraphNode[], edges: CanvasGraph
   }
   if (nodes.some((node) => visit(node.id))) issues.push({ code: 'cycle', message: 'Canvas connections must not contain a cycle.' })
   return issues
+}
+
+/**
+ * What each node still needs before it can run, keyed by node id, so the canvas
+ * can say so itself rather than letting a run reach the server and be refused.
+ * Only executable nodes carry work, so only they are reported.
+ */
+export function missingInputsByNode(canvas: { nodes: CanvasGraphNode[]; edges?: CanvasGraphEdge[] }): Record<string, string[]> {
+  const executable = canvas.nodes.filter((node) => isExecutableNodeType(node.type)).map((node) => node.id)
+  const missing: Record<string, string[]> = {}
+  for (const issue of validateCanvasGraph(canvas.nodes, canvas.edges || [], { requireInputs: executable })) {
+    if (issue.code !== 'required_input_missing' || !issue.nodeId) continue
+    missing[issue.nodeId] = [...(missing[issue.nodeId] || []), issue.message]
+  }
+  return missing
 }

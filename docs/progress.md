@@ -1369,3 +1369,43 @@ five nodes green, 80 credits.
 - Added a configurable `SSE_IDLE_TIMEOUT_MS` server override and a mock 30ms case that verifies the server emits `sse-end` and closes the stream without waiting ten minutes.
 - Verification: `pnpm test` passed 260 tests; `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. Build retains the existing large-chunk warning.
 - Remaining issues: None.
+
+## 2026-08-25 - main
+
+- Declared the inbound content each executable node actually needs, so a node with
+  nothing feeding it can no longer run. 12 of the 14 executable types previously
+  ran on an empty canvas; `multiview-to-3d` and `texture` were already correct and
+  are unchanged.
+- Added `requiredGroup` to `NodePortSpec` plus an `anyOf` helper for nodes that
+  accept any one of several sources (`generate-model` takes a loose image, labeled
+  views, or a prompt; `export-model` writes whichever of image/model is wired).
+  Per-port `required: true` covers the single-source nodes (`text-to-3d`,
+  `image-decomposition`, `review`, `retopology`, `rigging`, `segments`,
+  `model-preview`). Kept the port-level tag rather than a node-level expression so
+  a port id is still only written once, at its declaration key.
+- Taught `validateCanvasGraph` to evaluate those groups as alternatives, and made
+  its satisfied-check trim strings the way `resolveNodeInputs` does — a
+  whitespace-only prompt used to pass validation and then fail inside the run.
+  Widened `requireInputs` to accept a node-id set.
+- Scoped the server's input check to the planned nodes and ran it after the
+  `parameters` merge, checking against the real canvas edges. Both execution modes
+  lose edges (`mode: 'node'` carries none; `downstream` drops edges from
+  non-executable sources), and validating the whole canvas meant one half-built
+  node anywhere 400'd every unrelated run.
+- Disabled Generate / Run downstream / Export on a node that still needs input and
+  put the reason in the button `title` and the run-state text. Only existing text
+  was replaced — no new elements, node height unchanged (131px bare vs 131px
+  wired), which matters because `useCanvasFrames` reflows sections on height
+  change.
+- Verification: `npm test` passed 284 tests; `npm run typecheck` and `npm run build`
+  clean. End to end on localhost:5176: a bare `generate-model` POST returned 400
+  "Bare Model requires Image, Front, Back, Left, Right, or Text."; the same node
+  with a prompt in `parameters` returned 202; a wired `retopology` in `mode: 'node'`
+  and a `downstream` run from `text-to-3d` both returned 202 with a half-built node
+  present on the canvas. In the UI both bare nodes showed both buttons disabled with
+  the reason, while wired `retopology`/`texture` stayed enabled. Temporary test nodes
+  were removed from both canvases afterward.
+- Remaining issues: Agent-planned canvases can leave `model-preview` unwired and
+  therefore unrunnable — `server/planner.ts:124` picks `export-model` when both
+  exist, so `model-preview` gets no inbound edge. The planner fix was deliberately
+  deferred; the scoping change above limits the damage to that node alone.

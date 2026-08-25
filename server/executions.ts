@@ -112,6 +112,16 @@ export function paginateAssets(assets, url) {
   return { items, nextCursor: hasMore ? items.at(-1)?.id || null : null, hasMore }
 }
 
+/** Turns the first graph issue into the 400 a caller can act on. */
+function refuse(issues) {
+  if (!issues.length) return
+  const issue = issues[0]
+  const error = new Error(issue.message)
+  error.statusCode = 400
+  error.issue = issue
+  throw error
+}
+
 export function createExecution(runs, canvas, entryNode, mode = 'downstream', { nodeIds = null, idempotencyKey = null, parameters = null } = {}) {
   if (!['node', 'downstream'].includes(mode)) {
     const error = new Error('Invalid execution mode')
@@ -126,14 +136,7 @@ export function createExecution(runs, canvas, entryNode, mode = 'downstream', { 
     error.statusCode = 400
     throw error
   }
-  const issues = validateCanvasGraph(canvas.nodes, canvas.edges || [], { requireInputs: true })
-  if (issues.length) {
-    const issue = issues[0]
-    const error = new Error(issue.message)
-    error.statusCode = 400
-    error.issue = issue
-    throw error
-  }
+  refuse(validateCanvasGraph(canvas.nodes, canvas.edges || []))
   const executionCanvas = mode === 'downstream'
     ? downstreamCanvas(canvas, entryNode.id)
     : { ...structuredClone(canvas), nodes: [structuredClone(entryNode)], edges: [] }
@@ -168,6 +171,18 @@ export function createExecution(runs, canvas, entryNode, mode = 'downstream', { 
     }
     node.config = { ...(node.config || {}), ...structuredClone(config) }
   }
+  // Every planned node needs the inbound content it runs on. Checked against the
+  // real canvas edges, because neither execution canvas keeps them all: a
+  // single-node run carries none, and a downstream run drops the edges from
+  // non-executable sources. Scoped to the planned nodes so a half-built node
+  // elsewhere cannot block this run, and run after the merge above so a prompt
+  // supplied in `parameters` counts.
+  const planned = new Map(nodes.map((node) => [node.id, node]))
+  refuse(validateCanvasGraph(
+    canvas.nodes.map((node) => planned.get(node.id) || node),
+    canvas.edges || [],
+    { requireInputs: planned.keys() },
+  ))
   const executionEntryNode = nodes.find((node) => node.id === entryNode.id) || entryNode
   const timestamp = new Date().toISOString()
   const run = {
