@@ -140,7 +140,6 @@ const {
   screenToFlowCoordinate,
   updateNodeInternals,
   scheduleSave: () => scheduleSave(),
-  scheduleLayoutSave: () => scheduleLayoutSave(),
   frameableSelectedNodes,
   nextNodeId,
   focusNode,
@@ -168,7 +167,7 @@ const { syncHistoryCanvas, recordHistory, undo, redo } = useCanvasHistory({
 })
 
 const {
-  hydrating, toCanvas, fromCanvas, syncCanvasSummary, loadCanvass, openCanvas, scheduleSave, scheduleLayoutSave,
+  hydrating, toCanvas, fromCanvas, syncCanvasSummary, loadCanvass, openCanvas, scheduleSave,
   flushPendingSave, saveCanvas, stopPendingSave, duplicateCanvas, deleteCanvas, createCanvas,
   renameCanvas, exportCanvas, importCanvasFile, refreshCanvasFromServer,
 } = useCanvasDocument({

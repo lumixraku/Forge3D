@@ -18,14 +18,13 @@ function harness() {
     { id: 'inside', type: 'canvas', parentNode: 'f1', position: { x: 64, y: 106 }, dimensions: { width: 260, height: 130 } },
     { id: 'outside', type: 'canvas', position: { x: 900, y: 900 }, dimensions: { width: 260, height: 130 } },
   ])
-  const calls = { save: 0, layoutSave: 0, measured: 0 }
+  const calls = { save: 0, measured: 0 }
   const api = useCanvasFrames({
     nodes,
     edges: ref([]),
     screenToFlowCoordinate: (point) => point,
     updateNodeInternals: () => calls.measured++,
     scheduleSave: () => calls.save++,
-    scheduleLayoutSave: () => calls.layoutSave++,
     frameableSelectedNodes: ref([]),
     nextNodeId: () => 'f2',
     focusNode: () => {},
@@ -83,5 +82,4 @@ test('a node re-measuring mid-run leaves its section alone', async () => {
 
   assert.deepEqual(frameSize(), before)
   assert.equal(calls.save, 0)
-  assert.equal(calls.layoutSave, 0)
 })

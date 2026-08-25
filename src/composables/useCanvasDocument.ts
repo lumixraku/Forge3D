@@ -4,8 +4,7 @@ import { reconcileCanvasGraph, toCanvasGraph, toDomainCanvas } from '../canvas-g
 import { importPlacementOffset, validateImportedCanvas } from '../canvas-fragment'
 import { deleteWorkflowDraft, readWorkflowDraft, writeWorkflowDraft } from '../workflow-draft'
 
-const WORKFLOW_SAVE_DELAY_MS = 700
-const LAYOUT_SAVE_DELAY_MS = 10000
+const SAVE_DELAY_MS = 700
 
 // Owns the loaded canvas document: hydrating it onto the canvas, folding the
 // canvas back into it, the debounced save queue, and the canvas library CRUD.
@@ -42,8 +41,7 @@ export function useCanvasDocument({
 }) {
   const hydrating = ref(false)
   const workflowDirty = ref(false)
-  let workflowSaveTimer
-  let layoutSaveTimer
+  let saveTimer
   let savePromise = null
   let pendingSaveSnapshot = null
   let localSequence = 0
@@ -179,26 +177,19 @@ export function useCanvasDocument({
     return true
   }
 
-  function scheduleWorkflowSave() {
-    if (!markWorkflowDirty()) return
-    clearTimeout(workflowSaveTimer)
-    workflowSaveTimer = setTimeout(() => {
-      workflowSaveTimer = null
-      saveCanvas()
-    }, WORKFLOW_SAVE_DELAY_MS)
-  }
-
-  function scheduleLayoutSave() {
-    // A layout save is only ours to make when local geometry actually differs from
-    // the document we loaded. Applying a collaborator's canvas re-measures the DOM
-    // and can queue a fit; without this check that fit would save and broadcast a
-    // canvas we only received, and the two clients would trade revisions forever.
+  // The canvas has one save: mark it dirty, save shortly after it settles. Only
+  // save what actually differs from the document we loaded — applying a
+  // collaborator's canvas re-measures the DOM and can queue a fit, and without
+  // this check that fit would broadcast a canvas we only received, leaving the
+  // two clients trading revisions forever.
+  function scheduleSave() {
     if (!hasUnsavedCanvasChanges()) return
-    if (!markWorkflowDirty() || layoutSaveTimer) return
-    layoutSaveTimer = setTimeout(() => {
-      layoutSaveTimer = null
+    if (!markWorkflowDirty()) return
+    clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => {
+      saveTimer = null
       saveCanvas()
-    }, LAYOUT_SAVE_DELAY_MS)
+    }, SAVE_DELAY_MS)
   }
 
   function hasUnsavedCanvasChanges() {
@@ -212,10 +203,8 @@ export function useCanvasDocument({
   async function flushPendingSave({ detectChanges = false, keepalive = false } = {}) {
     if (detectChanges && !workflowDirty.value && hasUnsavedCanvasChanges()) markWorkflowDirty()
     if (!workflowDirty.value && !savePromise) return
-    clearTimeout(workflowSaveTimer)
-    clearTimeout(layoutSaveTimer)
-    workflowSaveTimer = null
-    layoutSaveTimer = null
+    clearTimeout(saveTimer)
+    saveTimer = null
     if (workflowDirty.value) pendingSaveSnapshot = { ...fromCanvas(), revision: activeCanvas.value.revision }
     await saveCanvas({ keepalive })
   }
@@ -281,8 +270,7 @@ export function useCanvasDocument({
   }
 
   function stopPendingSave() {
-    clearTimeout(workflowSaveTimer)
-    clearTimeout(layoutSaveTimer)
+    clearTimeout(saveTimer)
   }
 
   async function refreshCanvasFromServer() {
@@ -299,10 +287,8 @@ export function useCanvasDocument({
       await deleteWorkflowDraft(canvasId).catch(() => {})
       workflowDirty.value = false
       pendingSaveSnapshot = null
-      clearTimeout(workflowSaveTimer)
-      clearTimeout(layoutSaveTimer)
-      workflowSaveTimer = null
-      layoutSaveTimer = null
+      clearTimeout(saveTimer)
+      saveTimer = null
       savedState.value = 'Updated elsewhere'
     }
     activeCanvas.value = remoteCanvas
@@ -417,9 +403,7 @@ export function useCanvasDocument({
     syncCanvasSummary,
     loadCanvass,
     openCanvas,
-    scheduleSave: scheduleWorkflowSave,
-    scheduleWorkflowSave,
-    scheduleLayoutSave,
+    scheduleSave,
     workflowDirty,
     flushPendingSave,
     saveCanvas,
