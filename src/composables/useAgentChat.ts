@@ -9,7 +9,7 @@ import { Attachment } from '../editor/attachment'
 
 // The copilot side of the app: the tiptap composer, the SSE agent stream, and the
 // in-flight turns (including user-selection follow-ups) attached to a canvas.
-export function useAgentChat({ activeCanvas, activeSession, busy, error, runToken, toCanvas, syncCanvasSummary, flushPendingSave, onCanvasEvent, onCanvasDocumentEvent, clientId, acquireEditLease, markEditActivity }) {
+export function useAgentChat({ activeCanvas, activeSession, busy, error, runToken, toCanvas, syncCanvasSummary, saveCanvas, onCanvasEvent, onCanvasDocumentEvent, clientId, acquireEditLease, markEditActivity }) {
   const composerVersion = ref(0)
   const selectedOptions = ref({})
   const continuingTurnId = ref(null)
@@ -292,7 +292,7 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
     }
     try {
       ensureCanvasEvents(canvasId)
-      await flushPendingSave()
+      await saveCanvas()
       if (activeCanvas.value?.id !== canvasId || activeSession.value?.id !== sessionId) {
         throw new Error('Project changed before the message was sent')
       }

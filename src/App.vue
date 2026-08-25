@@ -168,7 +168,7 @@ const { syncHistoryCanvas, recordHistory, undo, redo } = useCanvasHistory({
 
 const {
   hydrating, toCanvas, fromCanvas, syncCanvasSummary, loadCanvass, openCanvas, scheduleSave,
-  flushPendingSave, stopPendingSave, duplicateCanvas, deleteCanvas, createCanvas,
+  saveCanvas, stopPendingSave, duplicateCanvas, deleteCanvas, createCanvas,
   renameCanvas, exportCanvas, importCanvasFile, refreshCanvasFromServer,
 } = useCanvasDocument({
   canvases,
@@ -215,7 +215,7 @@ const {
   runToken: agentToken,
   toCanvas: (canvas) => toCanvas(canvas),
   syncCanvasSummary: (canvas) => syncCanvasSummary(canvas),
-  flushPendingSave: () => flushPendingSave(),
+  saveCanvas: () => saveCanvas(),
   onCanvasEvent: applyPresenceEvent,
   onCanvasDocumentEvent: () => Promise.all([refreshCanvasFromServer(), loadAccount()]),
   clientId,
@@ -224,7 +224,7 @@ const {
 })
 
 configureIdleRelease({
-  flush: () => flushPendingSave({ detectChanges: true }),
+  flush: () => saveCanvas(),
   isBusy: () => saving.value || agentBusy.value || isRunning.value,
 })
 
@@ -239,7 +239,7 @@ const { isRunning, runDetails, runSummary, runCanvas, cancelRun, executions, exe
   canvasBusy,
   error: canvasError,
   runToken: canvasRunToken,
-  flushPendingSave: () => flushPendingSave({ detectChanges: true }),
+  saveCanvas: () => saveCanvas(),
   materializeRunBatch: (sourceId, runId, previews) => materializeRunBatch(sourceId, runId, previews),
   onAccountChanged: loadAccount,
   // Null lets the server pick; the debug panel forces one backend.
@@ -804,7 +804,7 @@ function preventPageTrackpadPinchZoom(event: WheelEvent) {
 
 async function releaseOnBlur() {
   try {
-    await flushPendingSave({ detectChanges: true, keepalive: true })
+    await saveCanvas({ keepalive: true })
   } finally {
     await releasePresence(undefined, { keepalive: true })
   }

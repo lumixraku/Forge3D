@@ -98,11 +98,11 @@
 
 ## 2026-08-25 - main
 
-- Gave the canvas one immediate-save entry point: a run now awaits `flushPendingSave({ detectChanges: true })` alongside its create-execution request instead of calling `saveCanvas()` directly, so a queued edit cannot sit out its 700ms debounce behind the request that reads the saved document.
-- Stopped exporting `saveCanvas` from `useCanvasDocument`; the only save paths a caller can reach are now the queued `scheduleSave()` and the immediate `flushPendingSave()`, the latter used by Agent turns, run start, canvas switching, and page blur/hide.
-- Documented the split on `scheduleSave` so the three immediate cases are stated where the queue is defined.
+- Left the canvas two save entry points instead of three: the queued `scheduleSave()` and the immediate `saveCanvas()`. `flushPendingSave` was only a wrapper that cancelled the debounce timer, refreshed the snapshot and called `saveCanvas`, so that work moved into `saveCanvas` itself and the wrapper (with its `detectChanges` option) is gone.
+- Pointed the run path at the same immediate save: `runCanvas` awaits `saveCanvas()` alongside its create-execution request, so a queued edit cannot sit out its 700ms debounce behind the request that reads the saved document. Agent turns, canvas switching, canvas delete, and page blur/hide use the same call.
 - Verification: `npm test` passed 269 tests; `npm run typecheck`, `npm run build`, and `git diff --check` passed. Build retains the existing large-chunk warning.
-- Remaining issues: None.
+- Browser-verified all three paths against the server on the existing Chrome session (`Standard 3D Production Workflow`): a queued config edit advanced the revision after its debounce (162 → 164, `textureQuality` persisted); an edit followed by `blur` at 80ms saved immediately (164 → 165) while the server had still been at 164 showing `Unsaved changes`; an edit followed by a run at 70ms issued CreateRun and the save PUT together at rel 82/83ms (169 → 170), both inside the debounce window.
+- Remaining issues: The run's CreateRun gateway returned `400 CreateRun requires the Tripo provider` because the run was exercised on the mock backend to avoid spending credits; this is environmental and unrelated to the save paths. The debug provider was restored to Tripo API afterwards. Pre-existing and untouched: when a save is already in flight, `saveCanvas` overwrites `pendingSaveSnapshot` without bumping `localSequence`, so the save loop can treat its own result as final and drop that snapshot.
 
 ## 2026-08-21 - main
 

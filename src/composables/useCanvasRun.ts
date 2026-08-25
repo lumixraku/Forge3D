@@ -63,7 +63,7 @@ function toCanvasRun(execution: ExecutionDto): CanvasRun {
   }
 }
 
-export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvasBusy, error, runToken, flushPendingSave, materializeRunBatch, onAccountChanged = async () => {}, provider = { value: null } }) {
+export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvasBusy, error, runToken, saveCanvas, materializeRunBatch, onAccountChanged = async () => {}, provider = { value: null } }) {
   const activeExecutions = ref<Record<string, CanvasRun>>({})
   const executions = ref([])
   const executionsLoading = ref(false)
@@ -142,7 +142,7 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
       }) as Promise<ExecutionDto>
       // A run executes the canvas as it stands, so the queued save cannot be left
       // waiting out its debounce behind the request that reads the saved document.
-      const [, execution] = await Promise.all([flushPendingSave({ detectChanges: true }), createRun])
+      const [, execution] = await Promise.all([saveCanvas(), createRun])
       run.value = toCanvasRun(execution)
       await onAccountChanged()
       if (runToken.value !== pollToken || activeCanvas.value?.id !== canvasId) return

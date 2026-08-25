@@ -122,7 +122,7 @@ export function useCanvasDocument({
     const token = ++openToken
     const previousCanvasId = activeCanvas.value?.id
     if (activeCanvas.value && activeCanvas.value.id !== id) {
-      await flushPendingSave()
+      await saveCanvas()
       await releasePresence(previousCanvasId)
     }
     if (token !== openToken) return
@@ -145,7 +145,7 @@ export function useCanvasDocument({
     await toCanvas(activeCanvas.value)
     if (workflowDirty.value) {
       acquireEditLease()
-      await flushPendingSave()
+      await saveCanvas()
     }
     if (token !== openToken) return
     await restoreTurns()
@@ -178,12 +178,11 @@ export function useCanvasDocument({
   }
 
   // Every canvas edit queues here: mark it dirty, save shortly after it settles.
-  // The three moments that cannot wait out the debounce — an Agent turn, a run,
-  // and leaving the page — call flushPendingSave instead. Only save what actually
-  // differs from the document we loaded: applying a collaborator's canvas
-  // re-measures the DOM and can queue a fit, and without this check that fit
-  // would broadcast a canvas we only received, leaving the two clients trading
-  // revisions forever.
+  // The moments that cannot wait out the debounce — an Agent turn, a run, and
+  // leaving the page — call saveCanvas directly. Only save what actually differs
+  // from the document we loaded: applying a collaborator's canvas re-measures the
+  // DOM and can queue a fit, and without this check that fit would broadcast a
+  // canvas we only received, leaving the two clients trading revisions forever.
   function scheduleSave() {
     if (!hasUnsavedCanvasChanges()) return
     if (!markWorkflowDirty()) return
@@ -202,20 +201,18 @@ export function useCanvasDocument({
       || JSON.stringify(current.viewport) !== JSON.stringify(activeCanvas.value.viewport)
   }
 
-  async function flushPendingSave({ detectChanges = false, keepalive = false } = {}) {
-    if (detectChanges && !workflowDirty.value && hasUnsavedCanvasChanges()) markWorkflowDirty()
-    if (!workflowDirty.value && !savePromise) return
+  // Saves the canvas now, whether the queue's timer got here first or a caller
+  // that cannot wait for it did. An awaited call resolves once the canvas is on
+  // the server: with nothing left to send that means waiting out a save already
+  // in flight, which is what leaving the page and switching canvases need.
+  async function saveCanvas({ keepalive = false } = {}) {
+    if (!workflowDirty.value && hasUnsavedCanvasChanges()) markWorkflowDirty()
+    if (!workflowDirty.value) return savePromise
     clearTimeout(saveTimer)
     saveTimer = null
-    if (workflowDirty.value) pendingSaveSnapshot = { ...fromCanvas(), revision: activeCanvas.value.revision }
-    await saveCanvas({ keepalive })
-  }
-
-  async function saveCanvas({ keepalive = false } = {}) {
-    if (!workflowDirty.value) return savePromise
-    if (saving.value) {
-      return savePromise
-    }
+    pendingSaveSnapshot = { ...fromCanvas(), revision: activeCanvas.value.revision }
+    // An in-flight save picks the new snapshot up on its next pass.
+    if (saving.value) return savePromise
     acquireEditLease()
     saving.value = true
     savedState.value = 'Saving…'
@@ -282,7 +279,7 @@ export function useCanvasDocument({
     const { canvas: remoteCanvas } = await request(`/api/canvases/${canvasId}`)
     if (activeCanvas.value?.id !== canvasId) return
     if (remoteCanvas.revision === activeCanvas.value.revision) {
-      if (workflowDirty.value) await flushPendingSave()
+      if (workflowDirty.value) await saveCanvas()
       return
     }
     if (workflowDirty.value) {
@@ -315,7 +312,7 @@ export function useCanvasDocument({
     try {
       const deletingActiveCanvas = activeCanvas.value?.id === canvasId
       if (deletingActiveCanvas) {
-        await flushPendingSave()
+        await saveCanvas()
         closeCanvasEvents()
       }
       await request(`/api/projects/${canvasId}`, { method: 'DELETE' })
@@ -407,7 +404,7 @@ export function useCanvasDocument({
     openCanvas,
     scheduleSave,
     workflowDirty,
-    flushPendingSave,
+    saveCanvas,
     stopPendingSave,
     refreshCanvasFromServer,
     duplicateCanvas,
