@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { nodeOutputPortValues, resolveInputSources, resolveNodeInputs } from './canvas-nodes.js'
 
-const node = (id, type, config = {}) => ({ id, type, name: id, config })
+const node = (id, type, config = {}, outputResult = {}) => ({ id, type, name: id, config, outputResult })
 const edge = (source, sourcePort, target, targetPort) => ({
   id: `${source}-${target}-${targetPort}`,
   source: { nodeId: source, ...(sourcePort ? { port: sourcePort } : {}) },
@@ -10,7 +10,7 @@ const edge = (source, sourcePort, target, targetPort) => ({
 })
 
 test('resolves each named view to the matching input port', () => {
-  const views = node('views', 'generate-multiview-images', {
+  const views = node('views', 'generate-multiview-images', {}, {
     viewPreviews: { front: '/f.png', back: '/b.png', left: '/l.png', right: '/r.png' },
   })
   const model = node('model', 'multiview-to-3d')
@@ -27,7 +27,7 @@ test('resolves each named view to the matching input port', () => {
 test('a multiple port collects every compatible output of one collapsed edge', () => {
   // The canvas writes `output`/`input` for its single visual handle, so a
   // four-view upstream has to reach a multi-image port through one edge.
-  const views = node('views', 'generate-multiview-images', {
+  const views = node('views', 'generate-multiview-images', {}, {
     viewPreviews: { front: '/f.png', back: '/b.png', left: '/l.png', right: '/r.png' },
   })
   const model = node('model', 'generate-model')
@@ -37,7 +37,7 @@ test('a multiple port collects every compatible output of one collapsed edge', (
 })
 
 test('a single-value port takes one value from the same upstream', () => {
-  const views = node('views', 'generate-multiview-images', {
+  const views = node('views', 'generate-multiview-images', {}, {
     viewPreviews: { front: '/f.png', back: '/b.png' },
   })
   const review = node('review', 'review')
@@ -64,7 +64,7 @@ test('a connected value wins over the port config fallback', () => {
 })
 
 test('what this run produced wins over what the canvas saved', () => {
-  const source = node('model', 'generate-model', { preview: '/stale.png' })
+  const source = node('model', 'generate-model', {}, { preview: '/stale.png' })
   const target = node('retopo', 'retopology')
   const canvas = { nodes: [source, target], edges: [edge('model', 'model', 'retopo', 'model')] }
   const produced = new Map([['model', { modelUrl: '/fresh.glb' }]])
@@ -75,7 +75,7 @@ test('what this run produced wins over what the canvas saved', () => {
 test('an image and a mesh reaching one node land on their own ports', () => {
   // texture takes a mesh on `model` and a reference image on `image`; neither may
   // pick up the other.
-  const reference = node('ref', 'reference-image', { preview: '/ref.png' })
+  const reference = node('ref', 'reference-image', {}, { preview: '/ref.png' })
   const model = node('model', 'generate-model', { modelUrl: '/mesh.glb' })
   const texture = node('tex', 'texture')
   const canvas = {
@@ -107,7 +107,7 @@ test('reports which upstream node and port feeds each input', () => {
 })
 
 test('output values prefer the selected candidate over the first one', () => {
-  const concepts = node('concepts', 'generate-image', {
+  const concepts = node('concepts', 'generate-image', {}, {
     previews: ['/a.png', '/b.png'],
     selectedPreview: '/b.png',
   })
@@ -116,5 +116,5 @@ test('output values prefer the selected candidate over the first one', () => {
 })
 
 test('a terminal node exposes no output values', () => {
-  assert.deepEqual(nodeOutputPortValues(node('exp', 'export-model', { preview: '/p.png' })), {})
+  assert.deepEqual(nodeOutputPortValues(node('exp', 'export-model', {}, { preview: '/p.png' })), {})
 })

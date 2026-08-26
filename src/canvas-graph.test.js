@@ -102,3 +102,40 @@ test('reconciles additions and moves without replacing existing nodes', () => {
   assert.deepEqual(model.dimensions, { width: 320, height: 240 })
   assert.equal(reconciled.nodes[1].id, 'export')
 })
+
+test('lifts results out of an older config on the way in, and writes them back alongside it', () => {
+  // A canvas saved before parameters and results split apart keeps both in config.
+  const canvas = {
+    id: 'canvas',
+    name: 'Canvas',
+    nodes: [{
+      id: 'concepts',
+      type: 'generate-image',
+      name: 'concepts',
+      config: { amount: 4, previews: ['/a.png', '/b.png'], selectedPreview: '/b.png' },
+      ui: { position: { x: 0, y: 0 } },
+    }],
+    edges: [],
+  }
+
+  const graph = toCanvasGraph(canvas)
+
+  assert.equal(graph.nodes[0].data.config.amount, 4)
+  assert.equal(graph.nodes[0].data.config.previews, undefined)
+  assert.equal(graph.nodes[0].data.config.selectedPreview, undefined)
+  assert.deepEqual(graph.nodes[0].data.outputResult, { previews: ['/a.png', '/b.png'], selectedPreview: '/b.png' })
+
+  // Saving puts them back as their own tree, and the stale copy inside config goes.
+  const saved = toDomainCanvas(canvas, graph.nodes, graph.edges).nodes[0]
+  assert.equal(saved.config.previews, undefined)
+  assert.deepEqual(saved.outputResult, { previews: ['/a.png', '/b.png'], selectedPreview: '/b.png' })
+})
+
+test('a node with no results stores no field, so opening a canvas does not dirty it', () => {
+  const canvas = { id: 'canvas', name: 'Canvas', nodes: [node('model', 'generate-model')], edges: [] }
+  const graph = toCanvasGraph(canvas)
+
+  const saved = toDomainCanvas(canvas, graph.nodes, graph.edges).nodes[0]
+
+  assert.equal(Object.hasOwn(saved, 'outputResult'), false)
+})

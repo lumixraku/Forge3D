@@ -132,7 +132,9 @@ export const canvasNodeSchema: CanvasNodeSchema[] = [
   { type: 'generate-image', category: '2D', label: 'Gen Image', description: 'Create concept images', presentation: { kind: 'IMAGE', detail: 'Concept generation', tone: 'amber' }, inputs: anyOf('source', { image: { type: 'image' }, text: promptText }), outputs: { image: { type: 'image' } }, executable: true, defaults: { modelVersion: 'gemini_2.5_flash_image_preview', amount: 4, scale: '1:1', tPose: false }, parameters: [{ key: 'modelVersion', label: 'Image Model', control: 'select', options: imageModels }, { key: 'amount', label: 'Images', control: 'select', options: imageAmounts }, { key: 'scale', label: 'Aspect Ratio', control: 'select', options: scales }, { key: 'tPose', label: 'T-Pose', control: 'toggle' }] },
   { type: 'image-decomposition', category: '2D', label: 'Image Decomposition', description: 'Break an image into editable visual parts', presentation: { kind: 'DECOMPOSE', detail: 'Image parts', tone: 'cyan' }, inputs: { image: { type: 'image', required: true } }, outputs: { image: { type: 'image' } }, executable: true, defaults: { modelVersion: 'gemini_2.5_flash_image_preview', prompt: '', amount: 4, scale: '1:1', resolution: '1K', templateKey: 'asset_extraction' }, parameters: [{ key: 'modelVersion', label: 'Image Model', control: 'select', options: imageModels }, { key: 'prompt', label: 'Prompt', control: 'textarea', placeholder: 'Optional extraction instructions' }, { key: 'amount', label: 'Outputs', control: 'select', options: imageAmounts }, { key: 'scale', label: 'Aspect Ratio', control: 'select', options: scales }, { key: 'resolution', label: 'Resolution', control: 'select', options: options([['1K', '1K'], ['2K', '2K'], ['4K', '4K']]) }] },
   { type: 'generate-multiview-images', category: '2D', label: 'Generate Multi-view Images', description: 'Create front, back, left, and right views from references', presentation: { kind: 'MULTI-VIEW', detail: 'Four-view generation', tone: 'amber' }, inputs: anyOf('source', { image: { type: 'image' }, text: promptText }), outputs: multiViewImages, executable: true, defaults: {}, parameters: [] },
-  { type: 'review', category: 'Annotate', label: 'Check', description: 'Pause to check the image before continuing', presentation: { kind: 'CHECK', detail: 'Approval gate', tone: 'rose' }, inputs: { image: { type: 'image', required: true } }, outputs: { image: { type: 'image' } }, executable: true, defaults: { instruction: 'Review the generated image before continuing.', approved: false }, parameters: [] },
+  // `approved` is not a default: it records that this run was let through by
+  // hand, which makes it a result and puts it in outputResult (see OUTPUT_KEYS).
+  { type: 'review', category: 'Annotate', label: 'Check', description: 'Pause to check the image before continuing', presentation: { kind: 'CHECK', detail: 'Approval gate', tone: 'rose' }, inputs: { image: { type: 'image', required: true } }, outputs: { image: { type: 'image' } }, executable: true, defaults: { instruction: 'Review the generated image before continuing.' }, parameters: [] },
   ...['generate-model', 'multiview-to-3d', 'text-to-3d'].map((type): CanvasNodeSchema => ({ type, category: '3D', label: type === 'generate-model' ? 'Gen HD Model' : type === 'multiview-to-3d' ? 'Multi-view to 3D' : 'Text to 3D', description: type === 'generate-model' ? 'Turn an image or text prompt into a model' : type === 'multiview-to-3d' ? 'Turn four labeled image views into a 3D model' : 'Turn a text prompt into a model', presentation: { kind: '3D MODEL', detail: type === 'generate-model' ? 'Image or text to 3D' : type === 'multiview-to-3d' ? 'Four-view reconstruction' : 'Text to 3D', tone: 'green' }, inputs: type === 'text-to-3d' ? { text: { ...promptText, required: true } } : type === 'multiview-to-3d' ? allRequired(multiViewImages) : anyOf('source', { image: multiImage, ...multiViewImages, text: promptText }), outputs: { model: { type: 'model' } }, hidden: type !== 'generate-model', executable: true, modelEditor: true, defaults: { ...modelDefaults }, parameters: modelParameters, effects: modelEffects })),
   { type: 'smart-mesh', category: '3D', label: 'Smart Mesh', description: 'Generate a mesh from an image or text prompt', presentation: { kind: '3D MODEL', detail: 'Smart mesh generation', tone: 'green' }, inputs: anyOf('source', { image: multiImage, text: promptText }), outputs: { model: { type: 'model' } }, executable: true, modelEditor: true, defaults: { topology: 'triangle', faceCount: 5000 }, parameters: [{ key: 'faceCount', label: 'Polycount', control: 'slider', range: { min: 500, max: 20000, step: 500 } }] },
   { type: 'retopology', category: '3D', label: 'Retopology', description: 'Optimize model geometry', presentation: { kind: 'MESH', detail: 'Geometry optimization', tone: 'rose' }, inputs: { model: { type: 'model', required: true } }, outputs: { model: { type: 'model' } }, executable: true, modelEditor: true, defaults: { topology: 'quad', smartPoly: false, faceLimit: 10000 }, parameters: [{ key: 'topology', label: 'Topology', control: 'segmented', options: retopologyTopology }, { key: 'smartPoly', label: 'Smart Low Poly v2', control: 'toggle' }, { key: 'faceLimit', label: 'Polygon Count', control: 'slider', range: { min: 500, max: 50000, step: 500 } }] },
@@ -166,9 +168,40 @@ export function hasModelEditor(type: string) {
   return Boolean(nodeSchema(type)?.modelEditor)
 }
 
-export function normalizeNodeConfig(type: string, config: Record<string, unknown> = {}) {
-  const normalized = { ...nodeDefaults(type), ...config }
-  const schema = nodeSchema(type)
+/**
+ * The fields a node produces by running, as opposed to the parameters a user
+ * fills in. The two live in separate trees: parameters stay in `config`, which a
+ * copied node must carry, and results go to `outputResult`, which it must not.
+ * They used to share one `config`; `splitNodeOutput` migrates older canvases.
+ */
+const OUTPUT_KEYS = new Set(['approved', 'preview', 'previews', 'result', 'runBatch', 'selectedPreview', 'viewPreviews'])
+
+/**
+ * Lifts the result fields still mixed into `config` out into `outputResult`, and
+ * folds them together with the already-separated copy. This is where an older
+ * canvas migrates.
+ */
+export function splitNodeOutput(config: Record<string, unknown> = {}, outputResult: Record<string, unknown> = {}) {
+  const nextConfig: Record<string, unknown> = {}
+  const nextOutput: Record<string, unknown> = { ...outputResult }
+  for (const [key, value] of Object.entries(config)) {
+    // The separated copy is authoritative: a same-named leftover in the old
+    // config does not overwrite it.
+    if (OUTPUT_KEYS.has(key)) {
+      if (!(key in nextOutput)) nextOutput[key] = value
+      continue
+    }
+    nextConfig[key] = value
+  }
+  return { config: nextConfig, outputResult: nextOutput }
+}
+
+/**
+ * Normalization on the result side: drop the retired demo placeholders and keep
+ * a candidate list's selection inside that list.
+ */
+export function normalizeNodeOutput(type: string, outputResult: Record<string, unknown> = {}) {
+  const normalized = { ...outputResult }
 
   // These were formerly saved as node defaults. Results now exist only on a run,
   // so remove the old bundled placeholders when a canvas is loaded.
@@ -176,12 +209,19 @@ export function normalizeNodeConfig(type: string, config: Record<string, unknown
   if (Array.isArray(normalized.previews) && normalized.previews.every((preview) => typeof preview === 'string' && legacyPreviewPaths.has(preview))) delete normalized.previews
   if (normalized.viewPreviews && typeof normalized.viewPreviews === 'object' && Object.values(normalized.viewPreviews).every((preview) => typeof preview === 'string' && legacyPreviewPaths.has(preview))) delete normalized.viewPreviews
 
+  if (type === 'generate-image' && Array.isArray(normalized.previews) && !normalized.previews.includes(normalized.selectedPreview)) normalized.selectedPreview = normalized.previews[0] || null
+  return normalized
+}
+
+export function normalizeNodeConfig(type: string, config: Record<string, unknown> = {}) {
+  const normalized = { ...nodeDefaults(type), ...config }
+  const schema = nodeSchema(type)
+
   for (const parameter of schema?.parameters || []) {
     if (parameter.control !== 'select' || !parameter.options?.length) continue
     if (!parameter.options.some((option) => option.value === normalized[parameter.key])) normalized[parameter.key] = schema.defaults[parameter.key] ?? parameter.options[0].value
   }
 
-  if (type === 'generate-image' && Array.isArray(normalized.previews) && !normalized.previews.includes(normalized.selectedPreview)) normalized.selectedPreview = normalized.previews[0] || null
   if (['generate-model', 'multiview-to-3d', 'text-to-3d'].includes(type)) {
     if (config.quality && !config.modelVersion) normalized.modelVersion = config.quality === 'standard' ? 'v3.0-20250812' : config.quality
     if (config.modelVersion === 'Smart Mesh') normalized.modelVersion = modelDefaults.modelVersion

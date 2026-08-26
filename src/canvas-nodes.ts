@@ -54,6 +54,8 @@ export interface CanvasGraphNode {
   type: string
   name?: string
   config?: Record<string, unknown>
+  /** What the node produced, alongside config. Parameters are in config. */
+  outputResult?: Record<string, unknown>
 }
 
 export interface CanvasGraphEdge {
@@ -98,10 +100,10 @@ export function resolveEdgePortPairs(sourceType: string | undefined, targetType:
 /**
  * Reads one node's produced values keyed by output port id.
  *
- * A run's own result is authoritative; the config a canvas saved earlier is the
- * fallback, which is what lets a single-node run read upstream results that this
- * run never executed. Flat `preview`/`previews`/`viewPreviews` shapes are mapped
- * onto declared ports so a node that has not been migrated still resolves.
+ * A run's own result is authoritative; the outputResult a canvas saved earlier is
+ * the fallback, which is what lets a single-node run read upstream results that
+ * this run never executed. Flat `preview`/`previews`/`viewPreviews` shapes are
+ * mapped onto declared ports so a node that has not been migrated still resolves.
  */
 export function nodeOutputPortValues(node: CanvasGraphNode, produced?: Record<string, unknown> | null): Record<string, unknown> {
   const ports = nodeOutputPorts(node.type)
@@ -109,8 +111,11 @@ export function nodeOutputPortValues(node: CanvasGraphNode, produced?: Record<st
   const fromPorts = (produced?.ports || null) as Record<string, unknown> | null
   const values: Record<string, unknown> = {}
   const config = node.config || {}
-  const viewPreviews = (config.viewPreviews || {}) as Record<string, unknown>
-  const previews = (Array.isArray(config.previews) ? config.previews : []) as unknown[]
+  // An uploaded asset is input the user gave, so it reads config; what a run
+  // produced reads outputResult.
+  const output = node.outputResult || {}
+  const viewPreviews = (output.viewPreviews || {}) as Record<string, unknown>
+  const previews = (Array.isArray(output.previews) ? output.previews : []) as unknown[]
 
   for (const port of ports) {
     if (fromPorts && fromPorts[port.id] != null) {
@@ -121,15 +126,17 @@ export function nodeOutputPortValues(node: CanvasGraphNode, produced?: Record<st
     // the node's single result, and `previews` being a candidate list means its
     // selected entry wins.
     const fallback = node.type === 'reference-image'
-      ? config.assetType === 'model' ? config.modelUrl ?? config.assetUrl : config.preview ?? config.assetUrl
+      ? config.assetType === 'model' ? config.modelUrl ?? config.assetUrl : output.preview ?? config.assetUrl
       : port.type === 'model'
+      // modelUrl is not an output key: its only writer is the asset upload, which
+      // makes it input the user gave rather than something a run produced.
       ? produced?.modelUrl ?? config.modelUrl
       : port.type === 'text'
         ? produced?.text ?? config.prompt
         : viewPreviews[port.id]
           ?? produced?.preview
-          ?? config.selectedPreview
-          ?? config.preview
+          ?? output.selectedPreview
+          ?? output.preview
           ?? previews[0]
     const value = typeof fallback === 'string' ? fallback.trim() : fallback
     if (value != null && value !== '') values[port.id] = value

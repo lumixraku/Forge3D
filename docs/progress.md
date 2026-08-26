@@ -1467,3 +1467,45 @@ five nodes green, 80 credits.
   in the browser this session.
 - Remaining issues: the user reports other broken functionality ("很多功能都坏了")
   that has not been described yet — only auto layout was diagnosed here.
+
+## 2026-08-26 - main
+
+- Split node results out of `config` into a sibling `outputResult` tree, ported
+  from the design in `fe-tripo-studio` (`a05102b96`). Copying a node used to drag
+  its last run's output along, because parameters and results shared one `config`
+  and the copy path (`buildFragment` -> `remapFragment`) had no way to take only
+  the parameters. Results should not travel with a copy: copying a node asks for
+  its configuration, not what it produced.
+- Result fields: `approved` / `preview` / `previews` / `result` / `runBatch` /
+  `selectedPreview` / `viewPreviews` (`OUTPUT_KEYS`, `canvas-schema.ts`).
+  `modelUrl` and `assetUrl` stay in `config` — their only writer is the asset
+  upload, which makes them input the user gave rather than a run's output.
+- Unlike the reference, our server document has the same shape as the client's,
+  so `outputResult` is a real top-level node field end to end. No `paramsJson`
+  pack/unpack layer was needed (that exists there only because their node rows
+  have fixed columns).
+- Changes: `canvas-schema` adds `splitNodeOutput` (the migration point) and
+  `normalizeNodeOutput`, and `review` no longer defaults `approved`;
+  `canvas-graph` splits the two trees in `toCanvasGraph` (the single
+  document -> canvas entry point, so an older canvas migrates exactly once) and
+  writes them back separately in `toDomainCanvas`; `canvas-fragment` drops
+  `outputResult` in `buildFragment`, covering copy / duplicate / new-canvas-from
+  -selection in one place; `canvas-nodes` reads results from `outputResult`;
+  `App.vue` gains `updateNodeOutput` and moves `runBatch` bookkeeping over;
+  `CanvasNode.vue` gains an `update-output` emit and `updateOutput`;
+  `store.ts` migrates stored canvases; `mock-runs` / `tripo-provider` read
+  `outputResult`.
+- Two bugs found and fixed while porting: (1) writing an empty `outputResult: {}`
+  made every canvas look dirty on open and fired a pointless `SaveCanvas` — a node
+  with no results now stores no field at all, on both the canvas and server side;
+  (2) destructuring `outputResult` off the node in `buildFragment` rebound `node`,
+  so `roots.includes(node)` stopped matching by reference and root paste offsets
+  were lost. Both are covered by tests.
+- The asset upload no longer writes `config.preview` (a result key); an uploaded
+  image now displays from `config.assetUrl`, with `outputResult.preview` kept as
+  the fallback for canvases that still carry the URL there.
+- Verification: `npm run typecheck` clean, `npm test` 288/288 pass (4 new tests:
+  copy drops results, config->outputResult migration in and out, no field when
+  empty, `splitNodeOutput` precedence), `npm run build` succeeds. Not verified in
+  the browser this session.
+- Remaining issues: None.

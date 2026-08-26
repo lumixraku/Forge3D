@@ -10,13 +10,17 @@ import type { NodeRun } from '../node-runs'
 import { applyNodeParameter, conditionsMatch, nodeSchema, parameterRange } from '../canvas-nodes'
 import type { NodeDefinition, NodeParameter, NodePort } from '../canvas-nodes'
 
-type NodeConfig = Record<string, unknown> & { preview?: string; previews?: string[]; viewPreviews?: Record<string, string>; exportTargets?: string[]; modelFormat?: string; approved?: boolean }
-interface CanvasNodeData { label: string; status?: string; canvasType: string; config: NodeConfig; inputPorts?: NodePort[]; outputPorts?: NodePort[] }
+type NodeConfig = Record<string, unknown> & { exportTargets?: string[]; modelFormat?: string }
+// What the node produced, alongside config: config holds the parameters the user
+// filled in, this holds what the node produced. Copying a node drops it whole.
+type NodeOutputResult = Record<string, unknown> & { approved?: boolean; preview?: string; previews?: string[]; selectedPreview?: string; viewPreviews?: Record<string, string> }
+interface CanvasNodeData { label: string; status?: string; canvasType: string; config: NodeConfig; outputResult?: NodeOutputResult; inputPorts?: NodePort[]; outputPorts?: NodePort[] }
 const EXECUTION_CREDIT_COST = 10
 
 const props = withDefaults(defineProps<{ id: string; data: CanvasNodeData; selected?: boolean; nodeRun?: NodeRun | null; runId?: string | null; runEntryNodeId?: string | null; runMode?: string | null; runStatus?: string | null; inboundType?: string | null; inboundImage?: string | null; missingInputs?: string[]; nodeCatalog?: NodeDefinition[]; viewportDismissVersion?: number; connectionInvalid?: boolean }>(), { selected: false, nodeRun: null, runId: null, runEntryNodeId: null, runMode: null, runStatus: null, inboundType: null, inboundImage: null, missingInputs: () => [], nodeCatalog: () => [], viewportDismissVersion: 0, connectionInvalid: false })
 const emit = defineEmits<{
   'update-config': [config: NodeConfig]
+  'update-output': [outputResult: NodeOutputResult]
   'update-name': [name: string]
   'open-model-editor': []
   'preview-image': [preview: { src: string; alt: string }]
@@ -88,7 +92,9 @@ const runStateDetail = computed(() => {
   // A real task reports progress and can take tens of seconds; a simulated one cannot.
   return runProgress.value === null ? 'Execution is in progress' : `Tripo task in progress · ${runProgress.value}%`
 })
-const runtimePreview = computed(() => localAssetPreview.value || props.nodeRun?.output?.preview || (!isExecutableNode.value ? props.data.config.preview : ''))
+// An uploaded image is shown from config.assetUrl, because the upload writes only
+// config; `preview` covers the older canvases that still carry the same URL there.
+const runtimePreview = computed(() => localAssetPreview.value || props.nodeRun?.output?.preview || (!isExecutableNode.value ? props.data.outputResult?.preview || (isReferenceAsset.value && referenceAssetType.value === 'image' ? props.data.config.assetUrl : '') : ''))
 // The run downloads the export once as it finishes, which is no help after a
 // reload, so a finished export also offers the file directly.
 const exportDownloads = computed(() => {
@@ -97,8 +103,8 @@ const exportDownloads = computed(() => {
   return (output.outputs || (output.downloadUrl ? [output] : [])).filter((item) => item.downloadUrl)
 })
 const reviewImage = computed(() => props.nodeRun?.output?.preview || props.inboundImage || '')
-const runtimePreviews = computed(() => props.nodeRun?.output?.previews || (!isExecutableNode.value ? props.data.config.previews : []) || [])
-const runtimeViewPreviews = computed(() => props.nodeRun?.output?.viewPreviews || (!isExecutableNode.value ? props.data.config.viewPreviews : {}) || {})
+const runtimePreviews = computed(() => props.nodeRun?.output?.previews || (!isExecutableNode.value ? props.data.outputResult?.previews : []) || [])
+const runtimeViewPreviews = computed(() => props.nodeRun?.output?.viewPreviews || (!isExecutableNode.value ? props.data.outputResult?.viewPreviews : {}) || {})
 const visibleRuntimePreview = computed(() => imageAvailable(runtimePreview.value) ? runtimePreview.value : '')
 const visibleReviewImage = computed(() => imageAvailable(reviewImage.value) ? reviewImage.value : '')
 const visibleRuntimePreviews = computed(() => runtimePreviews.value.filter((image) => imageAvailable(image)))
@@ -116,13 +122,19 @@ const runConfig = computed(() => {
 })
 
 function toggleApprove() {
-  const next = !props.data.config.approved
-  update('approved', next)
+  const next = !props.data.outputResult?.approved
+  updateOutput('approved', next)
   if (next) emit('run-downstream', props.id)
 }
 
 function update(key: string, value: unknown) {
   emit('update-config', applyNodeParameter(props.data.canvasType, props.data.config, key, value))
+}
+
+// Edits a result field. Not through applyNodeParameter: that is for parameter
+// interlocks (effects), and results have no such thing.
+function updateOutput(key: string, value: unknown) {
+  emit('update-output', { ...props.data.outputResult, [key]: value })
 }
 
 function range(parameter: NodeParameter) {
@@ -151,7 +163,7 @@ function cancelNameEdit() {
 }
 
 function selectGeneratedImage(image: string, index: number) {
-  update('selectedPreview', image)
+  updateOutput('selectedPreview', image)
   emit('preview-image', { src: image, alt: `Generated concept ${index + 1}` })
 }
 
@@ -221,7 +233,10 @@ async function uploadAsset(file: File) {
       }
     }
     localAssetPreview.value = ''
-    emit('update-config', { ...props.data.config, reference: file.name, assetType: isModel ? 'model' : 'image', assetUrl: result.url, ...(isImage ? { preview: result.url } : { modelUrl: result.url, ...(thumbnailUrl ? { thumbnailUrl } : {}) }) })
+    // An upload writes config only: the asset is input the user gave, so a copied
+    // node keeps it. That is why the URL goes to assetUrl/modelUrl and not to
+    // `preview`, which is a result field.
+    emit('update-config', { ...props.data.config, reference: file.name, assetType: isModel ? 'model' : 'image', assetUrl: result.url, ...(isModel ? { modelUrl: result.url, ...(thumbnailUrl ? { thumbnailUrl } : {}) } : {}) })
     if (preview) URL.revokeObjectURL(preview)
   } catch (error) {
     localAssetPreview.value = ''
@@ -253,7 +268,7 @@ async function uploadAsset(file: File) {
     <p class="forge:mb-3 forge:mt-0 forge:text-[9px] forge:text-text-muted">{{ data.detail }}</p>
 
     <div v-if="['generate-image', 'image-decomposition'].includes(data.canvasType) && visibleRuntimePreviews.length" class="forge3d-node-output forge:relative forge:mb-[11px] forge:grid forge:h-[146px] forge:w-full forge:grid-cols-2 forge:gap-0.5 forge:overflow-hidden forge:rounded-lg forge:border forge:border-line-subtle forge:bg-[radial-gradient(circle_at_50%_45%,#edf1ed,#dfe5e0_72%)] forge:p-0.5 forge:text-left forge:dark:bg-[radial-gradient(circle_at_50%_45%,#30352f,#111412_72%)]" :aria-label="data.canvasType === 'image-decomposition' ? 'Extracted image assets' : 'Generated image candidates'">
-      <button v-for="(image, index) in visibleRuntimePreviews" :key="`${image}-${index}`" type="button" class="nodrag nopan forge:relative forge:min-h-0 forge:min-w-0 forge:overflow-hidden forge:rounded-[3px] forge:border-0 forge:bg-transparent forge:p-0 forge:transition-transform forge:after:pointer-events-none forge:after:absolute forge:after:inset-0 forge:after:rounded-[inherit] forge:focus-visible:outline forge:focus-visible:outline-2 forge:focus-visible:-outline-offset-2 forge:focus-visible:outline-[var(--node-accent)] forge:[&.forge3d-selected]:after:border-2 forge:[&.forge3d-selected]:after:border-[var(--node-accent)] forge:[&_img]:block forge:[&_img]:size-full forge:[&_img]:object-cover forge:[&_img]:transition-[filter] forge:hover:[&_img]:brightness-108" :class="{ 'forge3d-selected': data.config.selectedPreview === image }" :aria-label="`Select and preview generated concept ${index + 1}`" :aria-pressed="data.config.selectedPreview === image" @click.stop="selectGeneratedImage(image, index)">
+      <button v-for="(image, index) in visibleRuntimePreviews" :key="`${image}-${index}`" type="button" class="nodrag nopan forge:relative forge:min-h-0 forge:min-w-0 forge:overflow-hidden forge:rounded-[3px] forge:border-0 forge:bg-transparent forge:p-0 forge:transition-transform forge:after:pointer-events-none forge:after:absolute forge:after:inset-0 forge:after:rounded-[inherit] forge:focus-visible:outline forge:focus-visible:outline-2 forge:focus-visible:-outline-offset-2 forge:focus-visible:outline-[var(--node-accent)] forge:[&.forge3d-selected]:after:border-2 forge:[&.forge3d-selected]:after:border-[var(--node-accent)] forge:[&_img]:block forge:[&_img]:size-full forge:[&_img]:object-cover forge:[&_img]:transition-[filter] forge:hover:[&_img]:brightness-108" :class="{ 'forge3d-selected': data.outputResult?.selectedPreview === image }" :aria-label="`Select and preview generated concept ${index + 1}`" :aria-pressed="data.outputResult?.selectedPreview === image" @click.stop="selectGeneratedImage(image, index)">
         <img :src="image" :alt="`Generated concept ${index + 1}`" @error="markImageFailed(image)" />
       </button>
       <span class="forge:pointer-events-none forge:absolute forge:bottom-[7px] forge:right-[7px] forge:z-[3] forge:rounded forge:border forge:border-white/15 forge:bg-[rgba(12,15,13,.76)] forge:px-1.5 forge:py-1 forge:font-mono forge:text-[7px] forge:font-medium forge:uppercase forge:text-[#dce2dd] forge:backdrop-blur-[5px]">{{ visibleRuntimePreviews.length }} {{ data.canvasType === 'image-decomposition' ? 'assets' : 'candidates' }}</span>
@@ -285,7 +300,7 @@ async function uploadAsset(file: File) {
       <span v-if="isExecuting" class="forge3d-node-output-loading forge:absolute forge:inset-0 forge:z-[5] forge:grid forge:place-content-center forge:justify-items-center forge:gap-[9px] forge:bg-[color-mix(in_srgb,var(--bg-input)_76%,transparent)] forge:text-center forge:text-text-primary forge:backdrop-blur-[3px]" role="status"><span class="forge3d-node-run-indicator" /><strong>{{ runtimeStatus === 'queued' ? 'Queued' : runtimeStatus === 'cancelling' ? 'Stopping' : 'Exporting' }}</strong><span v-if="runtimeStatus === 'running'" class="forge3d-node-progress" :class="{ 'forge3d-indeterminate': runProgress === null }" :style="progressStyle"><span /><b>{{ runProgress === null ? 'Working' : `${runProgress}%` }}</b></span></span>
     </button>
     <div v-else-if="data.canvasType === 'review'" class="forge:mb-[11px] forge:flex forge:flex-col forge:rounded-lg forge:border forge:border-dashed forge:border-line-strong forge:bg-bg-input forge:p-3 forge:[&>strong]:text-[10px] forge:[&>strong]:font-medium forge:[&>strong]:text-text-secondary forge:[&>small]:mt-1 forge:[&>small]:font-mono forge:[&>small]:text-[8px] forge:[&>small]:text-text-muted" :class="bizClass(runtimeStatus)">
-      <strong>{{ data.config.approved ? 'Approved' : runtimeStatus === 'waiting_review' ? 'Awaiting approval' : 'Checkpoint' }}</strong>
+      <strong>{{ data.outputResult?.approved ? 'Approved' : runtimeStatus === 'waiting_review' ? 'Awaiting approval' : 'Checkpoint' }}</strong>
       <small>{{ data.config.instruction }}</small>
       <button v-if="visibleReviewImage" type="button" class="forge3d-node-output nodrag nopan forge:relative forge:mt-[10px] forge:block forge:h-[146px] forge:w-full forge:overflow-hidden forge:rounded-lg forge:border forge:border-line-subtle forge:bg-[radial-gradient(circle_at_50%_45%,#edf1ed,#dfe5e0_72%)] forge:p-0 forge:text-left forge:transition-[border-color,box-shadow] forge:hover:border-[var(--node-accent)] forge:focus-visible:outline forge:focus-visible:outline-2 forge:focus-visible:outline-offset-2 forge:focus-visible:outline-[var(--node-accent)] forge:dark:bg-[radial-gradient(circle_at_50%_45%,#30352f,#111412_72%)] forge:[&>img]:size-full forge:[&>img]:object-cover" :aria-label="`Preview ${data.label} image`" @click.stop="emit('preview-image', { src: visibleReviewImage, alt: `${data.label} image` })"><img :src="visibleReviewImage" :alt="`${data.label} image`" @error="markImageFailed(visibleReviewImage)" /></button>
       <div v-else class="forge3d-node-run-state forge:mt-[10px] forge:grid forge:h-[146px] forge:place-content-center forge:justify-items-center forge:rounded-lg forge:border forge:border-dashed forge:border-line-strong forge:bg-bg-input forge:p-5 forge:text-center forge:[&>strong]:mt-[10px] forge:[&>strong]:text-[10px] forge:[&>strong]:font-medium forge:[&>strong]:text-text-secondary forge:[&>small]:mt-[5px] forge:[&>small]:font-mono forge:[&>small]:text-[8px] forge:[&>small]:text-text-muted" :class="bizClass(runtimeStatus)">
@@ -293,7 +308,7 @@ async function uploadAsset(file: File) {
         <strong>{{ runStateTitle }}</strong>
         <small>{{ runStateDetail }}</small>
       </div>
-      <button type="button" class="nodrag forge:mt-[10px] forge:h-8 forge:w-full forge:rounded-md forge:border forge:border-[var(--node-accent)] forge:bg-[var(--node-accent)] forge:font-mono forge:text-[8px] forge:font-medium forge:uppercase forge:text-text-inverse forge:transition-[filter,background,color,border-color] forge:hover:brightness-108 forge:[&.forge3d-approved]:border-acid forge:[&.forge3d-approved]:bg-[color-mix(in_srgb,var(--acid)_14%,var(--bg-input))] forge:[&.forge3d-approved]:text-acid" :class="{ 'forge3d-approved': data.config.approved }" @click.stop="toggleApprove">{{ data.config.approved ? '✓ Approved — continue' : 'Approve & continue' }}</button>
+      <button type="button" class="nodrag forge:mt-[10px] forge:h-8 forge:w-full forge:rounded-md forge:border forge:border-[var(--node-accent)] forge:bg-[var(--node-accent)] forge:font-mono forge:text-[8px] forge:font-medium forge:uppercase forge:text-text-inverse forge:transition-[filter,background,color,border-color] forge:hover:brightness-108 forge:[&.forge3d-approved]:border-acid forge:[&.forge3d-approved]:bg-[color-mix(in_srgb,var(--acid)_14%,var(--bg-input))] forge:[&.forge3d-approved]:text-acid" :class="{ 'forge3d-approved': data.outputResult?.approved }" @click.stop="toggleApprove">{{ data.outputResult?.approved ? '✓ Approved — continue' : 'Approve & continue' }}</button>
     </div>
     <div v-else-if="isExecutableNode && (data.canvasType !== 'text-to-3d' || runtimeStatus !== 'ready')" class="forge3d-node-run-state forge:mb-[11px] forge:grid forge:h-[146px] forge:place-content-center forge:justify-items-center forge:rounded-lg forge:border forge:border-dashed forge:border-line-strong forge:bg-bg-input forge:p-5 forge:text-center forge:[&>strong]:mt-[10px] forge:[&>strong]:text-[10px] forge:[&>strong]:font-medium forge:[&>strong]:text-text-secondary forge:[&>small]:mt-[5px] forge:[&>small]:font-mono forge:[&>small]:text-[8px] forge:[&>small]:text-text-muted" :class="bizClass(runtimeStatus)">
       <span class="forge3d-node-run-indicator" />

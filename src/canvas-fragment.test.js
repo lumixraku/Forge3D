@@ -53,6 +53,28 @@ test('copying root nodes offsets the roots without changing their relative layou
   )
 })
 
+test('a copy carries the parameters but not what the node last produced', () => {
+  const canvas = {
+    id: 'canvas',
+    revision: 1,
+    name: 'Canvas',
+    nodes: [{
+      ...node('concepts', 120, 80),
+      type: 'generate-image',
+      config: { amount: 4, prompt: 'shark' },
+      outputResult: { previews: ['/a.png', '/b.png'], selectedPreview: '/b.png' },
+    }],
+    edges: [],
+  }
+
+  const fragment = buildFragment(canvas, new Set(['concepts']), 'Nodes')
+  const pasted = remapFragment(fragment, { offset: { x: 20, y: 20 }, suffix: 'copy' })
+
+  assert.deepEqual(fragment.nodes[0].config, { amount: 4, prompt: 'shark' })
+  assert.equal(Object.hasOwn(fragment.nodes[0], 'outputResult'), false)
+  assert.deepEqual(toCanvasGraph({ ...canvas, nodes: pasted.nodes, edges: [] }).nodes[0].data.outputResult, {})
+})
+
 test('clipboard fragments round-trip through the binary system clipboard format', () => {
   const canvas = {
     id: 'canvas',

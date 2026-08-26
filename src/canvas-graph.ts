@@ -1,5 +1,5 @@
 import { canConnectNodeTypes, canConnectPorts, nodeCatalog, nodeDisplayName, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
-import { normalizeNodeConfig } from './canvas-schema'
+import { normalizeNodeConfig, normalizeNodeOutput, splitNodeOutput } from './canvas-schema'
 
 export const edgeDefaults = { selectable: true, type: 'execution' }
 export const nodePresentation = Object.fromEntries(nodeCatalog.map((node) => [node.type, [node.presentation.kind, node.presentation.detail, node.presentation.tone]]))
@@ -26,6 +26,11 @@ export function toCanvasGraph(canvas) {
     }
     const type = node.type === 'split' ? 'segments' : node.type
     const [kind, detail, tone] = nodePresentation[type] || ['STEP', type, 'cyan']
+    // Parameters and results split into two trees here. This is the one
+    // document -> canvas entry point (opening, pasting, restoring a draft and
+    // importing all pass through it), so an older canvas that still keeps its
+    // results inside config migrates exactly once, here.
+    const split = splitNodeOutput(node.config, node.outputResult)
     return {
       id: node.id,
       type: 'canvas',
@@ -40,7 +45,8 @@ export function toCanvasGraph(canvas) {
         tone,
         status: 'ready',
         canvasType: type,
-        config: normalizeNodeConfig(type, node.config),
+        config: normalizeNodeConfig(type, split.config),
+        outputResult: normalizeNodeOutput(type, split.outputResult),
         inputPorts: nodeInputPorts(type),
         outputPorts: nodeOutputPorts(type),
       },
@@ -110,14 +116,22 @@ function frameConfig(storedNode) {
 
 // Fold the canvas back into the stored canvas document, keeping the fields the
 // canvas does not own (ids, timestamps, agent metadata) from the loaded copy.
+// `outputResult` is dropped from that copy: the canvas owns it, and keeping the
+// stored one would resurrect results the canvas has since cleared.
 export function toDomainCanvas(activeCanvas, nodes, edges) {
   if (!activeCanvas) return null
-  const nodeMap = new Map(activeCanvas.nodes.map((node) => [node.id, node]))
+  const nodeMap = new Map(activeCanvas.nodes.map(({ outputResult, ...node }) => [node.id, node]))
   return {
     ...activeCanvas,
     nodes: nodes.map((node) => node.type === 'frame'
       ? { ...nodeMap.get(node.id), id: node.id, type: 'frame', name: node.data.label, config: { ...frameConfig(nodeMap.get(node.id)), description: node.data.description || '' }, ui: { position: node.position, size: { width: Number(node.dimensions?.width || node.width || 900), height: Number(node.dimensions?.height || node.height || 600) } } }
-      : { ...nodeMap.get(node.id), id: node.id, name: node.data.label, type: node.data.canvasType, config: node.data.config, ui: { position: node.position, parentFrameId: node.parentNode } }),
+      // Results are written back alongside config. An older document in nodeMap
+      // still carries results mixed into its config; both values here are the
+      // split ones, so they overwrite it wholesale. A node with no results omits
+      // the field rather than storing an empty object: the canvas always holds one
+      // and a stored node without results has none, and treating those as
+      // different would make opening a canvas save it for no reason.
+      : { ...nodeMap.get(node.id), id: node.id, name: node.data.label, type: node.data.canvasType, config: node.data.config, ...(Object.keys(node.data.outputResult || {}).length ? { outputResult: node.data.outputResult } : {}), ui: { position: node.position, parentFrameId: node.parentNode } }),
     edges: edges.flatMap((edge) => {
       const sourceType = nodes.find((node) => node.id === edge.source)?.data?.canvasType
       const targetType = nodes.find((node) => node.id === edge.target)?.data?.canvasType

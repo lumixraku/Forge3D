@@ -1,7 +1,7 @@
 import { access, mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { normalizeNodeConfig } from '../src/canvas-schema.js'
+import { normalizeNodeConfig, normalizeNodeOutput, splitNodeOutput } from '../src/canvas-schema.js'
 import { migrateCanvasRefs, migrateTurns } from './migrations.js'
 
 // Re-exported so the store stays the single entry point for migrations even
@@ -23,14 +23,23 @@ export function migrateCanvas(canvas, now = () => new Date().toISOString()) {
   let changed = retainedNodes.length !== migrated.nodes.length
 
   migrated.nodes = retainedNodes.map((node) => {
+    if (node.type === 'frame') return node
+    // Parameters and results are two trees. A canvas stored before the split keeps
+    // its results inside config, so lift them out on the way through.
+    const type = node.type === 'split' ? 'segments' : node.type
+    const split = splitNodeOutput(node.config, node.outputResult)
+    const config = normalizeNodeConfig(type, split.config)
+    const outputResult = normalizeNodeOutput(type, split.outputResult)
+    // A node with no results carries no field, matching what the canvas sends.
+    const results = Object.keys(outputResult).length ? { outputResult } : {}
     if (node.type === 'split') {
       changed = true
-      return { ...node, type: 'segments', name: node.name === 'Split' ? 'Segments' : node.name, config: normalizeNodeConfig('segments', node.config) }
+      return { ...node, type: 'segments', name: node.name === 'Split' ? 'Segments' : node.name, config, ...results }
     }
-    const config = normalizeNodeConfig(node.type, node.config)
-    if (JSON.stringify(config) === JSON.stringify(node.config)) return node
+    if (JSON.stringify(config) === JSON.stringify(node.config) && JSON.stringify(outputResult) === JSON.stringify(node.outputResult || {})) return node
     changed = true
-    return { ...node, config }
+    const { outputResult: stale, ...rest } = node
+    return { ...rest, config, ...results }
   })
   const retainedEdges = migrated.edges.filter((edge) => retainedNodeIds.has(edge.source.nodeId) && retainedNodeIds.has(edge.target.nodeId))
   if (retainedEdges.length !== migrated.edges.length) changed = true
