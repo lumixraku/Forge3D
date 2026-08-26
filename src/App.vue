@@ -219,6 +219,9 @@ const {
   saveCanvas: () => saveCanvas({ immediate: true }),
   onCanvasEvent: applyPresenceEvent,
   onCanvasDocumentEvent: () => Promise.all([refreshCanvasFromServer(), loadAccount()]),
+  // A canvas edit pushed while the event channel was down is missed too, so pick
+  // the document back up alongside the turns.
+  onReconnect: () => refreshCanvasFromServer(),
   clientId,
   acquireEditLease,
   markEditActivity,

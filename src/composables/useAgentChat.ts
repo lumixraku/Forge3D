@@ -3,13 +3,13 @@ import { useEditor } from '@tiptap/vue-3'
 import Placeholder from '@tiptap/extension-placeholder'
 import StarterKit from '@tiptap/starter-kit'
 import { request } from '../api'
-import { canContinueSelection, selectedOptionIds } from '../chat-selection'
+import { canContinueSelection, reconcileRestoredTurns, selectedOptionIds } from '../chat-selection'
 import { bizClass } from '../class-prefix'
 import { Attachment } from '../editor/attachment'
 
 // The copilot side of the app: the tiptap composer, the SSE agent stream, and the
 // in-flight turns (including user-selection follow-ups) attached to a canvas.
-export function useAgentChat({ activeCanvas, activeSession, busy, error, runToken, toCanvas, syncCanvasSummary, saveCanvas, onCanvasEvent, onCanvasDocumentEvent, clientId, acquireEditLease, markEditActivity }) {
+export function useAgentChat({ activeCanvas, activeSession, busy, error, runToken, toCanvas, syncCanvasSummary, saveCanvas, onCanvasEvent, onCanvasDocumentEvent, onReconnect, clientId, acquireEditLease, markEditActivity }) {
   const composerVersion = ref(0)
   const selectedOptions = ref({})
   const continuingTurnId = ref(null)
@@ -146,12 +146,7 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
       pending.streamMessageId = event.id
       pending.content = event.text || ''
     }
-    if (event.type === 'request_user_select' && pending) {
-      pending.pending = false
-      pending.request = event.request
-      pending.content = ''
-      placeCompletedMessageAfterLatestUser(pending)
-    }
+    if (event.type === 'request_user_select' && pending) attachSelectionRequest(pending, event.request)
     if (event.type === 'error') {
       if (pending) {
         pending.pending = false
@@ -170,13 +165,25 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
   }
 
   // The canvas's single event channel, opened when the canvas opens and closed
-  // when it closes. Nothing is replayed on reconnect: `openCanvas` re-reads the
-  // canvas, the session and the in-flight turns over REST instead.
+  // when it closes. Nothing is replayed on reconnect, so every re-open of the
+  // socket re-reads the canvas, the session and the in-flight turns over REST —
+  // the same path `openCanvas` takes.
   function subscribeCanvasEvents(canvasId) {
     closeCanvasEvents()
     const token = runToken.value
     const source = new EventSource(`/api/canvases/${encodeURIComponent(canvasId)}/events`)
     events = source
+    // `open` fires on the first connect and again after every automatic
+    // reconnect; only the later ones have a gap behind them to make up for.
+    let connected = false
+    source.addEventListener('open', () => {
+      if (events !== source || token !== runToken.value) return
+      if (!connected) {
+        connected = true
+        return
+      }
+      resyncAfterReconnect()
+    })
     const handle = async (message) => {
       // EventSource dispatches its own transport failures under the same name as
       // an `event: error` frame; only the frame carries data. EventSource
@@ -213,20 +220,41 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
   async function restoreTurns() {
     if (!activeSession.value) return
     const turns = await request(`/api/sessions/${encodeURIComponent(activeSession.value.id)}/turns`)
-    for (const turn of turns) {
-      const existing = activeSession.value?.messages.some((item) => item.turnId === turn.id)
-      if (!existing) {
-        activeSession.value.messages.push({
-          id: `turn-assistant-${turn.id}`,
-          role: 'assistant',
-          content: '',
-          progress: turn.progress,
-          turnId: turn.id,
-          createdAt: turn.createdAt,
-          pending: !turn.request,
-          request: turn.request || null,
-        })
-      }
+    if (!activeSession.value) return
+    const { additions, repairs } = reconcileRestoredTurns(activeSession.value.messages, turns)
+    for (const turn of additions) {
+      activeSession.value.messages.push({
+        id: `turn-assistant-${turn.id}`,
+        role: 'assistant',
+        content: '',
+        progress: turn.progress,
+        turnId: turn.id,
+        createdAt: turn.createdAt,
+        pending: !turn.request,
+        request: turn.request || null,
+      })
+    }
+    for (const repair of repairs) attachSelectionRequest(repair.message, repair.request)
+  }
+
+  // Puts a selection card on a bubble. Shared by the live `request_user_select`
+  // event and the restore path, so a recovered card behaves like a pushed one.
+  function attachSelectionRequest(message, selectionRequest) {
+    message.pending = false
+    message.request = selectionRequest
+    message.content = ''
+    placeCompletedMessageAfterLatestUser(message)
+  }
+
+  // EventSource reconnects on its own, and the channel replays nothing, so
+  // anything pushed while it was down was missed. Re-read the same REST state
+  // `openCanvas` reads, which is where a persisted card comes back from.
+  async function resyncAfterReconnect() {
+    try {
+      await restoreTurns()
+      await onReconnect?.()
+    } catch (caught) {
+      error.value = displayAgentError(caught?.message)
     }
   }
 

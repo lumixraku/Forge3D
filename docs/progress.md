@@ -1509,3 +1509,43 @@ five nodes green, 80 credits.
   empty, `splitNodeOutput` precedence), `npm run build` succeeds. Not verified in
   the browser this session.
 - Remaining issues: None.
+
+## 2026-08-26 - main (2)
+
+- Fixed the dropped selection card on SSE reconnect. If the connection dropped at
+  the moment the agent pushed `request_user_select`, the card never reached the
+  browser: `createChannels` buffers and replays nothing (`api-core.ts:41-45`), and
+  although every frame carries an `id:` line so the browser sends `Last-Event-ID`
+  on reconnect, the server ignores it. The server then sat in `waiting_for_user`
+  while the user watched an unresolving bubble — the canvas poll cannot cover this,
+  since a card is a chat message absent from `GetCanvas`, and that poll only runs
+  while a node is executing (nothing is executing while a card waits).
+- The user's proposed fix was an `afterId` replay buffer. Went a different way: the
+  card is already durable in `turn.request` (`api-core.ts:325/339`) and
+  `GET /api/sessions/:id/turns` already returns turns that carry one
+  (`api-core.ts:665`). So recovery only needed the existing REST path to run again,
+  with no server-side buffer — which also survives a process restart or Worker
+  isolate recycle, where a per-process `seq` would have renumbered and lost the
+  buffer anyway.
+- Two defects, not one. The missing trigger was only half: `restoreTurns` skipped
+  any turn whose bubble already existed (`useAgentChat.ts:217`), and in this
+  scenario the bubble *does* exist — created when the message was sent, just
+  without its `request`. Calling `restoreTurns()` on reconnect alone would still
+  have shown nothing.
+- Changes: `chat-selection` gains `reconcileRestoredTurns`, splitting restored
+  turns into additions (no bubble) and repairs (bubble present, card missing);
+  `useAgentChat` uses it in `restoreTurns`, adds `attachSelectionRequest` (shared
+  by the live event and the repair path, so a recovered card behaves like a pushed
+  one) and `resyncAfterReconnect`, and fires the latter on every `open` after the
+  first; `App.vue` passes `onReconnect` so the canvas document is re-read too.
+- Put the reconciliation in `chat-selection.ts` rather than `useAgentChat.ts`
+  because the latter builds a tiptap editor at call time and needs a DOM, so it
+  cannot be unit-tested under `node --test`.
+- Verification: `npm run typecheck` clean, `npm test` 294/294 pass (6 new, and the
+  repair test was confirmed to fail with the fix reverted), `npm run build`
+  succeeds. Not verified in the browser: the reconnect path needs a real dropped
+  socket to exercise, so the `open`-fires-again assumption is untested here.
+- Remaining issues: streamed `text`/`progress` events during the gap are still
+  lost — they are not persisted per-event, so REST cannot rebuild them. A turn that
+  was mid-stream shows its restored state rather than the missed deltas. The card,
+  the node state and the canvas document all recover.
