@@ -51,13 +51,15 @@ export function buildFragment(canvas, selectedIds: Set<string>, name = 'Untitled
     name,
     description: `${fragmentNodes.length}-step reusable block from ${canvas.name}`,
     source: { canvasId: canvas.id, canvasRevision: canvas.revision },
-    // Results stay out of a fragment: copying a node takes its configuration,
-    // not what it last produced. Copy, duplicate and new-canvas-from-selection
-    // all come through here, so this one filter covers every one of them.
+    // Results stay out of a fragment: copying a node takes its configuration and
+    // the assets the user uploaded to it, not what it last produced. `uploadAssets`
+    // rides along for that reason — it is the user's own input. Copy, duplicate and
+    // new-canvas-from-selection all come through here, so this one filter covers
+    // every one of them.
     nodes: fragmentNodes.map((node) => {
       // `roots` holds the source nodes themselves, so the membership test has to
       // run against `node` rather than the copy built from it.
-      const { outputResult, ...fragmentNode } = node
+      const { generatedAssets, ...fragmentNode } = node
       return {
         ...fragmentNode,
         ui: {

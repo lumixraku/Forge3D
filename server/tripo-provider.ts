@@ -131,13 +131,13 @@ function resolveUpstreamModel(node, canvas, context) {
 function nodeImage(source, context) {
   const produced = context.get(source.id)
   if (produced?.preview) return produced.preview
-  // Results read outputResult; an uploaded asset reads config, being input the
-  // user gave rather than something a run produced.
-  const views = source.outputResult?.viewPreviews
-  return source.outputResult?.selectedPreview
-    || source.outputResult?.preview
-    || source.outputResult?.previews?.[0]
-    || source.config?.assetUrl
+  // Results read generatedAssets; an uploaded asset reads uploadAssets, being input
+  // the user gave rather than something a run produced.
+  const views = source.generatedAssets?.viewPreviews
+  return source.generatedAssets?.selectedPreview
+    || source.generatedAssets?.preview
+    || source.generatedAssets?.previews?.[0]
+    || source.uploadAssets?.assetUrl
     // Tripo's image-to-model takes one image; the front view is the canonical one.
     || views?.front
     || Object.values(views || {}).find(Boolean)

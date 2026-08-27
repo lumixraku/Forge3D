@@ -1,5 +1,5 @@
 import { canConnectNodeTypes, canConnectPorts, nodeCatalog, nodeDisplayName, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
-import { normalizeNodeConfig, normalizeNodeOutput, splitNodeOutput } from './canvas-schema'
+import { normalizeNodeConfig, normalizeGeneratedAssets, splitNodeTrees } from './canvas-schema'
 
 export const edgeDefaults = { selectable: true, type: 'execution' }
 export const nodePresentation = Object.fromEntries(nodeCatalog.map((node) => [node.type, [node.presentation.kind, node.presentation.detail, node.presentation.tone]]))
@@ -26,11 +26,11 @@ export function toCanvasGraph(canvas) {
     }
     const type = node.type === 'split' ? 'segments' : node.type
     const [kind, detail, tone] = nodePresentation[type] || ['STEP', type, 'cyan']
-    // Parameters and results split into two trees here. This is the one
-    // document -> canvas entry point (opening, pasting, restoring a draft and
-    // importing all pass through it), so an older canvas that still keeps its
-    // results inside config migrates exactly once, here.
-    const split = splitNodeOutput(node.config, node.outputResult)
+    // The three trees separate here. This is the one document -> canvas entry
+    // point (opening, pasting, restoring a draft and importing all pass through
+    // it), so an older canvas that still keeps its uploads and results inside
+    // config migrates exactly once, here.
+    const split = splitNodeTrees(node.config, node.uploadAssets, node.generatedAssets, node.outputResult)
     return {
       id: node.id,
       type: 'canvas',
@@ -46,7 +46,8 @@ export function toCanvasGraph(canvas) {
         status: 'ready',
         canvasType: type,
         config: normalizeNodeConfig(type, split.config),
-        outputResult: normalizeNodeOutput(type, split.outputResult),
+        uploadAssets: split.uploadAssets,
+        generatedAssets: normalizeGeneratedAssets(type, split.generatedAssets),
         inputPorts: nodeInputPorts(type),
         outputPorts: nodeOutputPorts(type),
       },
@@ -114,24 +115,32 @@ function frameConfig(storedNode) {
   return config
 }
 
+// A tree with nothing in it stores no field at all. See toDomainCanvas.
+function nonEmptyTree(name, tree) {
+  return Object.keys(tree || {}).length ? { [name]: tree } : {}
+}
+
 // Fold the canvas back into the stored canvas document, keeping the fields the
 // canvas does not own (ids, timestamps, agent metadata) from the loaded copy.
-// `outputResult` is dropped from that copy: the canvas owns it, and keeping the
-// stored one would resurrect results the canvas has since cleared.
+// `uploadAssets` and `generatedAssets` are dropped from that copy: the canvas owns
+// both, and keeping the stored ones would resurrect an upload or a result the
+// canvas has since cleared. `outputResult` is the old name of the result tree, and
+// goes for good — `splitNodeTrees` has already folded its content into
+// `generatedAssets` on the way in.
 export function toDomainCanvas(activeCanvas, nodes, edges) {
   if (!activeCanvas) return null
-  const nodeMap = new Map(activeCanvas.nodes.map(({ outputResult, ...node }) => [node.id, node]))
+  const nodeMap = new Map(activeCanvas.nodes.map(({ uploadAssets, generatedAssets, outputResult, ...node }) => [node.id, node]))
   return {
     ...activeCanvas,
     nodes: nodes.map((node) => node.type === 'frame'
       ? { ...nodeMap.get(node.id), id: node.id, type: 'frame', name: node.data.label, config: { ...frameConfig(nodeMap.get(node.id)), description: node.data.description || '' }, ui: { position: node.position, size: { width: Number(node.dimensions?.width || node.width || 900), height: Number(node.dimensions?.height || node.height || 600) } } }
-      // Results are written back alongside config. An older document in nodeMap
-      // still carries results mixed into its config; both values here are the
-      // split ones, so they overwrite it wholesale. A node with no results omits
-      // the field rather than storing an empty object: the canvas always holds one
-      // and a stored node without results has none, and treating those as
+      // All three trees are written back as siblings. An older document in nodeMap
+      // still carries uploads and results mixed into its config; the values here
+      // are the split ones, so they overwrite it wholesale. An empty tree omits
+      // its field rather than storing `{}`: the canvas always holds an object and
+      // a stored node without one has no field at all, and treating those as
       // different would make opening a canvas save it for no reason.
-      : { ...nodeMap.get(node.id), id: node.id, name: node.data.label, type: node.data.canvasType, config: node.data.config, ...(Object.keys(node.data.outputResult || {}).length ? { outputResult: node.data.outputResult } : {}), ui: { position: node.position, parentFrameId: node.parentNode } }),
+      : { ...nodeMap.get(node.id), id: node.id, name: node.data.label, type: node.data.canvasType, config: node.data.config, ...nonEmptyTree('uploadAssets', node.data.uploadAssets), ...nonEmptyTree('generatedAssets', node.data.generatedAssets), ui: { position: node.position, parentFrameId: node.parentNode } }),
     edges: edges.flatMap((edge) => {
       const sourceType = nodes.find((node) => node.id === edge.source)?.data?.canvasType
       const targetType = nodes.find((node) => node.id === edge.target)?.data?.canvasType

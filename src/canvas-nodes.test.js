@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeDefaults, nodeDisplayName, nodeInputPorts, nodeOutputPorts, nodeSchema, parameterRange } from './canvas-nodes.js'
-import { normalizeNodeConfig, normalizeNodeOutput, splitNodeOutput, canvasNodeSchema } from './canvas-schema.js'
+import { normalizeNodeConfig, normalizeGeneratedAssets, splitNodeTrees, canvasNodeSchema } from './canvas-schema.js'
 
 test('uses Lychee node names while preserving unmatched node names', () => {
   assert.equal(nodeDisplayName('reference-image', 'Reference Image'), 'Asset Upload')
@@ -16,9 +16,9 @@ test('uses Lychee node names while preserving unmatched node names', () => {
 
 test('keeps Image Upload empty until an image is uploaded', () => {
   assert.equal(nodeDefaults('reference-image').preview, undefined)
-  assert.equal(normalizeNodeOutput('reference-image', {}).preview, undefined)
-  assert.equal(normalizeNodeOutput('reference-image', { preview: '/shark-reference.png' }).preview, undefined)
-  assert.equal(normalizeNodeOutput('reference-image', { preview: '/api/assets/uploaded.png' }).preview, '/api/assets/uploaded.png')
+  assert.equal(normalizeGeneratedAssets('reference-image', {}).preview, undefined)
+  assert.equal(normalizeGeneratedAssets('reference-image', { preview: '/shark-reference.png' }).preview, undefined)
+  assert.equal(normalizeGeneratedAssets('reference-image', { preview: '/api/assets/uploaded.png' }).preview, '/api/assets/uploaded.png')
 })
 
 test('does not define preview data as node defaults', () => {
@@ -30,26 +30,44 @@ test('does not define preview data as node defaults', () => {
 })
 
 test('removes legacy bundled previews while retaining uploaded assets', () => {
-  assert.equal(normalizeNodeOutput('segments', { preview: '/shark-model.png' }).preview, undefined)
-  assert.equal(normalizeNodeOutput('generate-image', { previews: ['/shark-concept-front.png'] }).previews, undefined)
-  assert.deepEqual(normalizeNodeOutput('generate-multiview-images', { viewPreviews: { front: '/shark-concept-front.png' } }).viewPreviews, undefined)
-  assert.equal(normalizeNodeOutput('reference-image', { preview: '/api/assets/uploaded.png' }).preview, '/api/assets/uploaded.png')
+  assert.equal(normalizeGeneratedAssets('segments', { preview: '/shark-model.png' }).preview, undefined)
+  assert.equal(normalizeGeneratedAssets('generate-image', { previews: ['/shark-concept-front.png'] }).previews, undefined)
+  assert.deepEqual(normalizeGeneratedAssets('generate-multiview-images', { viewPreviews: { front: '/shark-concept-front.png' } }).viewPreviews, undefined)
+  assert.equal(normalizeGeneratedAssets('reference-image', { preview: '/api/assets/uploaded.png' }).preview, '/api/assets/uploaded.png')
 })
 
-test('splits results out of an older config and keeps the separated copy authoritative', () => {
-  // A canvas saved before the split keeps its results in config; they move across
-  // while the parameters stay put.
-  assert.deepEqual(splitNodeOutput({ amount: 4, previews: ['/a.png'], selectedPreview: '/a.png' }), {
+test('splits uploads and results out of an older config and keeps the separated copies authoritative', () => {
+  // A canvas saved before the split keeps its uploads and results in config; both
+  // move across while the parameters stay put.
+  assert.deepEqual(splitNodeTrees({ amount: 4, previews: ['/a.png'], selectedPreview: '/a.png' }), {
     config: { amount: 4 },
-    outputResult: { previews: ['/a.png'], selectedPreview: '/a.png' },
+    uploadAssets: {},
+    generatedAssets: { previews: ['/a.png'], selectedPreview: '/a.png' },
   })
-  // Already split: a same-named leftover in config does not overwrite it.
-  assert.deepEqual(splitNodeOutput({ preview: '/stale.png' }, { preview: '/fresh.png' }), {
+  assert.deepEqual(splitNodeTrees({ amount: 4, reference: 'shark.glb', assetType: 'model', assetUrl: '/a.glb', modelUrl: '/a.glb' }), {
+    config: { amount: 4 },
+    uploadAssets: { reference: 'shark.glb', assetType: 'model', assetUrl: '/a.glb', modelUrl: '/a.glb' },
+    generatedAssets: {},
+  })
+  // Already split: a same-named leftover in config does not overwrite either tree.
+  assert.deepEqual(splitNodeTrees({ preview: '/stale.png', assetUrl: '/stale.png' }, { assetUrl: '/kept.png' }, { preview: '/fresh.png' }), {
     config: {},
-    outputResult: { preview: '/fresh.png' },
+    uploadAssets: { assetUrl: '/kept.png' },
+    generatedAssets: { preview: '/fresh.png' },
   })
-  // modelUrl stays a parameter: its only writer is the asset upload.
-  assert.deepEqual(splitNodeOutput({ modelUrl: '/m.glb' }).config, { modelUrl: '/m.glb' })
+})
+
+test('reads the result tree stored under its old name', () => {
+  // `outputResult` shipped as the result tree's name before it became
+  // `generatedAssets`, so canvases were saved with it. Dropping it would strip a
+  // saved canvas of its results.
+  assert.deepEqual(splitNodeTrees({}, {}, {}, { previews: ['/a.png'], selectedPreview: '/a.png' }).generatedAssets, {
+    previews: ['/a.png'], selectedPreview: '/a.png',
+  })
+  // The current name wins where both carry the same key.
+  assert.deepEqual(splitNodeTrees({}, {}, { preview: '/new.png' }, { preview: '/old.png', approved: true }).generatedAssets, {
+    preview: '/new.png', approved: true,
+  })
 })
 
 test('exposes schema-defined typed input and output handles', () => {

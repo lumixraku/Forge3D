@@ -53,9 +53,12 @@ export interface CanvasGraphNode {
   id: string
   type: string
   name?: string
+  /** Parameters the user filled in. */
   config?: Record<string, unknown>
-  /** What the node produced, alongside config. Parameters are in config. */
-  outputResult?: Record<string, unknown>
+  /** What the user uploaded to this node, alongside config. */
+  uploadAssets?: Record<string, unknown>
+  /** What the node produced by running, alongside config. */
+  generatedAssets?: Record<string, unknown>
 }
 
 export interface CanvasGraphEdge {
@@ -100,7 +103,7 @@ export function resolveEdgePortPairs(sourceType: string | undefined, targetType:
 /**
  * Reads one node's produced values keyed by output port id.
  *
- * A run's own result is authoritative; the outputResult a canvas saved earlier is
+ * A run's own result is authoritative; the generatedAssets a canvas saved earlier is
  * the fallback, which is what lets a single-node run read upstream results that
  * this run never executed. Flat `preview`/`previews`/`viewPreviews` shapes are
  * mapped onto declared ports so a node that has not been migrated still resolves.
@@ -111,9 +114,10 @@ export function nodeOutputPortValues(node: CanvasGraphNode, produced?: Record<st
   const fromPorts = (produced?.ports || null) as Record<string, unknown> | null
   const values: Record<string, unknown> = {}
   const config = node.config || {}
-  // An uploaded asset is input the user gave, so it reads config; what a run
-  // produced reads outputResult.
-  const output = node.outputResult || {}
+  // Three trees, three readers: parameters from config, what the user uploaded
+  // from uploadAssets, what a run produced from generatedAssets.
+  const uploads = node.uploadAssets || {}
+  const output = node.generatedAssets || {}
   const viewPreviews = (output.viewPreviews || {}) as Record<string, unknown>
   const previews = (Array.isArray(output.previews) ? output.previews : []) as unknown[]
 
@@ -126,11 +130,11 @@ export function nodeOutputPortValues(node: CanvasGraphNode, produced?: Record<st
     // the node's single result, and `previews` being a candidate list means its
     // selected entry wins.
     const fallback = node.type === 'reference-image'
-      ? config.assetType === 'model' ? config.modelUrl ?? config.assetUrl : output.preview ?? config.assetUrl
+      ? uploads.assetType === 'model' ? uploads.modelUrl ?? uploads.assetUrl : output.preview ?? uploads.assetUrl
       : port.type === 'model'
-      // modelUrl is not an output key: its only writer is the asset upload, which
+      // modelUrl is not a generated key: its only writer is the asset upload, which
       // makes it input the user gave rather than something a run produced.
-      ? produced?.modelUrl ?? config.modelUrl
+      ? produced?.modelUrl ?? uploads.modelUrl
       : port.type === 'text'
         ? produced?.text ?? config.prompt
         : viewPreviews[port.id]

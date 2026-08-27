@@ -5,7 +5,8 @@ import Model3D from './Model3D.vue'
 import type { NodeRun } from '../node-runs'
 
 type ModelConfig = Record<string, unknown> & { wireframe?: boolean; autoRotate?: boolean; preview?: string; environment?: string }
-interface ModelNode { data: { label: string; canvasType: string; config: ModelConfig } }
+type ModelUploadAssets = Record<string, unknown> & { assetType?: string; modelUrl?: string }
+interface ModelNode { data: { label: string; canvasType: string; config: ModelConfig; uploadAssets?: ModelUploadAssets } }
 
 const props = defineProps<{ node: ModelNode; nodeRun?: NodeRun | null }>()
 const emit = defineEmits<{ back: []; 'update-config': [config: ModelConfig] }>()
@@ -14,7 +15,8 @@ const modelUrl = computed(() => {
   if (typeof output?.modelUrl === 'string') return output.modelUrl
   const download = Array.isArray(output?.outputs) ? output.outputs.find((item) => item?.downloadUrl) : null
   if (typeof download?.downloadUrl === 'string') return download.downloadUrl
-  return props.node.data.canvasType === 'reference-image' && props.node.data.config.assetType === 'model' && typeof props.node.data.config.modelUrl === 'string' ? props.node.data.config.modelUrl : ''
+  const uploads = props.node.data.uploadAssets
+  return props.node.data.canvasType === 'reference-image' && uploads?.assetType === 'model' && typeof uploads.modelUrl === 'string' ? uploads.modelUrl : ''
 })
 const segmentedUrl = computed(() => modelUrl.value)
 const downloadName = computed(() => modelUrl.value.split('/').pop()?.split('?')[0] || 'model.glb')

@@ -347,7 +347,7 @@ function inboundExportTarget(nodeId) {
 function inboundImage(nodeId) {
   for (const source of inboundSourceNodes(nodeId)) {
     if (nodeOutputPorts(source.data?.canvasType)[0]?.type !== 'image') continue
-    const output = source.data?.outputResult
+    const output = source.data?.generatedAssets
     const image = output?.selectedPreview || output?.preview || output?.previews?.[0]
     if (image) return image
   }
@@ -430,11 +430,20 @@ function updateNodeConfig(id, config) {
   saveCanvas()
 }
 
-// Edits the result tree, the one alongside config. Copying a node drops it.
-function updateNodeOutput(id, outputResult) {
+// Edits the upload tree, the one alongside config. A copied node keeps it: the
+// asset is input the user gave.
+function updateNodeUploads(id, uploadAssets) {
   const node = nodes.value.find((candidate) => candidate.id === id)
   if (!node) return
-  node.data = { ...node.data, outputResult }
+  node.data = { ...node.data, uploadAssets }
+  saveCanvas()
+}
+
+// Edits the result tree, the third sibling. Copying a node drops it.
+function updateNodeOutput(id, generatedAssets) {
+  const node = nodes.value.find((candidate) => candidate.id === id)
+  if (!node) return
+  node.data = { ...node.data, generatedAssets }
   saveCanvas()
 }
 
@@ -449,7 +458,7 @@ function updateNodeName(id, name) {
 function openModelEditor(id) {
   if (!id) return
   const node = nodes.value.find((candidate) => candidate.id === id)
-  const uploadedModel = node?.data.canvasType === 'reference-image' && node.data.config.assetType === 'model' && typeof node.data.config.modelUrl === 'string'
+  const uploadedModel = node?.data.canvasType === 'reference-image' && node.data.uploadAssets?.assetType === 'model' && typeof node.data.uploadAssets?.modelUrl === 'string'
   if (!node || !hasModelEditor(node.data.canvasType) || (!uploadedModel && nodeRuns.value[id]?.status !== 'succeeded')) return
   modelEditorNodeId.value = node.id
   workspaceMode.value = 'model-editor'
@@ -539,7 +548,7 @@ function fitCanvasView() {
   fitView({ ...(selectedIds.length ? { nodes: selectedIds } : {}), padding: 0.18, duration: 400 })
 }
 
-function buildCanvasNode(type, { id, position, selected = false, config, outputResult, parentNode } = {}) {
+function buildCanvasNode(type, { id, position, selected = false, config, uploadAssets, generatedAssets, parentNode } = {}) {
   const [kind, detail, tone] = nodePresentation[type]
   return {
     id: id || nextNodeId(type),
@@ -555,7 +564,8 @@ function buildCanvasNode(type, { id, position, selected = false, config, outputR
       status: 'ready',
       canvasType: type,
       config: { ...nodeDefaults(type), ...config },
-      outputResult: { ...outputResult },
+      uploadAssets: { ...uploadAssets },
+      generatedAssets: { ...generatedAssets },
       inputPorts: nodeInputPorts(type),
       outputPorts: nodeOutputPorts(type),
     },
@@ -606,7 +616,7 @@ const BATCH_COLUMN_GAP = 340
 const BATCH_ROW_GAP = 150
 
 function batchOrigin(sourceNode) {
-  const existing = nodes.value.filter((node) => node.data?.outputResult?.runBatch?.sourceId === sourceNode.id)
+  const existing = nodes.value.filter((node) => node.data?.generatedAssets?.runBatch?.sourceId === sourceNode.id)
   const x = sourceNode.position.x + BATCH_COLUMN_GAP
   if (!existing.length) return { x, y: sourceNode.position.y }
   return { x, y: Math.max(...existing.map((node) => node.position.y)) + BATCH_ROW_GAP }
@@ -616,7 +626,7 @@ function materializeRunBatch(sourceId, runId, previews) {
   const source = nodes.value.find((node) => node.id === sourceId)
   if (!source || !previews.length) return
   // Idempotent: polling delivers the same succeeded output repeatedly.
-  if (nodes.value.some((node) => node.data?.outputResult?.runBatch?.runId === runId && node.data?.outputResult?.runBatch?.sourceId === sourceId)) return
+  if (nodes.value.some((node) => node.data?.generatedAssets?.runBatch?.runId === runId && node.data?.generatedAssets?.runBatch?.sourceId === sourceId)) return
 
   const origin = batchOrigin(source)
   const taken = new Set()
@@ -629,7 +639,7 @@ function materializeRunBatch(sourceId, runId, previews) {
       parentNode: source.parentNode,
       // The image and its batch membership are both results: copying a generated
       // node gives an empty one, and getting that image means copying its source.
-      outputResult: { preview, runBatch: { runId, sourceId, index } },
+      generatedAssets: { preview, runBatch: { runId, sourceId, index } },
     })
   })
 
@@ -968,7 +978,7 @@ onUnmounted(() => {
         />
         <VueFlow v-show="canvasView === 'canvas'" v-model:nodes="nodes" :edges="executionEdges" @update:edges="edges = $event" :class="['forge3d-flow-canvas forge:bg-bg-primary forge:touch-none forge:transition-colors forge:duration-200', `forge3d-canvas-mode-${canvasMode}`]" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="canvasMode === 'select' ? true : null" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @viewport-change-start="dismissCanvasPopups" :nodes-draggable="canvasInteractive" :elements-selectable="canvasInteractive" @pointerdown.capture="onCanvasPointerDown($event); onFrameDrawPointerDown($event)" @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
           <template #node-frame="props"><FrameNode v-bind="props" :zoom="viewport.zoom" :running="sectionIsRunning(props.id)" @update-name="updateNodeName(props.id, $event)" @resize-end="onFrameResizeEnd" @run="runSection(props.id)" @stop-run="cancelRun" /></template>
-          <template #node-canvas="props"><CanvasNode v-bind="props" :node-run="nodeRuns[props.id] || null" :run-id="run?.id || null" :run-entry-node-id="run?.entryNodeId || null" :run-mode="run?.mode || null" :run-status="run?.status || null" :inbound-type="inboundExportTarget(props.id)" :inbound-image="inboundImage(props.id)" :missing-inputs="missingInputs[props.id] || []" :node-catalog="compatibleNodeTypes(props.data.canvasType)" :viewport-dismiss-version="viewportDismissVersion" :connection-invalid="Boolean(connectionSourceId && connectionSourceId !== props.id && !canConnectNodeTypes(nodes.find((node) => node.id === connectionSourceId)?.data.canvasType, props.data.canvasType))" @update-config="updateNodeConfig(props.id, $event)" @update-output="updateNodeOutput(props.id, $event)" @update-name="updateNodeName(props.id, $event)" @open-model-editor="openModelEditor(props.id)" @preview-image="openImagePreview" @add-next="addNode($event, props.id)" @run-canvas="runCanvas($event, 'node')" @run-downstream="runCanvas($event, 'downstream')" @stop-run="cancelRun" /></template>
+          <template #node-canvas="props"><CanvasNode v-bind="props" :node-run="nodeRuns[props.id] || null" :run-id="run?.id || null" :run-entry-node-id="run?.entryNodeId || null" :run-mode="run?.mode || null" :run-status="run?.status || null" :inbound-type="inboundExportTarget(props.id)" :inbound-image="inboundImage(props.id)" :missing-inputs="missingInputs[props.id] || []" :node-catalog="compatibleNodeTypes(props.data.canvasType)" :viewport-dismiss-version="viewportDismissVersion" :connection-invalid="Boolean(connectionSourceId && connectionSourceId !== props.id && !canConnectNodeTypes(nodes.find((node) => node.id === connectionSourceId)?.data.canvasType, props.data.canvasType))" @update-config="updateNodeConfig(props.id, $event)" @update-uploads="updateNodeUploads(props.id, $event)" @update-output="updateNodeOutput(props.id, $event)" @update-name="updateNodeName(props.id, $event)" @open-model-editor="openModelEditor(props.id)" @preview-image="openImagePreview" @add-next="addNode($event, props.id)" @run-canvas="runCanvas($event, 'node')" @run-downstream="runCanvas($event, 'downstream')" @stop-run="cancelRun" /></template>
           <template #edge-execution="props"><ExecutionEdge v-bind="props" /></template>
           <div v-if="frameDrawRect" class="forge3d-frame-draw-layer" :style="frameDrawLayerStyle"><div class="forge3d-frame-draw-rect" :style="frameDrawRectStyle"><span class="forge3d-frame-draw-size" :style="frameDrawLabelStyle">{{ frameDrawSize }}</span></div></div>
           <Background :gap="24" :size="1.2" :pattern-color="resolvedTheme === 'dark' ? '#252b2c' : '#cdd2cf'" />

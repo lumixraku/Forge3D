@@ -62,7 +62,7 @@ test('a copy carries the parameters but not what the node last produced', () => 
       ...node('concepts', 120, 80),
       type: 'generate-image',
       config: { amount: 4, prompt: 'shark' },
-      outputResult: { previews: ['/a.png', '/b.png'], selectedPreview: '/b.png' },
+      generatedAssets: { previews: ['/a.png', '/b.png'], selectedPreview: '/b.png' },
     }],
     edges: [],
   }
@@ -71,8 +71,33 @@ test('a copy carries the parameters but not what the node last produced', () => 
   const pasted = remapFragment(fragment, { offset: { x: 20, y: 20 }, suffix: 'copy' })
 
   assert.deepEqual(fragment.nodes[0].config, { amount: 4, prompt: 'shark' })
-  assert.equal(Object.hasOwn(fragment.nodes[0], 'outputResult'), false)
-  assert.deepEqual(toCanvasGraph({ ...canvas, nodes: pasted.nodes, edges: [] }).nodes[0].data.outputResult, {})
+  assert.equal(Object.hasOwn(fragment.nodes[0], 'generatedAssets'), false)
+  assert.deepEqual(toCanvasGraph({ ...canvas, nodes: pasted.nodes, edges: [] }).nodes[0].data.generatedAssets, {})
+})
+
+test('a copy keeps the asset the user uploaded', () => {
+  // uploadAssets is the user's own input rather than a result, so unlike
+  // generatedAssets it travels with the copy.
+  const canvas = {
+    id: 'canvas',
+    revision: 1,
+    name: 'Canvas',
+    nodes: [{
+      ...node('ref', 120, 80),
+      type: 'reference-image',
+      config: {},
+      uploadAssets: { reference: 'shark.png', assetType: 'image', assetUrl: '/api/assets/shark.png' },
+      generatedAssets: { preview: '/api/assets/shark.png' },
+    }],
+    edges: [],
+  }
+
+  const fragment = buildFragment(canvas, new Set(['ref']), 'Nodes')
+  const pasted = remapFragment(fragment, { offset: { x: 20, y: 20 }, suffix: 'copy' })
+  const copied = toCanvasGraph({ ...canvas, nodes: pasted.nodes, edges: [] }).nodes[0].data
+
+  assert.deepEqual(copied.uploadAssets, { reference: 'shark.png', assetType: 'image', assetUrl: '/api/assets/shark.png' })
+  assert.deepEqual(copied.generatedAssets, {})
 })
 
 test('clipboard fragments round-trip through the binary system clipboard format', () => {

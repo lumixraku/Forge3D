@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { nodeOutputPortValues, resolveInputSources, resolveNodeInputs } from './canvas-nodes.js'
 
-const node = (id, type, config = {}, outputResult = {}) => ({ id, type, name: id, config, outputResult })
+const node = (id, type, config = {}, generatedAssets = {}, uploadAssets = {}) => ({ id, type, name: id, config, uploadAssets, generatedAssets })
 const edge = (source, sourcePort, target, targetPort) => ({
   id: `${source}-${target}-${targetPort}`,
   source: { nodeId: source, ...(sourcePort ? { port: sourcePort } : {}) },
@@ -76,7 +76,7 @@ test('an image and a mesh reaching one node land on their own ports', () => {
   // texture takes a mesh on `model` and a reference image on `image`; neither may
   // pick up the other.
   const reference = node('ref', 'reference-image', {}, { preview: '/ref.png' })
-  const model = node('model', 'generate-model', { modelUrl: '/mesh.glb' })
+  const model = node('model', 'generate-model', {}, {}, { modelUrl: '/mesh.glb' })
   const texture = node('tex', 'texture')
   const canvas = {
     nodes: [reference, model, texture],
@@ -87,7 +87,7 @@ test('an image and a mesh reaching one node land on their own ports', () => {
 })
 
 test('an uploaded model uses the asset upload output as a model input', () => {
-  const upload = node('upload', 'reference-image', { assetType: 'model', modelUrl: '/model.glb' })
+  const upload = node('upload', 'reference-image', {}, {}, { assetType: 'model', assetUrl: '/model.glb', modelUrl: '/model.glb' })
   const retopo = node('retopo', 'retopology')
   const canvas = { nodes: [upload, retopo], edges: [edge('upload', 'image', 'retopo', 'model')] }
 
@@ -96,7 +96,7 @@ test('an uploaded model uses the asset upload output as a model input', () => {
 })
 
 test('reports which upstream node and port feeds each input', () => {
-  const model = node('model', 'generate-model', { modelUrl: '/mesh.glb' })
+  const model = node('model', 'generate-model', {}, {}, { modelUrl: '/mesh.glb' })
   const retopo = node('retopo', 'retopology')
   const canvas = { nodes: [model, retopo], edges: [edge('model', 'model', 'retopo', 'model')] }
 

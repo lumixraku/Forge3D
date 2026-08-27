@@ -23,7 +23,7 @@ test('a node with nothing feeding it cannot run', () => {
 
 test('alternative inputs are satisfied by any one of them', () => {
   const model = node('model', 'generate-model')
-  const source = node('source', 'reference-image', { assetType: 'image', preview: '/shark.png' })
+  const source = node('source', 'reference-image')
   const views = node('views', 'generate-multiview-images', { prompt: 'a shark' })
   const satisfied = (nodes, edges) => assert.deepEqual(validateCanvasGraph(nodes, edges, { requireInputs: true }), [])
 

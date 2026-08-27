@@ -62,7 +62,7 @@ test('emits four named views from a multiview generation', async () => {
       type: 'generate-multiview-images',
       name: 'Generate Multi-view Images',
       config: {},
-      outputResult: { viewPreviews: { front: '/front.png', back: '/back.png', left: '/left.png', right: '/right.png' } },
+      generatedAssets: { viewPreviews: { front: '/front.png', back: '/back.png', left: '/left.png', right: '/right.png' } },
     }],
     edges: [],
   }
@@ -77,8 +77,8 @@ test('Gen HD Model automatically detects multiple upstream images', async () => 
   const multiviewCanvas = {
     ...canvas,
     nodes: [
-      { id: 'views', type: 'generate-multiview-images', name: 'Views', config: {}, outputResult: { viewPreviews: { front: '/front.png', back: '/back.png', left: '/left.png', right: '/right.png' } } },
-      { id: 'model', type: 'generate-model', name: 'Gen HD Model', config: {}, outputResult: { preview: '/model.png' } },
+      { id: 'views', type: 'generate-multiview-images', name: 'Views', config: {}, generatedAssets: { viewPreviews: { front: '/front.png', back: '/back.png', left: '/left.png', right: '/right.png' } } },
+      { id: 'model', type: 'generate-model', name: 'Gen HD Model', config: {}, generatedAssets: { preview: '/model.png' } },
     ],
     edges: [{ source: { nodeId: 'views' }, target: { nodeId: 'model' } }],
   }
@@ -93,8 +93,8 @@ test('flows the selected candidate image downstream to a review node', async () 
   const selectionCanvas = {
     ...canvas,
     nodes: [
-      { id: 'concepts', type: 'generate-image', name: 'Image to Image', config: {}, outputResult: { previews: ['/a.png', '/b.png', '/c.png', '/d.png'], selectedPreview: '/c.png' } },
-      { id: 'review', type: 'review', name: 'Human Review', config: {}, outputResult: { preview: '/fallback.png', approved: true } },
+      { id: 'concepts', type: 'generate-image', name: 'Image to Image', config: {}, generatedAssets: { previews: ['/a.png', '/b.png', '/c.png', '/d.png'], selectedPreview: '/c.png' } },
+      { id: 'review', type: 'review', name: 'Human Review', config: {}, generatedAssets: { preview: '/fallback.png', approved: true } },
     ],
     edges: [{ source: { nodeId: 'concepts', port: 'image' }, target: { nodeId: 'review', port: 'image' } }],
   }

@@ -42,28 +42,28 @@ export function nodeOutput(node, canvas) {
     return { message: `${node.name} ready`, image, preview: image }
   }
   // A previous run's images and its selection are results, so they read
-  // outputResult; `amount` and the rest are parameters and read config.
+  // generatedAssets; `amount` and the rest are parameters and read config.
   if (node.type === 'generate-image') {
-    const all = node.outputResult?.previews?.length ? node.outputResult.previews : demoConceptImages
+    const all = node.generatedAssets?.previews?.length ? node.generatedAssets.previews : demoConceptImages
     const count = Number(node.config?.amount) > 0 ? Number(node.config.amount) : all.length
     const previews = all.slice(0, count)
-    const selected = previews.includes(node.outputResult?.selectedPreview) ? node.outputResult.selectedPreview : previews[0] || null
+    const selected = previews.includes(node.generatedAssets?.selectedPreview) ? node.generatedAssets.selectedPreview : previews[0] || null
     return { message: 'Image candidates generated', previews, image: selected }
   }
   if (node.type === 'image-decomposition') {
-    const all = node.outputResult?.previews?.length ? node.outputResult.previews : demoConceptImages
+    const all = node.generatedAssets?.previews?.length ? node.generatedAssets.previews : demoConceptImages
     const previews = all.slice(0, Number(node.config?.amount) || 4)
     return { message: 'Image assets extracted', previews, image: previews[0] || null }
   }
   if (node.type === 'generate-multiview-images') {
-    const viewPreviews = Object.keys(node.outputResult?.viewPreviews || {}).length ? node.outputResult.viewPreviews : demoViewImages
+    const viewPreviews = Object.keys(node.generatedAssets?.viewPreviews || {}).length ? node.generatedAssets.viewPreviews : demoViewImages
     // The four views are this node's four output ports, so they double as the
     // port-keyed result downstream nodes resolve against.
     return { message: 'Front, back, left, and right views generated', viewPreviews, ports: { ...viewPreviews } }
   }
   if (node.type === 'review') {
     const image = resolveInputImage(node, canvas) || null
-    return { message: node.outputResult?.approved ? 'Image approved' : 'Awaiting image approval', image, preview: image }
+    return { message: node.generatedAssets?.approved ? 'Image approved' : 'Awaiting image approval', image, preview: image }
   }
   if (['generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'texture', 'rigging', 'segments', 'model-preview'].includes(node.type)) {
     if (node.type === 'generate-model') {
@@ -171,7 +171,7 @@ export async function executeNode(node, canvas, {
 
   // An unapproved check node is not a failure: it holds the sequence until the
   // user approves, so the caller stops without marking anything red.
-  const status = node.type === 'review' && !node.outputResult?.approved ? 'waiting_review' : 'succeeded'
+  const status = node.type === 'review' && !node.generatedAssets?.approved ? 'waiting_review' : 'succeeded'
 
   return {
     nodeId: node.id,

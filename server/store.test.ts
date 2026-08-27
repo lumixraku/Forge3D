@@ -113,6 +113,51 @@ test('migrates legacy model options and fills new defaults once', () => {
   assert.equal(migrateCanvas(migrated), migrated)
 })
 
+test('migrates uploads and results out of config into their own trees once', () => {
+  const canvas = {
+    revision: 1,
+    updatedAt: 'before',
+    nodes: [
+      { id: 'ref', type: 'reference-image', name: 'Ref', config: { reference: 'shark.png', assetType: 'image', assetUrl: '/api/assets/shark.png' } },
+      { id: 'concepts', type: 'generate-image', name: 'Concepts', config: { amount: 2, previews: ['/a.png', '/b.png'], selectedPreview: '/b.png' } },
+    ],
+    edges: [],
+  }
+
+  const migrated = migrateCanvas(canvas, () => 'after')
+
+  assert.deepEqual(migrated.nodes[0].config, {})
+  assert.deepEqual(migrated.nodes[0].uploadAssets, { reference: 'shark.png', assetType: 'image', assetUrl: '/api/assets/shark.png' })
+  assert.equal('generatedAssets' in migrated.nodes[0], false)
+  assert.equal(migrated.nodes[1].config.amount, 2)
+  assert.deepEqual(migrated.nodes[1].generatedAssets, { previews: ['/a.png', '/b.png'], selectedPreview: '/b.png' })
+  // An empty tree stores no field, so a migrated canvas is already settled and a
+  // second pass returns the very same object.
+  assert.equal('uploadAssets' in migrated.nodes[1], false)
+  assert.equal(migrateCanvas(migrated), migrated)
+})
+
+test('renames a stored outputResult tree to generatedAssets once', () => {
+  const canvas = {
+    revision: 1,
+    updatedAt: 'before',
+    nodes: [
+      { id: 'concepts', type: 'generate-image', name: 'Concepts', config: { amount: 2 }, outputResult: { previews: ['/a.png'], selectedPreview: '/a.png' } },
+      { id: 'ref', type: 'reference-image', name: 'Ref', config: {}, outputResult: {} },
+    ],
+    edges: [],
+  }
+
+  const migrated = migrateCanvas(canvas, () => 'after')
+
+  assert.deepEqual(migrated.nodes[0].generatedAssets, { previews: ['/a.png'], selectedPreview: '/a.png' })
+  assert.equal('outputResult' in migrated.nodes[0], false)
+  // An empty one leaves no field behind at all, not even the new name.
+  assert.equal('outputResult' in migrated.nodes[1], false)
+  assert.equal('generatedAssets' in migrated.nodes[1], false)
+  assert.equal(migrateCanvas(migrated), migrated)
+})
+
 test('migrates legacy workflowId references to canvasId once', () => {
   const session = { id: 'session-1', workflowId: 'wf-1', messages: [] }
   const [migrated] = migrateCanvasRefs([session])

@@ -52,7 +52,7 @@ function canvasOf(nodes, edges) {
 }
 
 // An uploaded asset is input the user gave, so its URL is a config field.
-const REFERENCE = { id: 'ref', type: 'reference-image', name: 'Ref', config: { assetType: 'image', assetUrl: '/shark-reference.png' } }
+const REFERENCE = { id: 'ref', type: 'reference-image', name: 'Ref', config: {}, uploadAssets: { assetType: 'image', assetUrl: '/shark-reference.png' } }
 const MODEL = { id: 'model', type: 'generate-model', name: 'Model', config: { modelVersion: 'v3.0-20250812', faceCount: 10000 } }
 const RETOPO = { id: 'retopo', type: 'retopology', name: 'Retopo', config: { smartPoly: true, faceLimit: 8000, topology: 'quad' } }
 const TEXTURE = { id: 'tex', type: 'texture', name: 'Texture', config: { inputMode: 'imageGenerate', textureQuality: 'standard' } }
@@ -79,7 +79,7 @@ test('generate-model uploads the reference image and reconstructs from it', asyn
 })
 
 test('generate-model with labeled views reconstructs via multiview-to-model', async () => {
-  const views = { id: 'views', type: 'generate-multiview-images', name: 'Views', config: {}, outputResult: { viewPreviews: { front: 'https://cdn/front.png', back: 'https://cdn/back.png', left: 'https://cdn/left.png', right: 'https://cdn/right.png' } } }
+  const views = { id: 'views', type: 'generate-multiview-images', name: 'Views', config: {}, generatedAssets: { viewPreviews: { front: 'https://cdn/front.png', back: 'https://cdn/back.png', left: 'https://cdn/left.png', right: 'https://cdn/right.png' } } }
   const model = { id: 'model', type: 'generate-model', name: 'Model', config: { modelVersion: 'v3.0-20250812' } }
   const canvas = {
     id: 'canvas-1',

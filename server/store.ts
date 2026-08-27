@@ -1,7 +1,7 @@
 import { access, mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { normalizeNodeConfig, normalizeNodeOutput, splitNodeOutput } from '../src/canvas-schema.js'
+import { normalizeNodeConfig, normalizeGeneratedAssets, splitNodeTrees } from '../src/canvas-schema.js'
 import { migrateCanvasRefs, migrateTurns } from './migrations.js'
 
 // Re-exported so the store stays the single entry point for migrations even
@@ -24,22 +24,30 @@ export function migrateCanvas(canvas, now = () => new Date().toISOString()) {
 
   migrated.nodes = retainedNodes.map((node) => {
     if (node.type === 'frame') return node
-    // Parameters and results are two trees. A canvas stored before the split keeps
-    // its results inside config, so lift them out on the way through.
+    // Parameters, uploads and results are three sibling trees. A canvas stored
+    // before the split keeps the last two inside config, so lift them out on the
+    // way through.
     const type = node.type === 'split' ? 'segments' : node.type
-    const split = splitNodeOutput(node.config, node.outputResult)
+    const split = splitNodeTrees(node.config, node.uploadAssets, node.generatedAssets, node.outputResult)
     const config = normalizeNodeConfig(type, split.config)
-    const outputResult = normalizeNodeOutput(type, split.outputResult)
-    // A node with no results carries no field, matching what the canvas sends.
-    const results = Object.keys(outputResult).length ? { outputResult } : {}
+    const uploadAssets = split.uploadAssets
+    const generatedAssets = normalizeGeneratedAssets(type, split.generatedAssets)
+    // A node with an empty tree carries no field at all, matching what the canvas
+    // sends; storing `{}` would make every canvas differ from the client on open.
+    const trees = { ...(Object.keys(uploadAssets).length ? { uploadAssets } : {}), ...(Object.keys(generatedAssets).length ? { generatedAssets } : {}) }
     if (node.type === 'split') {
       changed = true
-      return { ...node, type: 'segments', name: node.name === 'Split' ? 'Segments' : node.name, config, ...results }
+      return { ...node, type: 'segments', name: node.name === 'Split' ? 'Segments' : node.name, config, ...trees }
     }
-    if (JSON.stringify(config) === JSON.stringify(node.config) && JSON.stringify(outputResult) === JSON.stringify(node.outputResult || {})) return node
+    // `outputResult` is the result tree's old name. A node still carrying it has to
+    // be rewritten even when the folded content matches, so the dead key goes.
+    if (!('outputResult' in node)
+      && JSON.stringify(config) === JSON.stringify(node.config)
+      && JSON.stringify(uploadAssets) === JSON.stringify(node.uploadAssets || {})
+      && JSON.stringify(generatedAssets) === JSON.stringify(node.generatedAssets || {})) return node
     changed = true
-    const { outputResult: stale, ...rest } = node
-    return { ...rest, config, ...results }
+    const { uploadAssets: staleUploads, generatedAssets: staleResults, outputResult: staleName, ...rest } = node
+    return { ...rest, config, ...trees }
   })
   const retainedEdges = migrated.edges.filter((edge) => retainedNodeIds.has(edge.source.nodeId) && retainedNodeIds.has(edge.target.nodeId))
   if (retainedEdges.length !== migrated.edges.length) changed = true
