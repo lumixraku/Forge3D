@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { bizClass } from '../class-prefix'
 import { computed } from 'vue'
 
 const props = defineProps<{ executions: any[]; loading: boolean; activeExecution?: any; activeExecutions?: Record<string, any> }>()

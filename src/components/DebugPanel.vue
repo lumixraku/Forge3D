@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { bizClass } from '../class-prefix'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { RunProvider } from '../composables/useDebugSettings'
 
 const props = defineProps<{
@@ -10,6 +10,10 @@ const props = defineProps<{
   tripoAvailable: boolean
   tripoNodeTypes: string[]
   error: string
+  // A getter rather than the document itself: serializing the canvas on every
+  // node edit to fill a prop nobody reads until the button is pressed would be
+  // wasted work.
+  readCanvasJson: () => string | null
 }>()
 const emit = defineEmits<{ 'update:open': [boolean]; 'set-provider': [RunProvider | null] }>()
 
@@ -115,6 +119,27 @@ function onBallClick() {
   if (dragging.value) return
   emit('update:open', !props.open)
 }
+
+const copyState = ref<'idle' | 'copied' | 'failed'>('idle')
+// Reopening the panel should not show the outcome of a copy from a canvas that
+// may no longer be the open one.
+watch(() => props.open, () => { copyState.value = 'idle' })
+
+// Plain text, not the binary fragment format the canvas copy uses: this is for
+// reading and pasting elsewhere, so it has to arrive as JSON.
+async function copyCanvasJson() {
+  const json = props.readCanvasJson()
+  if (!json) {
+    copyState.value = 'failed'
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(json)
+    copyState.value = 'copied'
+  } catch {
+    copyState.value = 'failed'
+  }
+}
 </script>
 
 <template>
@@ -174,6 +199,18 @@ function onBallClick() {
           Backed by Tripo: {{ props.tripoNodeTypes.join(', ') }}. Other node types stay simulated.
         </p>
         <p v-if="props.error" class="forge:mb-0 forge:mt-[7px] forge:text-[10px] forge:leading-[1.45] forge:text-status-failed">{{ props.error }}</p>
+      </section>
+
+      <section class="forge:border-t forge:border-line-subtle forge:p-3 forge:[&_h3]:mb-2 forge:[&_h3]:mt-0 forge:[&_h3]:font-mono forge:[&_h3]:text-[9px] forge:[&_h3]:font-semibold forge:[&_h3]:uppercase forge:[&_h3]:tracking-[.07em] forge:[&_h3]:text-text-muted">
+        <h3>Canvas</h3>
+        <button
+          class="forge:flex forge:w-full forge:flex-col forge:gap-px forge:rounded-md forge:border forge:border-line forge:bg-bg-input forge:px-[9px] forge:py-[7px] forge:text-left forge:hover:bg-bg-input-hover forge:[&_strong]:text-xs forge:[&_strong]:font-medium forge:[&_strong]:text-text-primary forge:[&_small]:text-[10px] forge:[&_small]:text-text-muted"
+          type="button"
+          @click="copyCanvasJson"
+        >
+          <strong>Copy canvas JSON</strong>
+          <small>{{ copyState === 'copied' ? 'Copied to clipboard' : copyState === 'failed' ? 'Could not copy this canvas' : 'The open canvas document as text' }}</small>
+        </button>
       </section>
     </aside>
 

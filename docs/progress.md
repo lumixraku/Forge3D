@@ -1549,3 +1549,106 @@ five nodes green, 80 credits.
   lost — they are not persisted per-event, so REST cannot rebuild them. A turn that
   was mid-stream shows its restored state rather than the missed deltas. The card,
   the node state and the canvas document all recover.
+
+## 2026-08-27 - main
+
+- Restructured a node's stored shape into three sibling trees, none nested in
+  another: `config` (parameters the user filled in), `uploadAssets` (what the user
+  uploaded to this node), `generatedAssets` (what the node produced by running).
+  This continues the 2026-08-26 split, which had only two trees and left uploads
+  behind in `config`. The two new keys exist for what a node *displays*; node-to-node
+  wiring is unchanged and still goes through the declared input/output ports
+  (`nodeOutputPortValues` / `resolveNodeInputs`).
+- Renamed the result tree `outputResult` -> `generatedAssets` throughout, with it
+  `NodeOutputResult` -> `NodeGeneratedAssets`, `splitNodeOutput` -> `splitNodeTrees`
+  and `normalizeNodeOutput` -> `normalizeGeneratedAssets`.
+- Upload fields moved as one package: `assetType`, `assetUrl`, `modelUrl`,
+  `reference` (the original file name) and `thumbnailUrl` (`UPLOAD_KEYS`,
+  `canvas-schema.ts:193`). They describe the uploaded thing as much as its URL does,
+  so splitting them across two trees would have been arbitrary. `reference-image`
+  consequently has no `defaults` left — an empty upload default would only migrate
+  straight back out of `config`.
+- Copy semantics: `buildFragment` drops `generatedAssets` only, so `uploadAssets`
+  rides along with a copied node. The upload is the user's own input, unlike a run's
+  output. `approved` / `selectedPreview` / `runBatch` stay in `generatedAssets` —
+  each is a judgement about a result, meaningless without the result it refers to.
+- One migration site, as before: `splitNodeTrees` in `toCanvasGraph`
+  (`canvas-graph.ts:33`) lifts both trees out of an older `config`, and
+  `migrateCanvas` does the same server-side. An already-separated copy wins over a
+  same-named leftover in the old `config`.
+- The empty-tree rule from the previous entry now covers both trees: an empty tree
+  stores no field at all (`nonEmptyTree`, `canvas-graph.ts:119`, and the same in
+  `store.ts`). Storing `{}` would make every canvas differ from the server on open
+  and fire a pointless save.
+- Changes: `canvas-schema` (three-tree `splitNodeTrees`, `UPLOAD_KEYS`, emptied
+  `reference-image` defaults); `canvas-graph` (three trees in and out);
+  `canvas-nodes` (`CanvasGraphNode.uploadAssets`, `nodeOutputPortValues` reads
+  uploads from it); `canvas-fragment` (comment only — the filter was already right);
+  `App.vue` (`updateNodeUploads`, `@update-uploads`, `buildCanvasNode`,
+  `openModelEditor`); `CanvasNode.vue` (`update-uploads` emit, `uploadAssets`
+  computed, upload writes the new tree, `reference` shown from it);
+  `ModelEditor.vue`; `store.ts`; `tripo-provider.ts` (`nodeImage`).
+- Verification: `npm run typecheck` clean, `npm test` 297/297 pass (3 new: a copy
+  keeps the uploaded asset, `config` -> `uploadAssets` migration in and out,
+  server-side migration settling in one pass; `splitNodeTrees` precedence extended
+  to cover the upload tree), `npm run build` succeeds. Not verified in the browser
+  this session — the upload round-trip and the model editor path were not clicked
+  through.
+- Remaining issues: None.
+
+## 2026-08-27 - main (2)
+
+- Added a "Copy canvas JSON" action to the debug panel, in a new `Canvas` section
+  below `Active`. It puts the open canvas document on the clipboard as plain text
+  (`navigator.clipboard.writeText`), not as the binary msgpack fragment that the
+  canvas's own copy/paste uses (`CLIPBOARD_MIME`, `canvas-fragment.ts`) — this one
+  is for reading and pasting elsewhere, so it has to arrive as JSON.
+- Source is `fromCanvas()` (`toDomainCanvas`), the same document a save would send,
+  rather than a refetch of `GET /api/canvases/:id`. That way unsaved edits are
+  included, which is the point of a debug copy. `Export JSON` in the canvas menu
+  keeps refetching, since a downloaded file should match what the server holds.
+- Passed as a `readCanvasJson` getter prop rather than the serialized string:
+  stringifying the whole canvas on every node edit to fill a prop nobody reads
+  until the button is pressed would be wasted work.
+- The button reports its own outcome in place (`Copied to clipboard` /
+  `Could not copy this canvas`) instead of going through the shared error banner,
+  and resets when the panel opens or closes so a stale result is not shown against
+  a canvas that may since have changed.
+- Changes: `DebugPanel.vue` (new section, `copyCanvasJson`, `copyState`,
+  `readCanvasJson` prop); `App.vue` (`canvasJson()` and the new prop binding).
+- Verification: `npm run typecheck` clean, `npm test` 297/297 pass, `npm run build`
+  succeeds. No tests added — the logic is a clipboard call in a component, and the
+  suite runs under `node --test` with no DOM. Not verified in the browser: no dev
+  server was running this session, so the clipboard write itself is untested.
+- Remaining issues: `navigator.clipboard.writeText` needs a secure context, so the
+  button will report failure over plain HTTP on a non-localhost host.
+
+## 2026-08-27 - main (3)
+
+- The debug ball did nothing when clicked. Not CSS layering and not event
+  delegation: `elementFromPoint` at the ball's centre already returned the ball, and
+  the click handler did fire. The panel failed to render because a sibling component
+  threw during the same update — `ExecutionOutputPanel.vue` calls `bizClass` in
+  `statusClass` but never imported it, so `ReferenceError: bizClass is not defined`
+  aborted the render pass and Vue then died on a null instance
+  (`Cannot read properties of null (reading 'emitsOptions')`). Added the import.
+- Pre-existing bug from `3081034` ("prefix all class names"), not from this
+  session's changes. It also explains the task queue stuck on `Loading outputs...`
+  and the `Cannot read properties of null` banner in the chat panel. `vue-tsc` does
+  not catch it: an undefined identifier in a template expression is not a type
+  error. Checked the other components that use `bizClass` — all import it.
+- Second defect, found by actually reading the copied JSON: the
+  `outputResult` -> `generatedAssets` rename orphaned stored data. That name shipped
+  in `edddde4`, so saved canvases carry `outputResult`, and after the rename nothing
+  read it and nothing removed it — a canvas with real results would have lost its
+  previews on open. `splitNodeTrees` now takes it as a fourth source and folds it
+  into `generatedAssets` (current name wins on a key collision); `toDomainCanvas`
+  and `migrateCanvas` drop the dead key, with `migrateCanvas` treating its mere
+  presence as a reason to rewrite the node.
+- Verification: `npm run typecheck` clean, `npm test` 300/300 pass (3 new: reading
+  the old tree name, the server-side rename settling in one pass, the round trip
+  dropping the old key), `npm run build` succeeds. Verified in the browser this
+  time: the panel opens, the new `Canvas` section renders, and `Copy canvas JSON`
+  reports `Copied to clipboard` with valid parsed JSON on the clipboard — reading it
+  back was what exposed the orphaned `outputResult`.
+- Remaining issues: None.

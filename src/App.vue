@@ -366,6 +366,13 @@ const missingInputs = computed(() => {
   return canvas ? missingInputsByNode(canvas) : {}
 })
 
+// The canvas as it would be saved, for the debug panel to put on the clipboard.
+// Read from the canvas rather than refetched, so it shows unsaved edits too.
+function canvasJson() {
+  const canvas = fromCanvas()
+  return canvas ? JSON.stringify(canvas, null, 2) : null
+}
+
 function onConnect(connection) {
   addConnection(connection)
   pendingConnection = null
@@ -1004,6 +1011,7 @@ onUnmounted(() => {
       :tripo-available="tripoAvailable"
       :tripo-node-types="tripoNodeTypes"
       :error="capabilitiesError"
+      :read-canvas-json="canvasJson"
       @set-provider="setProvider"
     />
   </main>
