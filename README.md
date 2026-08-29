@@ -136,6 +136,8 @@ Node asset path.
 
 - [Project reference](docs/project-reference.md): complete product and
   architecture reference, data model, execution, persistence, and deployment.
+- [Execution engine](docs/execution-engine.md): how a run becomes a task list,
+  the scheduler loop, node-to-node handoff, failure, and review gates.
 - [Canvas Agent tool calls](docs/canvas-tool-calls.md): schemas, validation rules,
   and examples for both Agent runtimes.
 - [Agent SSE data design](docs/agent-sse-data-design.md): event lifecycle,
