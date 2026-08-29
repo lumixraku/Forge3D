@@ -1652,3 +1652,55 @@ five nodes green, 80 credits.
   reports `Copied to clipboard` with valid parsed JSON on the clipboard — reading it
   back was what exposed the orphaned `outputResult`.
 - Remaining issues: None.
+
+## 2026-08-29 - main (4)
+
+- Added `docs/execution-engine.md`: a dedicated mechanism-level document for the
+  node-run scheduler — plan computation (frontend `planNodes` / server
+  `executionNodes` + `downstreamCanvas`, `409` on mismatch), the per-run data
+  structures (`dependencies` Map, `completed` Set, `context` Map, `run.nodeRuns`),
+  the wave-based `Promise.all` loop in `executeExecution`, node-to-node result
+  handoff (mock reads saved canvas, Tripo uses the `context` map seeded by
+  `latestNodeRuns`), two-layer empty-input validation, the `waiting_review` soft
+  gate and its re-run-on-approval flow, failure short-circuit / `skipped`,
+  cancellation, client polling, and a worked walkthrough. Documents the nuance
+  that the server loop only hard-breaks on `failed`, so a `waiting_review` node
+  does not itself gate downstream within one server pass.
+- Linked it from the README `Documentation` index (README stays an index; the new
+  doc lives under `docs/` like the others).
+- Verification: docs-only change — no code, no tests to run. Reviewed the
+  referenced line numbers against the current source before writing.
+- Remaining issues: none.
+
+## 2026-08-29 - main (5)
+
+- Stopped the Asset Upload node from changing height when an asset lands. The
+  node rendered the drop zone unconditionally and *added* a preview card above it
+  once `uploadAssets` filled in, so uploading grew the node by a whole card. The
+  node now has one asset slot with two states: the drop zone renders only while
+  `hasReferenceAssetPreview` is false, the preview only while it is true.
+- Merged the separate image-preview and model-preview branches for
+  `reference-image` into that one slot, so both asset kinds share the same frame
+  and the same controls. Inside, `referenceAssetType` picks the cover image or the
+  model thumbnail plus file name.
+- Added a × in the slot's top-right corner (`clearAsset`) that returns the node to
+  its empty state: it drops `assetType`/`assetUrl`/`modelUrl`/`reference`/
+  `thumbnailUrl` from the upload tree, and also clears `generatedAssets.preview`,
+  because canvases saved before the tree split still carry the uploaded URL there
+  and the slot would otherwise keep showing the removed asset.
+- Switched every preview and run-state card in the node from a fixed `h-[146px]`
+  (~1.59:1 at the 232px content width) to `aspect-[4/3]`, the drop zone included.
+  The run-state placeholder had to move too: leaving it at 146px would resize the
+  node the moment a run finished, which is the same class of bug as the upload
+  growth above.
+- Verification: `npm run typecheck` clean, `npm test` 300/300 pass, `npm run build`
+  succeeds with `aspect-ratio:4/3` present in the emitted CSS. NOT verified in a
+  browser: the dev servers on :5175/:5176 both run out of
+  `/Users/nan/repos/tripo-forge3d-demo`, a second clone of this repo, so a reload
+  there serves that working tree, not this one. Measuring the live DOM through it
+  reported the pre-change `h-[146px]`/`min-h-16` classes and is not evidence about
+  this change either way.
+- Remaining issues: the two clones have diverged — this one is at `02bdbc6`, the
+  other at `c2785d3` (three commits ahead, including a class-prefix migration from
+  `forge:` to `forge-`). This change will need porting there, and the prefix
+  difference means it is not a clean cherry-pick. Visual confirmation still owed.
