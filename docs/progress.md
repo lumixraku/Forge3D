@@ -1,5 +1,18 @@
 # Progress
 
+## 2026-08-30 - main
+
+- Turned the canvas save queue from a 700ms debounce into a 2000ms throttle. `queueSave` now returns early when a timer is already pending instead of resetting it, so a burst of edits sends at most one request per interval and the first edit of a burst lands one interval later rather than waiting for the user to stop. The debounce meant a long drag saved nothing until it ended, so a crash or a closed tab mid-drag lost the whole gesture; the page-blur/hide immediate save covered the ordinary close but not that. `SAVE_DELAY_MS` is now `SAVE_INTERVAL_MS`.
+- Promoted three edits from the throttle to immediate saves, joining the existing set (Agent turns, run creation, canvas switch/delete, page blur/hide, idle lease release):
+  - Adding or removing a node, via the synchronous `nodes.length` watcher that already covers every insertion and removal path including Vue Flow's native delete. Structural rather than a tweak. A save mid-removal is still correct: an edge whose node is gone has no resolvable ports, so `toDomainCanvas` drops it.
+  - An asset upload completing (`updateNodeUploads`). The bytes are already on the server and a canvas that loses the URL pointing at them cannot get it back.
+  - Focus entering the Agent panel, a new `engaged` emit on `ChatPanel` bound to `focusin` (not `focus` — the composer and buttons are descendants and focus does not bubble). The Agent reads the saved document, so the canvas lands on the way in rather than at send time.
+- Everything else still goes through the throttle: dragging nodes, editing parameters, connecting edges, resizing sections, undo/redo, auto layout.
+- Rewrote the two `canvas-document.test.js` tests that pinned the debounce. The burst test now asserts the throttle/debounce distinction directly — 2.4s of continuous editing produces one save *during* the burst carrying the 10th edit, then a second afterwards carrying the 12th — and a separate test keeps the coalescing guarantee for a burst shorter than one interval. Updated the timing in the two tests that waited out the old 700ms.
+- Updated the Autosave section of `docs/project-reference.md`, which documented the 700ms debounce, and listed which edits bypass the interval.
+- Verification: `pnpm test` passed 301 tests, `pnpm typecheck`, `pnpm build`, and `git diff --check` passed. The build retains the existing large-chunk warning. Browser-verified all four behaviours against the dev server on `localhost:5176` in the existing Chrome session, instrumenting `fetch` to time `PUT /api/canvases/:id`: a 4.85s continuous parameter burst sent PUTs at +2.03s and +4.05s mid-burst while the header still read `Unsaved changes` (a debounce would have sent nothing until it ended); focusing the composer 100ms after an edit sent a PUT at +110ms; adding a Text Prompt node sent one at +7ms and deleting it at +6ms; a 1x1 PNG upload sent one 24ms after the asset POST returned. The probe node and asset were cleared afterwards and the canvas left at 4 nodes and `Saved`; no console errors.
+- Remaining issues: None.
+
 ## 2026-08-24 - main
 
 - Stopped a node run from resizing and saving the section that contains it. `onElementsChange` refitted frames on any node's measured `dimensions` change and persisted the result, so pressing Generate resized the frame and turned the concurrent no-op `saveCanvas()` into a real `PUT`, bumping the revision and broadcasting layout-only noise to collaborators. Frame sizing now follows only the three actions that own it: resizing by hand, nodes entering or leaving, and auto layout. Position changes still refit, visually only.

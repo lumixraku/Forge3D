@@ -85,7 +85,7 @@ function reset() {
 
 const tick = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-test('saveCanvas queues by default: no request until the debounce elapses', async () => {
+test('saveCanvas queues by default: no request until the interval elapses', async () => {
   reset()
   const { document, editNode } = harness()
 
@@ -93,13 +93,38 @@ test('saveCanvas queues by default: no request until the debounce elapses', asyn
   document.saveCanvas()
   assert.equal(saveCalls.length, 0)
 
-  await tick(400)
+  await tick(1500)
   assert.equal(saveCalls.length, 0)
-  await tick(500)
+  await tick(800)
   assert.equal(saveCalls.length, 1)
 })
 
-test('saveCanvas debounces rather than throttles: a burst of edits sends one request', async () => {
+// The throttle/debounce distinction, and the reason for it: a long drag has to be
+// landing on the server while it is still going, or closing the tab mid-drag loses
+// it. Debouncing would leave saveCalls empty until the burst ended.
+test('saveCanvas throttles rather than debounces: a sustained burst saves during it', async () => {
+  reset()
+  const { document, editNode } = harness()
+
+  for (let index = 0; index < 12; index++) {
+    editNode(index + 1)
+    document.saveCanvas()
+    await tick(200)
+  }
+
+  // 2.4s of continuous editing: one save went out at the 2s boundary, mid-burst.
+  assert.equal(saveCalls.length, 1)
+  assert.equal(saveCalls[0].canvas.nodes[0].ui.position.x, 10)
+
+  // The edits made after that save are still pending, and land one interval later.
+  await tick(2200)
+  assert.equal(saveCalls.length, 2)
+  assert.equal(saveCalls[1].canvas.nodes[0].ui.position.x, 12)
+})
+
+// A burst shorter than the interval is one request, same as before: the throttle
+// coalesces, it does not save per edit.
+test('a burst shorter than the interval still sends one request', async () => {
   reset()
   const { document, editNode } = harness()
 
@@ -110,8 +135,9 @@ test('saveCanvas debounces rather than throttles: a burst of edits sends one req
   }
   assert.equal(saveCalls.length, 0)
 
-  await tick(800)
+  await tick(1800)
   assert.equal(saveCalls.length, 1)
+  assert.equal(saveCalls[0].canvas.nodes[0].ui.position.x, 5)
 })
 
 test('no graph difference means no request: DOM re-measurement must not save', async () => {
@@ -120,7 +146,7 @@ test('no graph difference means no request: DOM re-measurement must not save', a
 
   document.saveCanvas()
 
-  await tick(900)
+  await tick(2200)
   assert.equal(saveCalls.length, 0)
   assert.equal(savedState.value, '')
 })
@@ -146,7 +172,7 @@ test('immediate cancels the queued timer instead of sending twice', async () => 
   await document.saveCanvas({ immediate: true })
   assert.equal(saveCalls.length, 1)
 
-  await tick(900)
+  await tick(2200)
   assert.equal(saveCalls.length, 1)
 })
 

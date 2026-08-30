@@ -21,6 +21,7 @@ const emit = defineEmits<{
   'toggle-option': [payload: { message: any; optionId: string }]
   'continue-turn': [message: any]
   retry: [message: any]
+  engaged: []
 }>()
 const fileInput = ref<HTMLInputElement | null>(null)
 const messageList = ref<HTMLElement | null>(null)
@@ -58,7 +59,11 @@ function userContent(message) {
 </script>
 
 <template>
-  <section class="forge:grid forge:min-h-0 forge:min-w-0 forge:grid-cols-[minmax(0,1fr)] forge:grid-rows-[62px_minmax(0,1fr)_auto_auto] forge:overflow-hidden forge:border-r forge:border-line forge:bg-bg-panel forge:transition-colors forge:duration-200">
+  <!-- Focus reaching the panel means the user is about to hand the canvas to the
+  Agent, which reads the saved document, so the canvas is landed on the way in
+  rather than at send time. focusin, not focus: the composer and the buttons are
+  descendants and focus does not bubble. -->
+  <section class="forge:grid forge:min-h-0 forge:min-w-0 forge:grid-cols-[minmax(0,1fr)] forge:grid-rows-[62px_minmax(0,1fr)_auto_auto] forge:overflow-hidden forge:border-r forge:border-line forge:bg-bg-panel forge:transition-colors forge:duration-200" @focusin="emit('engaged')">
     <header class="forge:flex forge:items-center forge:justify-between forge:border-b forge:border-line forge:px-[17px]"><div><span class="forge:font-mono forge:text-[9px] forge:font-medium forge:tracking-[.12em] forge:text-text-muted">CANVAS COPILOT</span><b class="forge:mt-1 forge:block forge:text-[11px]">DeepSeek tool-calling agent</b></div><i class="forge:size-[7px] forge:rounded-full forge:bg-acid forge:shadow-[0_0_9px_color-mix(in_srgb,var(--acid)_60%,transparent)]" /></header>
     <div ref="messageList" class="forge:min-w-0 forge:overflow-y-auto forge:px-[17px] forge:pb-7 forge:pt-[22px]">
       <article v-for="message in messages" :key="message.id" class="forge:mb-6 forge:min-w-0 forge:[&>span]:mb-[7px] forge:[&>span]:block forge:[&>span]:font-mono forge:[&>span]:text-[8px] forge:[&>span]:font-semibold forge:[&>span]:tracking-[.12em] forge:[&>span]:text-text-muted forge:[&.forge3d-assistant>span]:text-acid forge:[&.forge3d-pending_p]:text-text-muted forge:[&.forge3d-user]:ml-auto forge:[&.forge3d-user]:w-[min(100%,360px)] forge:[&.forge3d-user]:rounded-[14px_14px_3px_14px] forge:[&.forge3d-user]:border forge:[&.forge3d-user]:border-line-strong forge:[&.forge3d-user]:bg-bg-input forge:[&.forge3d-user]:p-[13px] forge:[&.forge3d-user]:shadow-sm forge:[&.forge3d-user>span]:mb-[9px] forge:[&.forge3d-user>span]:text-right forge:[&.forge3d-user>span]:text-acid forge:[&.forge3d-user_p]:text-text-primary" :class="[bizClass(message.role), { 'forge3d-pending': message.pending }]">

@@ -259,9 +259,12 @@ watch([() => run.value?.id, () => run.value?.status], ([runId]) => {
 watch(() => activeCanvas.value?.id, (canvasId) => { loadExecutions(canvasId) }, { immediate: true })
 
 // Cover every insertion and removal path, including Vue Flow's native delete
-// event, while the document's debounced scheduler coalesces rapid changes.
+// event. Adding or removing a node is structural rather than a tweak, so it does
+// not wait out the throttle interval; the callers that also touch edges queue a
+// follow-up save for those. A save mid-removal is still correct: an edge whose
+// node is gone has no resolvable ports, so the domain conversion drops it.
 watch(() => nodes.value.length, () => {
-  saveCanvas()
+  saveCanvas({ immediate: true })
 }, { flush: 'sync' })
 
 // A section runs from its first executable child that nothing inside the section
@@ -438,12 +441,14 @@ function updateNodeConfig(id, config) {
 }
 
 // Edits the upload tree, the one alongside config. A copied node keeps it: the
-// asset is input the user gave.
+// asset is input the user gave. An uploaded asset is the one edit the throttle
+// interval must not hold: the bytes are already on the server, and a canvas that
+// loses the URL pointing at them cannot get it back.
 function updateNodeUploads(id, uploadAssets) {
   const node = nodes.value.find((candidate) => candidate.id === id)
   if (!node) return
   node.data = { ...node.data, uploadAssets }
-  saveCanvas()
+  saveCanvas({ immediate: true })
 }
 
 // Edits the result tree, the third sibling. Copying a node drops it.
@@ -936,6 +941,7 @@ onUnmounted(() => {
         :continuing-turn-id="continuingTurnId"
         :selected-options="selectedOptions"
         @send="sendMessage"
+        @engaged="saveCanvas({ immediate: true })"
         @attach-files="addComposerFiles"
         @toggle-option="toggleSelectedOption($event.message, $event.optionId)"
         @continue-turn="continueTurn"

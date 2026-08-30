@@ -4,7 +4,7 @@ import { reconcileCanvasGraph, toCanvasGraph, toDomainCanvas } from '../canvas-g
 import { importPlacementOffset, validateImportedCanvas } from '../canvas-fragment'
 import { deleteWorkflowDraft, readWorkflowDraft, writeWorkflowDraft } from '../workflow-draft'
 
-const SAVE_DELAY_MS = 700
+const SAVE_INTERVAL_MS = 2000
 
 // Owns the loaded canvas document: hydrating it onto the canvas, folding the
 // canvas back into it, the debounced save queue, and the canvas library CRUD.
@@ -173,20 +173,23 @@ export function useCanvasDocument({
   }
 
   // The queued path stands for "an edit just happened", so it always goes through
-  // markWorkflowDirty and records one undo step. Resetting the timer debounces
-  // rather than throttles: a burst of edits sends one request 700ms after the last
-  // one. Only save what actually differs from the document we loaded: applying a
+  // markWorkflowDirty and records one undo step. Leaving a running timer alone
+  // throttles rather than debounces: a burst of edits sends at most one request
+  // per SAVE_INTERVAL_MS, and the first edit of a burst lands one interval later
+  // instead of waiting for the user to stop. Debouncing would mean a long drag
+  // saves nothing until it ends, so a crash mid-drag loses the whole thing. Only
+  // save what actually differs from the document we loaded: applying a
   // collaborator's canvas re-measures the DOM and can queue a fit, and without
   // this check that fit would broadcast a canvas we only received, leaving the two
   // clients trading revisions forever.
   function queueSave() {
     if (!hasUnsavedCanvasChanges()) return
     if (!markWorkflowDirty()) return
-    clearTimeout(saveTimer)
+    if (saveTimer) return
     saveTimer = setTimeout(() => {
       saveTimer = null
       saveCanvas({ immediate: true })
-    }, SAVE_DELAY_MS)
+    }, SAVE_INTERVAL_MS)
   }
 
   function hasUnsavedCanvasChanges() {
@@ -199,9 +202,9 @@ export function useCanvasDocument({
 
   // The canvas has exactly one save gate: anyone may call it, throttling is its own
   // business. By default the edit joins the queue (see queueSave); `immediate` means
-  // "cannot wait out the debounce" — a run needs the server to read a saved canvas,
-  // and leaving the page has no 700ms to spare. Awaiting an immediate call means the
-  // canvas is on the server.
+  // "cannot wait out the throttle interval" — a run needs the server to read a saved
+  // canvas, and leaving the page has no 2s to spare. Awaiting an immediate call means
+  // the canvas is on the server.
   async function saveCanvas({ immediate = false, keepalive = false } = {}) {
     if (!immediate) return queueSave()
     // An immediate save is not a new edit, so an already-dirty canvas must not get

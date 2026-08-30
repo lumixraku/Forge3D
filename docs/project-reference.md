@@ -141,14 +141,21 @@ Duplication deep-copies nodes, edges, and viewport, resets the revision to 1, na
 
 ### Autosave
 
-Canvas edits are debounced for 700 ms. Saves are serialized:
+Canvas edits are throttled to at most one save every 2000 ms: the first edit of a
+burst is sent one interval later, and continuous editing keeps saving at that rate
+rather than waiting for the user to stop. Saves are serialized:
 
 1. The current domain snapshot is placed in a pending slot.
 2. Only one `PUT` request runs at a time.
 3. If edits occur during the request, the newest pending snapshot is saved afterward.
 4. Older network responses cannot overwrite newer local state.
 
-Pending saves are flushed before switching canvases, sending Agent messages, deleting the active canvas, or starting a run.
+Some edits do not wait out that interval and are saved immediately: adding or
+removing a node, an asset upload completing, focus entering the Agent panel,
+sending an Agent message, starting a run, switching or deleting a canvas, page
+blur/hide, and the idle release of the edit lease. Everything else — dragging
+nodes, editing parameters, connecting edges, resizing sections, undo/redo, auto
+layout — goes through the throttle.
 
 ## Node Catalog
 
