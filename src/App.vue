@@ -31,7 +31,7 @@ import { useCanvasRun } from './composables/useCanvasRun'
 import { useDebugSettings } from './composables/useDebugSettings'
 import { request } from './api'
 import { edgeDefaults, nodePresentation } from './canvas-graph'
-import { canConnectNodeTypes, compatibleNodeTypes, hasModelEditor, isExecutableNodeType, missingInputsByNode, nodeCatalog, nodeCategories, nodeDefaults, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
+import { canConnectNodeTypes, compatibleNodeTypes, hasModelEditor, isExecutableNodeType, missingParametersByNode, nodeCatalog, nodeCategories, nodeDefaults, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
 
 const ModelEditor = defineAsyncComponent(() => import('./components/ModelEditor.vue'))
 
@@ -357,16 +357,17 @@ function inboundImage(nodeId) {
   return null
 }
 
-// A node that still needs inbound content cannot run, so the canvas explains
+// A node missing a parameter it runs with cannot run, so the canvas explains
 // what is missing rather than letting the run reach the server and come back a
-// 400. Read from the domain canvas because the check follows named ports, while
-// the canvas keeps its connections on a single untyped handle — converted once
-// per canvas change for every node rather than once per node.
-const missingInputs = computed(() => {
+// 400. Read from the domain canvas because a parameter an input port carries is
+// satisfied by a connection, while the canvas keeps its connections on a single
+// untyped handle — converted once per canvas change for every node rather than
+// once per node.
+const missingParameters = computed(() => {
   void nodes.value
   void edges.value
   const canvas = fromCanvas()
-  return canvas ? missingInputsByNode(canvas) : {}
+  return canvas ? missingParametersByNode(canvas) : {}
 })
 
 // The canvas as it would be saved, for the debug panel to put on the clipboard.
@@ -560,31 +561,36 @@ function fitCanvasView() {
   fitView({ ...(selectedIds.length ? { nodes: selectedIds } : {}), padding: 0.18, duration: 400 })
 }
 
-function buildCanvasNode(type, { id, position, selected = false, config, uploadAssets, generatedAssets, parentNode } = {}) {
+function buildCanvasNode(type, { id, position, selected = false, config, uploadAssets, generatedAssets, parentNode, initialAsset } = {}) {
   const [kind, detail, tone] = nodePresentation[type]
+  const data = {
+    kind,
+    label: nodeCatalog.find((item) => item.type === type)?.label || type,
+    detail,
+    tone,
+    status: 'ready',
+    canvasType: type,
+    config: { ...nodeDefaults(type), ...config },
+    uploadAssets: { ...uploadAssets },
+    generatedAssets: { ...generatedAssets },
+    inputPorts: nodeInputPorts(type),
+    outputPorts: nodeOutputPorts(type),
+  }
+  // File objects are only a hand-off from the canvas drop to the mounted node.
+  // Keep the property out of enumerable snapshots so history/serialization can
+  // never retain a non-JSON upload trigger.
+  if (initialAsset) Object.defineProperty(data, 'initialAsset', { value: initialAsset, configurable: true })
   return {
     id: id || nextNodeId(type),
     type: 'canvas',
     position,
     parentNode,
     selected,
-    data: {
-      kind,
-      label: nodeCatalog.find((item) => item.type === type)?.label || type,
-      detail,
-      tone,
-      status: 'ready',
-      canvasType: type,
-      config: { ...nodeDefaults(type), ...config },
-      uploadAssets: { ...uploadAssets },
-      generatedAssets: { ...generatedAssets },
-      inputPorts: nodeInputPorts(type),
-      outputPorts: nodeOutputPorts(type),
-    },
+    data,
   }
 }
 
-function addNode(type, sourceId, position) {
+function addNode(type, sourceId, position, { initialAsset } = {}) {
   const presentation = nodePresentation[type]
   if (!presentation || !activeCanvas.value) return
   if (type === 'frame') {
@@ -607,7 +613,7 @@ function addNode(type, sourceId, position) {
     focusNode(frame.id)
     return
   }
-  const node = buildCanvasNode(type, { position: position || nodePosition(sourceId), selected: true })
+  const node = buildCanvasNode(type, { position: position || nodePosition(sourceId), selected: true, initialAsset })
   nodes.value = [...nodes.value.map((item) => ({ ...item, selected: false })), node]
   closeContextMenu()
   saveCanvas()
@@ -797,15 +803,29 @@ function startNodeDrag(event, type) {
   event.dataTransfer.effectAllowed = 'copy'
 }
 
+function isSupportedCanvasImage(file) {
+  return new Set(['image/jpeg', 'image/png', 'image/webp']).has(file.type)
+    || /\.(jpe?g|png|webp)$/i.test(file.name)
+}
+
 function onCanvasDragOver(event) {
-  if (event.dataTransfer.types.includes('application/x-canvas-node')) event.preventDefault()
+  if (event.dataTransfer.types.includes('application/x-canvas-node') || event.dataTransfer.types.includes('Files')) event.preventDefault()
 }
 
 function onCanvasDrop(event) {
   const type = event.dataTransfer.getData('application/x-canvas-node')
-  if (!type) return
+  const position = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
+  if (type) {
+    event.preventDefault()
+    addNode(type, null, position)
+    return
+  }
+  // Claim file drops even when the file is unsupported, so the browser never
+  // navigates away from the canvas to open it.
   event.preventDefault()
-  addNode(type, null, screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
+  const [file] = [...(event.dataTransfer.files || [])]
+  if (!file || !isSupportedCanvasImage(file)) return
+  addNode('reference-image', null, position, { initialAsset: file })
 }
 
 useKeyboardShortcuts({
@@ -991,7 +1011,7 @@ onUnmounted(() => {
         />
         <VueFlow v-show="canvasView === 'canvas'" v-model:nodes="nodes" :edges="executionEdges" @update:edges="edges = $event" :class="['forge3d-flow-canvas forge:bg-bg-primary forge:touch-none forge:transition-colors forge:duration-200', `forge3d-canvas-mode-${canvasMode}`]" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="canvasMode === 'select' ? true : null" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @viewport-change-start="dismissCanvasPopups" :nodes-draggable="canvasInteractive" :elements-selectable="canvasInteractive" @pointerdown.capture="onCanvasPointerDown($event); onFrameDrawPointerDown($event)" @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
           <template #node-frame="props"><FrameNode v-bind="props" :zoom="viewport.zoom" :running="sectionIsRunning(props.id)" @update-name="updateNodeName(props.id, $event)" @resize-end="onFrameResizeEnd" @run="runSection(props.id)" @stop-run="cancelRun" /></template>
-          <template #node-canvas="props"><CanvasNode v-bind="props" :node-run="nodeRuns[props.id] || null" :run-id="run?.id || null" :run-entry-node-id="run?.entryNodeId || null" :run-mode="run?.mode || null" :run-status="run?.status || null" :inbound-type="inboundExportTarget(props.id)" :inbound-image="inboundImage(props.id)" :missing-inputs="missingInputs[props.id] || []" :node-catalog="compatibleNodeTypes(props.data.canvasType)" :viewport-dismiss-version="viewportDismissVersion" :connection-invalid="Boolean(connectionSourceId && connectionSourceId !== props.id && !canConnectNodeTypes(nodes.find((node) => node.id === connectionSourceId)?.data.canvasType, props.data.canvasType))" @update-config="updateNodeConfig(props.id, $event)" @update-uploads="updateNodeUploads(props.id, $event)" @update-output="updateNodeOutput(props.id, $event)" @update-name="updateNodeName(props.id, $event)" @open-model-editor="openModelEditor(props.id)" @preview-image="openImagePreview" @add-next="addNode($event, props.id)" @run-canvas="runCanvas($event, 'node')" @run-downstream="runCanvas($event, 'downstream')" @stop-run="cancelRun" /></template>
+          <template #node-canvas="props"><CanvasNode v-bind="props" :node-run="nodeRuns[props.id] || null" :run-id="run?.id || null" :run-entry-node-id="run?.entryNodeId || null" :run-mode="run?.mode || null" :run-status="run?.status || null" :inbound-type="inboundExportTarget(props.id)" :inbound-image="inboundImage(props.id)" :missing-parameters="missingParameters[props.id] || []" :node-catalog="compatibleNodeTypes(props.data.canvasType)" :viewport-dismiss-version="viewportDismissVersion" :connection-invalid="Boolean(connectionSourceId && connectionSourceId !== props.id && !canConnectNodeTypes(nodes.find((node) => node.id === connectionSourceId)?.data.canvasType, props.data.canvasType))" @update-config="updateNodeConfig(props.id, $event)" @update-uploads="updateNodeUploads(props.id, $event)" @update-output="updateNodeOutput(props.id, $event)" @update-name="updateNodeName(props.id, $event)" @open-model-editor="openModelEditor(props.id)" @preview-image="openImagePreview" @add-next="addNode($event, props.id)" @run-canvas="runCanvas($event, 'node')" @run-downstream="runCanvas($event, 'downstream')" @stop-run="cancelRun" /></template>
           <template #edge-execution="props"><ExecutionEdge v-bind="props" /></template>
           <div v-if="frameDrawRect" class="forge3d-frame-draw-layer" :style="frameDrawLayerStyle"><div class="forge3d-frame-draw-rect" :style="frameDrawRectStyle"><span class="forge3d-frame-draw-size" :style="frameDrawLabelStyle">{{ frameDrawSize }}</span></div></div>
           <Background :gap="24" :size="1.2" :pattern-color="resolvedTheme === 'dark' ? '#252b2c' : '#cdd2cf'" />

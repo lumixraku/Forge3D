@@ -15,10 +15,10 @@ import type { NodeDefinition, NodeParameter, NodePort } from '../canvas-nodes'
 type NodeConfig = Record<string, unknown> & { exportTargets?: string[]; modelFormat?: string }
 type NodeUploadAssets = Record<string, unknown> & { assetType?: string; assetUrl?: string; modelUrl?: string; reference?: string; thumbnailUrl?: string }
 type NodeGeneratedAssets = Record<string, unknown> & { approved?: boolean; preview?: string; previews?: string[]; selectedPreview?: string; viewPreviews?: Record<string, string> }
-interface CanvasNodeData { label: string; status?: string; canvasType: string; config: NodeConfig; uploadAssets?: NodeUploadAssets; generatedAssets?: NodeGeneratedAssets; inputPorts?: NodePort[]; outputPorts?: NodePort[] }
+interface CanvasNodeData { label: string; status?: string; canvasType: string; config: NodeConfig; uploadAssets?: NodeUploadAssets; generatedAssets?: NodeGeneratedAssets; initialAsset?: File; inputPorts?: NodePort[]; outputPorts?: NodePort[] }
 const EXECUTION_CREDIT_COST = 10
 
-const props = withDefaults(defineProps<{ id: string; data: CanvasNodeData; selected?: boolean; nodeRun?: NodeRun | null; runId?: string | null; runEntryNodeId?: string | null; runMode?: string | null; runStatus?: string | null; inboundType?: string | null; inboundImage?: string | null; missingInputs?: string[]; nodeCatalog?: NodeDefinition[]; viewportDismissVersion?: number; connectionInvalid?: boolean }>(), { selected: false, nodeRun: null, runId: null, runEntryNodeId: null, runMode: null, runStatus: null, inboundType: null, inboundImage: null, missingInputs: () => [], nodeCatalog: () => [], viewportDismissVersion: 0, connectionInvalid: false })
+const props = withDefaults(defineProps<{ id: string; data: CanvasNodeData; selected?: boolean; nodeRun?: NodeRun | null; runId?: string | null; runEntryNodeId?: string | null; runMode?: string | null; runStatus?: string | null; inboundType?: string | null; inboundImage?: string | null; missingParameters?: string[]; nodeCatalog?: NodeDefinition[]; viewportDismissVersion?: number; connectionInvalid?: boolean }>(), { selected: false, nodeRun: null, runId: null, runEntryNodeId: null, runMode: null, runStatus: null, inboundType: null, inboundImage: null, missingParameters: () => [], nodeCatalog: () => [], viewportDismissVersion: 0, connectionInvalid: false })
 const emit = defineEmits<{
   'update-config': [config: NodeConfig]
   'update-uploads': [uploadAssets: NodeUploadAssets]
@@ -43,6 +43,7 @@ const assetUploadError = ref('')
 const assetUploading = ref(false)
 const localAssetPreview = ref('')
 const failedImageSources = ref(new Set<string>())
+const consumedInitialAsset = ref<File | null>(null)
 watch(() => props.viewportDismissVersion, () => { nextMenuOpen.value = false })
 const runtimeStatus = computed(() => props.nodeRun?.status || props.data.status)
 const schema = computed(() => nodeSchema(props.data.canvasType))
@@ -80,10 +81,11 @@ const actionLabel = computed(() => {
   if (runtimeStatus.value === 'failed') return 'Try again'
   return runtimeStatus.value === 'succeeded' ? 'Regenerate' : 'Generate'
 })
-// This node has nothing to work on until something upstream feeds it, so it
-// cannot be run. The server refuses such a run too; this only says so first.
-const needsInput = computed(() => props.missingInputs.length > 0)
-const needsInputReason = computed(() => props.missingInputs.join(' '))
+// A parameter this node runs with has no value yet — nothing it was given and
+// nothing connected to fill it — so it cannot be run. The server refuses such a
+// run too; this only says so first.
+const needsInput = computed(() => props.missingParameters.length > 0)
+const needsInputReason = computed(() => props.missingParameters.join(' '))
 const runStateTitle = computed(() => {
   if (runtimeStatus.value === 'running') return 'Generating result'
   if (runtimeStatus.value === 'queued') return 'Waiting to run'
@@ -215,7 +217,7 @@ async function uploadAsset(file: File) {
   const allowedTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
   const modelExtensions = new Set(['glb', 'gltf', 'fbx', 'usdz', 'obj', 'stl', '3mf'])
   const extension = file.name.split('.').pop()?.toLowerCase() || ''
-  const isImage = allowedTypes.has(file.type)
+  const isImage = allowedTypes.has(file.type) || /\.(jpe?g|png|webp)$/i.test(extension)
   const isModel = modelExtensions.has(extension)
   assetUploadError.value = ''
   if (!isImage && !isModel) {
@@ -268,6 +270,15 @@ async function uploadAsset(file: File) {
     assetUploading.value = false
   }
 }
+
+// Asset Upload nodes created by dropping an image on the canvas carry the File
+// object ephemerally in their node data. Start the exact same upload flow used
+// by the node's drop zone as soon as Vue has mounted the new node.
+watch(() => props.data.initialAsset, (file) => {
+  if (!file || consumedInitialAsset.value === file) return
+  consumedInitialAsset.value = file
+  uploadAsset(file)
+}, { immediate: true })
 
 </script>
 

@@ -194,8 +194,12 @@ Hidden nodes remain valid definitions so older persisted canvases can still load
 ### Runtime Port Model
 
 A node declares its ports as two keyed maps, `inputs` and `outputs`, of port id to
-`{ type, label?, required?, multiple?, fallbackConfig? }`. The key *is* the port
+`{ type, label?, multiple?, fallbackConfig? }`. The key *is* the port
 id, so a declaration cannot drift from the ids stored edges reference.
+
+Ports describe data flow only. What a node cannot run without is a separate
+declaration, `requires`, listing parameter keys rather than ports — see
+`docs/execution-engine.md` §6.
 
 Data follows those declarations; the canvas deliberately does not render them:
 

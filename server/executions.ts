@@ -171,7 +171,7 @@ export function createExecution(runs, canvas, entryNode, mode = 'downstream', { 
     }
     node.config = { ...(node.config || {}), ...structuredClone(config) }
   }
-  // Every planned node needs the inbound content it runs on. Checked against the
+  // Every planned node needs the parameters it runs with. Checked against the
   // real canvas edges, because neither execution canvas keeps them all: a
   // single-node run carries none, and a downstream run drops the edges from
   // non-executable sources. Scoped to the planned nodes so a half-built node
@@ -181,7 +181,7 @@ export function createExecution(runs, canvas, entryNode, mode = 'downstream', { 
   refuse(validateCanvasGraph(
     canvas.nodes.map((node) => planned.get(node.id) || node),
     canvas.edges || [],
-    { requireInputs: planned.keys() },
+    { requireParameters: planned.keys() },
   ))
   const executionEntryNode = nodes.find((node) => node.id === entryNode.id) || entryNode
   const timestamp = new Date().toISOString()

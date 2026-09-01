@@ -1,8 +1,8 @@
-import { canvasNodeSchema, isExecutableNodeType } from './canvas-schema'
+import { canvasNodeSchema, isExecutableNodeType, nodeSchema } from './canvas-schema'
 import type { NodePort, NodePorts, PortType, CanvasNodeSchema } from './canvas-schema'
 
 export { applyNodeParameter, conditionsMatch, hasModelEditor, isExecutableNodeType, nodeDefaults, nodeSchema, parameterRange, canvasNodeSchema, canvasNodeSchemas } from './canvas-schema'
-export type { NodeParameter, ParameterCondition, ParameterOption, ParameterRange, CanvasNodeSchema } from './canvas-schema'
+export type { NodeParameter, NodeRequirement, ParameterCondition, ParameterOption, ParameterRange, CanvasNodeSchema } from './canvas-schema'
 
 export type { NodePort, NodePorts, NodePortSpec, PortType } from './canvas-schema'
 export type NodeDefinition = CanvasNodeSchema
@@ -216,22 +216,41 @@ export function resolveNodeInputs(
 
 export interface CanvasGraphIssue {
   nodeId?: string
+  /** The port an edge issue is about. */
   port?: string
-  code: 'invalid_edge' | 'incompatible_ports' | 'duplicate_input' | 'required_input_missing' | 'cycle'
+  /** The parameter key a missing-parameter issue is about. */
+  parameter?: string
+  code: 'invalid_edge' | 'incompatible_ports' | 'duplicate_input' | 'required_parameter_missing' | 'cycle'
   message: string
 }
+
+/** How a required parameter is named to the user. */
+function parameterLabel(type: string, key: string) {
+  const port = nodeInputPorts(type).find((candidate) => candidate.id === key)
+  if (port) return port.label
+  const parameter = nodeSchema(type)?.parameters.find((candidate) => candidate.key === key)
+  return parameter?.label || key[0].toUpperCase() + key.slice(1)
+}
+
+function labelChoices(labels: string[]) {
+  if (labels.length > 2) return `${labels.slice(0, -1).join(', ')}, or ${labels.at(-1)}`
+  return labels.length === 2 ? `${labels[0]} or ${labels[1]}` : labels[0]
+}
+
+const hasValue = (value: unknown) => (typeof value === 'string' ? Boolean(value.trim()) : value != null)
 
 /**
  * Validates the persisted graph rather than the UI handles that render it.
  *
- * `requireInputs` also checks that every node has the inbound content it needs
- * to run. Pass a set of node ids to check only those: a run constrains the nodes
- * it plans, so a half-built node elsewhere on the canvas cannot block it.
+ * `requireParameters` also checks that every node has the parameters it runs
+ * with, which is what the execution API is handed. Pass a set of node ids to
+ * check only those: a run constrains the nodes it plans, so a half-built node
+ * elsewhere on the canvas cannot block it.
  */
 export function validateCanvasGraph(
   nodes: CanvasGraphNode[],
   edges: CanvasGraphEdge[],
-  { requireInputs = false }: { requireInputs?: boolean | Iterable<string> } = {},
+  { requireParameters = false }: { requireParameters?: boolean | Iterable<string> } = {},
 ): CanvasGraphIssue[] {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const issues: CanvasGraphIssue[] = []
@@ -259,39 +278,33 @@ export function validateCanvasGraph(
     outgoing.get(source.id)?.push(target.id)
   }
 
-  if (requireInputs) {
-    const scope = typeof requireInputs === 'boolean' ? null : new Set(requireInputs)
+  if (requireParameters) {
+    const scope = typeof requireParameters === 'boolean' ? null : new Set(requireParameters)
     for (const node of nodes) {
       if (scope && !scope.has(node.id)) continue
-      // Reads the same way resolveNodeInputs does, so a whitespace-only prompt
-      // cannot satisfy the check here and then resolve to nothing at run time.
-      const satisfied = (port: NodePort) => {
-        if (inputCounts.get(`${node.id}:${port.id}`)) return true
-        if (!port.fallbackConfig) return false
-        const fallback = node.config?.[port.fallbackConfig]
-        return typeof fallback === 'string' ? Boolean(fallback.trim()) : fallback != null
+      const ports = new Map(nodeInputPorts(node.type).map((port) => [port.id, port]))
+      /**
+       * Whether this parameter will have a value when the node runs. A parameter
+       * an input port carries is filled by that connection — the upstream value
+       * does not exist until it runs, so the edge itself is the evidence — or by
+       * the port's own fallback field. A parameter with no port is the node's
+       * own, so its config is all there is to read.
+       *
+       * Config is read the way resolveNodeInputs reads it, so a whitespace-only
+       * prompt cannot pass here and then resolve to nothing at run time.
+       */
+      const satisfied = (key: string) => {
+        const port = ports.get(key)
+        if (!port) return hasValue(node.config?.[key])
+        if (inputCounts.get(`${node.id}:${key}`)) return true
+        return port.fallbackConfig ? hasValue(node.config?.[port.fallbackConfig]) : false
       }
-      const ports = nodeInputPorts(node.type)
-      for (const port of ports) {
-        if (port.required && !satisfied(port)) {
-          issues.push({ nodeId: node.id, port: port.id, code: 'required_input_missing', message: `${node.name || node.type} requires ${port.label}.` })
-        }
-      }
-      // A group is a set of alternatives: one satisfied port covers all of them.
-      const groups = new Map<string, NodePort[]>()
-      for (const port of ports) {
-        if (!port.requiredGroup) continue
-        const group = groups.get(port.requiredGroup) || []
-        group.push(port)
-        groups.set(port.requiredGroup, group)
-      }
-      for (const group of groups.values()) {
-        if (group.some(satisfied)) continue
-        const labels = group.map((port) => port.label)
-        const choices = labels.length > 2 ? `${labels.slice(0, -1).join(', ')}, or ${labels.at(-1)}`
-          : labels.length === 2 ? `${labels[0]} or ${labels[1]}`
-          : labels[0]
-        issues.push({ nodeId: node.id, port: group[0].id, code: 'required_input_missing', message: `${node.name || node.type} requires ${choices}.` })
+      for (const requirement of nodeSchema(node.type)?.requires || []) {
+        // An array is a set of alternatives: one satisfied parameter covers all.
+        const keys = Array.isArray(requirement) ? requirement : [requirement]
+        if (keys.some(satisfied)) continue
+        const choices = labelChoices(keys.map((key) => parameterLabel(node.type, key)))
+        issues.push({ nodeId: node.id, parameter: keys[0], code: 'required_parameter_missing', message: `${node.name || node.type} requires ${choices}.` })
       }
     }
   }
@@ -312,15 +325,15 @@ export function validateCanvasGraph(
 }
 
 /**
- * What each node still needs before it can run, keyed by node id, so the canvas
- * can say so itself rather than letting a run reach the server and be refused.
- * Only executable nodes carry work, so only they are reported.
+ * Which parameters each node is still missing before it can run, keyed by node
+ * id, so the canvas can say so itself rather than letting a run reach the server
+ * and be refused. Only executable nodes carry work, so only they are reported.
  */
-export function missingInputsByNode(canvas: { nodes: CanvasGraphNode[]; edges?: CanvasGraphEdge[] }): Record<string, string[]> {
+export function missingParametersByNode(canvas: { nodes: CanvasGraphNode[]; edges?: CanvasGraphEdge[] }): Record<string, string[]> {
   const executable = canvas.nodes.filter((node) => isExecutableNodeType(node.type)).map((node) => node.id)
   const missing: Record<string, string[]> = {}
-  for (const issue of validateCanvasGraph(canvas.nodes, canvas.edges || [], { requireInputs: executable })) {
-    if (issue.code !== 'required_input_missing' || !issue.nodeId) continue
+  for (const issue of validateCanvasGraph(canvas.nodes, canvas.edges || [], { requireParameters: executable })) {
+    if (issue.code !== 'required_parameter_missing' || !issue.nodeId) continue
     missing[issue.nodeId] = [...(missing[issue.nodeId] || []), issue.message]
   }
   return missing

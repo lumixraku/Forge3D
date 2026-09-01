@@ -36,7 +36,7 @@ test('refuses a node with nothing feeding it', () => {
   // `other` is the canvas fixture's unconnected model node.
   assert.throws(() => createExecution([], canvas, canvas.nodes[2], 'node'), (error) => {
     assert.equal(error.statusCode, 400)
-    assert.equal(error.issue.code, 'required_input_missing')
+    assert.equal(error.issue.code, 'required_parameter_missing')
     assert.equal(error.issue.nodeId, 'other')
     return true
   })

@@ -1717,3 +1717,60 @@ five nodes green, 80 credits.
   other at `c2785d3` (three commits ahead, including a class-prefix migration from
   `forge:` to `forge-`). This change will need porting there, and the prefix
   difference means it is not a clean cherry-pick. Visual confirmation still owed.
+
+## 2026-08-31 - main
+
+- Moved the run gate from **ports** to **parameters**. The run button decides
+  whether the parameter set the execution API is handed is complete; ports are a
+  node-workflow concept describing how data flows between nodes. The two happened
+  to give the same answer, because every requirement was expressible as a port,
+  but they are different concepts and only one of them is what the button is
+  about.
+- `NodePortSpec` lost `required` and `requiredGroup`; it now carries data-flow
+  semantics only (`type`, `label`, `multiple`, `fallbackConfig`). The `allRequired`
+  and `anyOf` helpers went with them.
+- `CanvasNodeSchema` gained `requires?: NodeRequirement[]` — parameter keys the
+  node cannot run without, a nested array meaning "one of these". Every node that
+  had required ports now declares this instead: `image` for `image-decomposition`
+  and `review`, `model` for `retopology`/`texture`/`rigging`/`segments`/
+  `model-preview`, the four view keys for `multiview-to-3d`, `text` for
+  `text-to-3d`, and an alternatives set for `generate-image`,
+  `generate-multiview-images`, `generate-model`, `smart-mesh`, `export-model`.
+- A required parameter is satisfied one of two ways. If an input port carries it,
+  an edge on that port counts — the upstream value does not exist until that node
+  runs, so the connection itself is the evidence — else the port's
+  `fallbackConfig` field. If no port carries it, it is the node's own and `config`
+  is all there is to read. That second branch is what ports could not express and
+  is why the split matters going forward.
+- Renamed along the concept: `requireInputs` → `requireParameters`,
+  `required_input_missing` → `required_parameter_missing`, `missingInputsByNode`
+  → `missingParametersByNode`, and the `missing-inputs` prop on `CanvasNode` →
+  `missing-parameters`. The issue shape reports `parameter` rather than `port` for
+  this code.
+- Updated `docs/execution-engine.md` §6 (retitled "Missing parameters block
+  execution") and the Runtime Port Model section of `docs/project-reference.md` to
+  state that ports describe data flow and `requires` states what a run needs.
+- Verification: `pnpm run typecheck` clean; `pnpm test` 302/302 pass. Test changes:
+  the validation tests moved to the parameter vocabulary, the
+  `image-decomposition` port test now asserts the port without `required` plus
+  `requires: ['image']`, and a new test pins that a connection satisfies the
+  parameter its port carries.
+- Remaining issues: not verified in a browser — per the note in the 2026-08-29
+  entry, the running dev servers serve `/Users/nan/repos/tripo-forge3d-demo`, a
+  diverged second clone, so a reload there would not exercise this tree. Behaviour
+  is unchanged by design, so no visual difference is expected.
+
+## 2026-09-01 - main
+
+- Dropping an image file on the canvas now creates an `Asset Upload` (`reference-image`)
+  node at the drop point and immediately starts its existing upload flow. The
+  temporary `File` is kept only as a non-enumerable live-node trigger; the persistent
+  URL is written to `uploadAssets` after the request completes and is saved immediately.
+- Kept the existing node-catalog drag/drop path intact and accepted image files only
+  for the new canvas behavior. Unsupported file drops are still claimed by the
+  canvas (preventing browser navigation), while image extension fallback covers
+  browsers that omit a MIME type for JPG/PNG/WEBP files.
+- Verification: `pnpm run typecheck`, `pnpm test` (302/302), `pnpm run build`,
+  and `git diff --check` passed. The production build retains its existing
+  large-chunk warning.
+- Remaining issues: None.

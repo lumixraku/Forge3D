@@ -138,21 +138,34 @@ node *reads* what it needs when it runs:
   (`server/node-state.ts:1`) so re-running a single node still sees what earlier
   runs produced (`server/executions.ts:224-231`).
 
-## 6. Empty inputs block execution
+## 6. Missing parameters block execution
+
+What is checked is the **parameter set** the execution API is handed, not the
+wiring. Each schema declares it as `requires` — parameter keys the node cannot
+run without, a nested array meaning "one of these" (`src/canvas-schema.ts`).
+Ports are a separate concept: they say how data flows between nodes.
 
 Two layers, both acting before anything runs:
 
-1. **Frontend** — `missingInputsByNode` (`src/canvas-nodes.ts:319`) reports
-   `required_input_missing` per node; the `Run` / `Run downstream` buttons are
-   disabled with a tooltip (`CanvasNode.vue:352`).
+1. **Frontend** — `missingParametersByNode` (`src/canvas-nodes.ts`) reports
+   `required_parameter_missing` per node; the `Run` / `Run downstream` buttons are
+   disabled with a tooltip (`CanvasNode.vue`).
 2. **Server** — `createExecution` runs `validateCanvasGraph(nodes, edges,
-   { requireInputs: planned })` (`server/executions.ts:180-185`) and throws a
-   `400` if a planned node lacks a required input.
+   { requireParameters: planned })` (`server/executions.ts:180-185`) and throws a
+   `400` if a planned node is missing one.
 
-A required port is "satisfied" by an incoming edge **or** a fallback config value
-(e.g. a `text-to-3d` prompt), checked the same way inputs are resolved at run
-time (`src/canvas-nodes.ts:262-297`). The check is scoped to planned nodes so a
-half-built node elsewhere cannot block a run.
+A required parameter has a value when either of these holds:
+
+- **An input port carries it** — an incoming edge on that port counts, because
+  the upstream value only exists once that node runs, so the connection itself is
+  the evidence. Failing that, the port's `fallbackConfig` field (e.g. a
+  `text-to-3d` prompt).
+- **No port carries it** — then it is the node's own, read straight from
+  `config`.
+
+Config is read the way `resolveNodeInputs` reads it, so a whitespace-only prompt
+cannot pass here and then resolve to nothing at run time. The check is scoped to
+planned nodes so a half-built node elsewhere cannot block a run.
 
 ## 7. Review gates (`waiting_review`)
 

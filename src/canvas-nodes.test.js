@@ -140,8 +140,10 @@ test('registers the image decomposition demo as an image node', () => {
   const decomposition = nodeCatalog.find((node) => node.type === 'image-decomposition')
 
   assert.equal(decomposition.category, '2D')
-  assert.deepEqual(nodeInputPorts(decomposition.type), [{ id: 'image', label: 'Image', type: 'image', required: true }])
+  assert.deepEqual(nodeInputPorts(decomposition.type), [{ id: 'image', label: 'Image', type: 'image' }])
   assert.deepEqual(nodeOutputPorts(decomposition.type), [{ id: 'image', label: 'Image', type: 'image' }])
+  // The port declares data flow; running the node is what needs the image.
+  assert.deepEqual(decomposition.requires, ['image'])
   assert.ok(compatibleNodeTypes('reference-image').some((node) => node.type === decomposition.type))
 })
 
