@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, nodeCatalog, nodeDefaults, nodeDisplayName, nodeInputPorts, nodeOutputPorts, nodeSchema, parameterRange } from './canvas-nodes.js'
+import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, compatibleUpstreamNodeTypes, nodeCatalog, nodeDefaults, nodeDisplayName, nodeInputPorts, nodeOutputPorts, nodeSchema, parameterRange } from './canvas-nodes.js'
 import { normalizeNodeConfig, normalizeGeneratedAssets, splitNodeTrees, canvasNodeSchema } from './canvas-schema.js'
 
 test('uses Lychee node names while preserving unmatched node names', () => {
@@ -122,6 +122,14 @@ test('returns nodes accepted by a dragged output', () => {
   // A terminal node (no output) offers nothing downstream.
   assert.deepEqual(compatibleNodeTypes('export-model'), [])
   assert.ok(!nodeCatalog.some((node) => ['save-asset'].includes(node.type)))
+})
+
+test('returns nodes that can feed a target as upstream steps', () => {
+  const intoRetopology = compatibleUpstreamNodeTypes('retopology').map((node) => node.type)
+  assert.ok(intoRetopology.includes('reference-image'))
+  assert.ok(intoRetopology.includes('generate-model'))
+  assert.ok(!intoRetopology.includes('export-model'))
+  assert.deepEqual(compatibleUpstreamNodeTypes('reference-image'), [])
 })
 
 test('hides Image from node menus and groups Export under Output', () => {

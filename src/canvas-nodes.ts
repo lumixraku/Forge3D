@@ -49,6 +49,11 @@ export function compatibleNodeTypes(sourceType: string) {
   return nodeCatalog.filter((item) => !item.hidden && canConnectNodeTypes(sourceType, item.type))
 }
 
+/** Node types that can feed the given node as an upstream step. */
+export function compatibleUpstreamNodeTypes(targetType: string) {
+  return nodeCatalog.filter((item) => !item.hidden && canConnectNodeTypes(item.type, targetType))
+}
+
 export interface CanvasGraphNode {
   id: string
   type: string

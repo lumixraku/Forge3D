@@ -18,7 +18,7 @@ type NodeGeneratedAssets = Record<string, unknown> & { approved?: boolean; previ
 interface CanvasNodeData { label: string; status?: string; canvasType: string; config: NodeConfig; uploadAssets?: NodeUploadAssets; generatedAssets?: NodeGeneratedAssets; initialAsset?: File; inputPorts?: NodePort[]; outputPorts?: NodePort[] }
 const EXECUTION_CREDIT_COST = 10
 
-const props = withDefaults(defineProps<{ id: string; data: CanvasNodeData; selected?: boolean; nodeRun?: NodeRun | null; runId?: string | null; runEntryNodeId?: string | null; runMode?: string | null; runStatus?: string | null; inboundType?: string | null; inboundImage?: string | null; missingParameters?: string[]; nodeCatalog?: NodeDefinition[]; viewportDismissVersion?: number; connectionInvalid?: boolean }>(), { selected: false, nodeRun: null, runId: null, runEntryNodeId: null, runMode: null, runStatus: null, inboundType: null, inboundImage: null, missingParameters: () => [], nodeCatalog: () => [], viewportDismissVersion: 0, connectionInvalid: false })
+const props = withDefaults(defineProps<{ id: string; data: CanvasNodeData; selected?: boolean; nodeRun?: NodeRun | null; runId?: string | null; runEntryNodeId?: string | null; runMode?: string | null; runStatus?: string | null; inboundType?: string | null; inboundImage?: string | null; missingParameters?: string[]; nodeCatalog?: NodeDefinition[]; upstreamNodeCatalog?: NodeDefinition[]; viewportDismissVersion?: number; connectionInvalid?: boolean }>(), { selected: false, nodeRun: null, runId: null, runEntryNodeId: null, runMode: null, runStatus: null, inboundType: null, inboundImage: null, missingParameters: () => [], nodeCatalog: () => [], upstreamNodeCatalog: () => [], viewportDismissVersion: 0, connectionInvalid: false })
 const emit = defineEmits<{
   'update-config': [config: NodeConfig]
   'update-uploads': [uploadAssets: NodeUploadAssets]
@@ -27,11 +27,13 @@ const emit = defineEmits<{
   'open-model-editor': []
   'preview-image': [preview: { src: string; alt: string }]
   'add-next': [payload: unknown]
+  'add-previous': [payload: unknown]
   'run-canvas': [id: string]
   'run-downstream': [id: string]
   'stop-run': []
 }>()
 const nextMenuOpen = ref(false)
+const previousMenuOpen = ref(false)
 const advancedParametersOpen = ref(false)
 const runDetailsOpen = ref(false)
 const editingName = ref(false)
@@ -44,7 +46,38 @@ const assetUploading = ref(false)
 const localAssetPreview = ref('')
 const failedImageSources = ref(new Set<string>())
 const consumedInitialAsset = ref<File | null>(null)
-watch(() => props.viewportDismissVersion, () => { nextMenuOpen.value = false })
+watch(() => props.viewportDismissVersion, () => { nextMenuOpen.value = false; previousMenuOpen.value = false })
+const previousButton = ref<HTMLElement | null>(null)
+const nextButton = ref<HTMLElement | null>(null)
+const previousMenuPosition = ref<{ left: number; top: number } | null>(null)
+const nextMenuPosition = ref<{ left: number; top: number } | null>(null)
+
+// The add-node menus are viewport UI, not canvas UI: they must keep their size
+// however far the canvas is zoomed, so they are teleported to <body> and pinned
+// in screen coordinates beside the + button, like the right-click menu.
+function togglePreviousMenu() {
+  nextMenuOpen.value = false
+  previousMenuOpen.value = !previousMenuOpen.value
+  if (previousMenuOpen.value) previousMenuPosition.value = anchoredMenuPosition(previousButton.value, 'left')
+}
+
+function toggleNextMenu() {
+  previousMenuOpen.value = false
+  nextMenuOpen.value = !nextMenuOpen.value
+  if (nextMenuOpen.value) nextMenuPosition.value = anchoredMenuPosition(nextButton.value, 'right')
+}
+
+function anchoredMenuPosition(button: HTMLElement | null, side: 'left' | 'right') {
+  const rect = button?.getBoundingClientRect()
+  if (!rect) return { left: 0, top: 0 }
+  const width = 220
+  const left = side === 'right' ? rect.left - 3 : rect.right + 3 - width
+  const top = rect.top + 38
+  return {
+    left: Math.max(8, Math.min(left, window.innerWidth - width - 8)),
+    top: Math.max(8, Math.min(top, window.innerHeight - 8)),
+  }
+}
 const runtimeStatus = computed(() => props.nodeRun?.status || props.data.status)
 const schema = computed(() => nodeSchema(props.data.canvasType))
 const isExecutableNode = computed(() => Boolean(schema.value?.executable))
@@ -298,6 +331,16 @@ watch(() => props.data.initialAsset, (file) => {
     <template v-for="(port, index) in visibleInputPorts" :key="`input-${port.id}`">
       <Handle :id="port.id" class="forge3d-canvas-handle forge3d-input-handle" type="target" :position="Position.Left" :style="{ top: `${28 + (index + 1) * 52}px` }" title="Input" />
     </template>
+    <div v-if="upstreamNodeCatalog.length" class="nodrag nopan forge:absolute forge:left-[-43px] forge:top-1/2 forge:z-[4] forge:size-[30px] forge:-translate-y-1/2 forge:[&.forge3d-open_.forge3d-node-previous-button]:scale-100 forge:[&.forge3d-open_.forge3d-node-previous-button]:opacity-100" :class="{ 'forge3d-open': previousMenuOpen }">
+      <button ref="previousButton" type="button" class="forge3d-node-previous-button forge:grid forge:size-[30px] forge:place-items-center forge:rounded-full forge:border-2 forge:border-[var(--node-ring)] forge:bg-[var(--node-accent)] forge:p-0 forge:font-mono forge:text-[21px] forge:font-semibold forge:leading-none forge:text-[#111313] forge:opacity-0 forge:shadow-[0_0_0_3px_color-mix(in_srgb,var(--node-accent)_18%,transparent)] forge:scale-[.72] forge:transition-[opacity,transform,box-shadow] forge:hover:brightness-110 forge:hover:shadow-[0_0_0_5px_color-mix(in_srgb,var(--node-accent)_25%,transparent)] forge:group-hover:scale-100 forge:group-hover:opacity-100" aria-label="Add and connect upstream node" :aria-expanded="previousMenuOpen" @click.stop="togglePreviousMenu()">+</button>
+      <Teleport to="body">
+        <div v-if="previousMenuOpen" class="forge:fixed forge:left-0 forge:top-0 forge:z-30 forge:grid forge:max-h-[300px] forge:w-[220px] forge:gap-[3px] forge:overflow-y-auto forge:rounded-lg forge:border forge:border-line-strong forge:bg-bg-input forge:p-[5px] forge:shadow-popover forge:animate-[popover-in_.12s_ease-out] forge:[&_button]:grid forge:[&_button]:min-h-[39px] forge:[&_button]:rounded-[5px] forge:[&_button]:border forge:[&_button]:border-transparent forge:[&_button]:bg-transparent forge:[&_button]:px-2 forge:[&_button]:py-1.5 forge:[&_button]:text-left forge:[&_button]:transition-colors forge:[&_button]:hover:border-line-strong forge:[&_button]:hover:bg-bg-input-hover forge:[&_span]:text-[10px] forge:[&_span]:font-medium forge:[&_small]:mt-0.5 forge:[&_small]:font-mono forge:[&_small]:text-[8px] forge:[&_small]:text-text-muted" :style="{ left: `${previousMenuPosition?.left ?? 0}px`, top: `${previousMenuPosition?.top ?? 0}px` }" @pointerdown.stop>
+          <button v-for="item in upstreamNodeCatalog" :key="item.type" type="button" @click.stop="emit('add-previous', item.type); previousMenuOpen = false">
+            <span>{{ item.label }}</span><small>{{ item.description }}</small>
+          </button>
+        </div>
+      </Teleport>
+    </div>
     <p class="forge:mb-3 forge:mt-0 forge:text-[9px] forge:text-text-muted">{{ data.detail }}</p>
 
     <div v-if="['generate-image', 'image-decomposition'].includes(data.canvasType) && visibleRuntimePreviews.length" class="forge3d-node-output forge:relative forge:mb-[11px] forge:grid forge:aspect-[4/3] forge:w-full forge:grid-cols-2 forge:gap-0.5 forge:overflow-hidden forge:rounded-lg forge:border forge:border-line-subtle forge:bg-[radial-gradient(circle_at_50%_45%,#edf1ed,#dfe5e0_72%)] forge:p-0.5 forge:text-left forge:dark:bg-[radial-gradient(circle_at_50%_45%,#30352f,#111412_72%)]" :aria-label="data.canvasType === 'image-decomposition' ? 'Extracted image assets' : 'Generated image candidates'">
@@ -401,12 +444,14 @@ watch(() => props.data.initialAsset, (file) => {
       <Handle :id="port.id" class="forge3d-canvas-handle forge3d-output-handle" type="source" :position="Position.Right" :style="{ top: `${28 + (index + 1) * 52}px` }" title="Output" />
     </template>
     <div class="nodrag nopan forge:absolute forge:right-[-43px] forge:top-1/2 forge:z-[4] forge:size-[30px] forge:-translate-y-1/2 forge:[&.forge3d-open_.forge3d-node-next-button]:scale-100 forge:[&.forge3d-open_.forge3d-node-next-button]:opacity-100" :class="{ 'forge3d-open': nextMenuOpen }">
-      <button type="button" class="forge3d-node-next-button forge:grid forge:size-[30px] forge:place-items-center forge:rounded-full forge:border-2 forge:border-[var(--node-ring)] forge:bg-[var(--node-accent)] forge:p-0 forge:font-mono forge:text-[21px] forge:font-semibold forge:leading-none forge:text-[#111313] forge:opacity-0 forge:shadow-[0_0_0_3px_color-mix(in_srgb,var(--node-accent)_18%,transparent)] forge:scale-[.72] forge:transition-[opacity,transform,box-shadow] forge:hover:brightness-110 forge:hover:shadow-[0_0_0_5px_color-mix(in_srgb,var(--node-accent)_25%,transparent)] forge:group-hover:scale-100 forge:group-hover:opacity-100" aria-label="Add and connect next node" :aria-expanded="nextMenuOpen" @click.stop="nextMenuOpen = !nextMenuOpen">+</button>
-      <div v-if="nextMenuOpen" class="forge:absolute forge:left-[-3px] forge:top-[38px] forge:z-10 forge:grid forge:max-h-[300px] forge:w-[220px] forge:gap-[3px] forge:overflow-y-auto forge:rounded-lg forge:border forge:border-line-strong forge:bg-bg-input forge:p-[5px] forge:shadow-popover forge:animate-[popover-in_.12s_ease-out] forge:[&_button]:grid forge:[&_button]:min-h-[39px] forge:[&_button]:rounded-[5px] forge:[&_button]:border forge:[&_button]:border-transparent forge:[&_button]:bg-transparent forge:[&_button]:px-2 forge:[&_button]:py-1.5 forge:[&_button]:text-left forge:[&_button]:transition-colors forge:[&_button]:hover:border-line-strong forge:[&_button]:hover:bg-bg-input-hover forge:[&_span]:text-[10px] forge:[&_span]:font-medium forge:[&_small]:mt-0.5 forge:[&_small]:font-mono forge:[&_small]:text-[8px] forge:[&_small]:text-text-muted">
-        <button v-for="item in nodeCatalog" :key="item.type" type="button" @click.stop="emit('add-next', item.type); nextMenuOpen = false">
-          <span>{{ item.label }}</span><small>{{ item.description }}</small>
-        </button>
-      </div>
+      <button ref="nextButton" type="button" class="forge3d-node-next-button forge:grid forge:size-[30px] forge:place-items-center forge:rounded-full forge:border-2 forge:border-[var(--node-ring)] forge:bg-[var(--node-accent)] forge:p-0 forge:font-mono forge:text-[21px] forge:font-semibold forge:leading-none forge:text-[#111313] forge:opacity-0 forge:shadow-[0_0_0_3px_color-mix(in_srgb,var(--node-accent)_18%,transparent)] forge:scale-[.72] forge:transition-[opacity,transform,box-shadow] forge:hover:brightness-110 forge:hover:shadow-[0_0_0_5px_color-mix(in_srgb,var(--node-accent)_25%,transparent)] forge:group-hover:scale-100 forge:group-hover:opacity-100" aria-label="Add and connect next node" :aria-expanded="nextMenuOpen" @click.stop="toggleNextMenu()">+</button>
+      <Teleport to="body">
+        <div v-if="nextMenuOpen" class="forge:fixed forge:left-0 forge:top-0 forge:z-30 forge:grid forge:max-h-[300px] forge:w-[220px] forge:gap-[3px] forge:overflow-y-auto forge:rounded-lg forge:border forge:border-line-strong forge:bg-bg-input forge:p-[5px] forge:shadow-popover forge:animate-[popover-in_.12s_ease-out] forge:[&_button]:grid forge:[&_button]:min-h-[39px] forge:[&_button]:rounded-[5px] forge:[&_button]:border forge:[&_button]:border-transparent forge:[&_button]:bg-transparent forge:[&_button]:px-2 forge:[&_button]:py-1.5 forge:[&_button]:text-left forge:[&_button]:transition-colors forge:[&_button]:hover:border-line-strong forge:[&_button]:hover:bg-bg-input-hover forge:[&_span]:text-[10px] forge:[&_span]:font-medium forge:[&_small]:mt-0.5 forge:[&_small]:font-mono forge:[&_small]:text-[8px] forge:[&_small]:text-text-muted" :style="{ left: `${nextMenuPosition?.left ?? 0}px`, top: `${nextMenuPosition?.top ?? 0}px` }" @pointerdown.stop>
+          <button v-for="item in nodeCatalog" :key="item.type" type="button" @click.stop="emit('add-next', item.type); nextMenuOpen = false">
+            <span>{{ item.label }}</span><small>{{ item.description }}</small>
+          </button>
+        </div>
+      </Teleport>
     </div>
   </article>
 </template>
