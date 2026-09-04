@@ -36,8 +36,10 @@ function inboundSources(node, canvas) {
  * The prompt this node runs with: its own field first, then whatever text its
  * declared text ports carry. A text port names its own config field as a
  * fallback, so a node with nothing connected still resolves its own prompt.
+ *
+ * Exported for the Meshy provider, which resolves prompts the same way.
  */
-function resolvePrompt(node, canvas) {
+export function resolvePrompt(node, canvas) {
   const own = typeof node.config?.prompt === 'string' ? node.config.prompt.trim() : ''
   if (own) return own
   const text = resolveNodeInputs(node, canvas).text
@@ -187,8 +189,10 @@ function resolveUpstreamImage(node, canvas, context = new Map()) {
 /**
  * The thumbnail of the nearest upstream node that produced one this run. Used by
  * a node whose own task renders no image, so it still shows what it acted on.
+ *
+ * Exported for the Meshy provider, which falls back the same way.
  */
-function resolveUpstreamPreview(node, canvas, context) {
+export function resolveUpstreamPreview(node, canvas, context) {
   const seen = new Set([node.id])
   let frontier = inboundSources(node, canvas)
   while (frontier.length) {
@@ -207,11 +211,17 @@ function resolveUpstreamPreview(node, canvas, context) {
 
 /**
  * Resolves generate-model's image inputs for this run. Returns `{ input }` for
- * one image, `{ multiview }` for several — labeled views become view-key
- * objects, unlabeled images become a positional string array — or `{}` when
- * nothing came in so the node falls back to text.
+ * one image, `{ multiview }` for several, or `{}` when nothing came in so the
+ * node falls back to text.
+ *
+ * `toInput` turns a reference into whatever the provider accepts (a Tripo file
+ * token or URL, a Meshy URL or data URI). With `labeledViews` the multiview
+ * result is a list of view-key objects (Tripo's labeled form); without it the
+ * views come back as a plain ordered list, front first (Meshy's form).
+ *
+ * Exported for the Meshy provider, which resolves the same ports.
  */
-async function resolveGenerateModelImages(node, canvas, context, { client, uploads }) {
+export async function resolveGenerateModelImages(node, canvas, context, { toInput, labeledViews = true }) {
   const sources = resolveInputSources(node, canvas)
   const views: Record<string, unknown> = {}
   for (const key of ['front', 'back', 'left', 'right']) {
@@ -223,7 +233,10 @@ async function resolveGenerateModelImages(node, canvas, context, { client, uploa
   const viewKeys = Object.keys(views)
   if (viewKeys.length >= 2 && views.front) {
     const inputs = []
-    for (const key of viewKeys) inputs.push({ [key]: await toTripoInput(views[key], { client, uploads }) })
+    for (const key of viewKeys) {
+      const resolved = await toInput(views[key])
+      inputs.push(labeledViews ? { [key]: resolved } : resolved)
+    }
     return { multiview: inputs }
   }
   const loose = (sources.image || [])
@@ -231,10 +244,10 @@ async function resolveGenerateModelImages(node, canvas, context, { client, uploa
     .filter(Boolean)
   if (loose.length > 1) {
     const inputs = []
-    for (const url of loose) inputs.push(await toTripoInput(url, { client, uploads }))
+    for (const url of loose) inputs.push(await toInput(url))
     return { multiview: inputs }
   }
-  if (loose.length === 1) return { input: await toTripoInput(loose[0], { client, uploads }) }
+  if (loose.length === 1) return { input: await toInput(loose[0]) }
   return {}
 }
 
@@ -266,7 +279,8 @@ export async function executeTripoNode(node, canvas, {
     // uploaded, because Tripo cannot fetch a local /api/assets path.
     input = upstreamModel?.taskId || await toTripoInput(upstreamModel?.reference, { client, uploads })
   } else {
-    const resolved = await resolveGenerateModelImages(node, canvas, context, { client, uploads })
+    const toInput = (reference) => toTripoInput(reference, { client, uploads })
+    const resolved = await resolveGenerateModelImages(node, canvas, context, { toInput, labeledViews: true })
     input = resolved.input ?? null
     multiview = resolved.multiview ?? null
   }

@@ -20,6 +20,7 @@ import { createInitialSession, createCanvas, createSession, duplicateCanvas } fr
 import { runDeepSeekAgent } from './deepseek.js'
 import { cancelAgentViaService, runAgentViaService } from './agent-client.js'
 import { tripoNodeTypes } from './tripo-mapping.js'
+import { meshyNodeTypes } from './meshy-mapping.js'
 import { applyAgentCanvas, projectDto, replaceCanvasDocument } from './projects.js'
 import { appendAgentTrace, checkpointAgentTrace, createAgentTrace, sanitizeAgentError } from './agent-traces.js'
 import { accountDto, EXECUTION_CREDIT_COST, reserveExecutionCredits, settleExecutionCredits } from './credits.js'
@@ -145,6 +146,33 @@ function sseResponse(canvasId, signal, channels, idleTimeoutMs = SSE_IDLE_TIMEOU
   })
 }
 
+/**
+ * Resolves which provider factory a run executes with. `requestedProvider` is
+ * the debug panel's override; without one the server prefers Tripo, then Meshy,
+ * then the simulation (null). A request for an unconfigured provider fails up
+ * front instead of halfway through a paid run.
+ */
+function resolveProviderFactory(config, requestedProvider) {
+  const fail = (message, statusCode) => {
+    const error = new Error(message)
+    error.statusCode = statusCode
+    throw error
+  }
+  if (requestedProvider && !['mock', 'tripo', 'meshy'].includes(requestedProvider)) {
+    fail('provider must be "mock", "tripo" or "meshy"', 400)
+  }
+  if (requestedProvider === 'tripo' && !config.createTripoProvider) {
+    fail('Tripo is not configured. Set TRIPO_API_KEY and restart the API server.', 503)
+  }
+  if (requestedProvider === 'meshy' && !config.createMeshyProvider) {
+    fail('Meshy is not configured. Set MESHY_API_KEY and restart the API server.', 503)
+  }
+  if (requestedProvider === 'mock') return null
+  if (requestedProvider === 'tripo') return config.createTripoProvider
+  if (requestedProvider === 'meshy') return config.createMeshyProvider
+  return config.createTripoProvider || config.createMeshyProvider || null
+}
+
 export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_MS }) {
   const channels = createChannels()
   const canvasLeases = new Map()
@@ -198,8 +226,7 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
     })
   }
 
-  async function startPaidExecution(context, canvas, node, mode, createProvider = null, options = {}) {
-    const { store, waitUntil } = context
+  async function startPaidExecution(context, canvas, node, mode, createProvider = null, options = {}) {    const { store, waitUntil } = context
     const { state } = store
     const pending = await mutateCredits(async () => {
       await store.reload(['accounts', 'creditLedger'])
@@ -489,9 +516,10 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
     // provider it has no credentials for instead of failing on execution.
     if (method === 'GET' && parts[1] === 'capabilities' && parts.length === 2) {
       return json({
-        providers: { mock: true, tripo: Boolean(config.createTripoProvider) },
-        defaultProvider: config.createTripoProvider ? 'tripo' : 'mock',
+        providers: { mock: true, tripo: Boolean(config.createTripoProvider), meshy: Boolean(config.createMeshyProvider) },
+        defaultProvider: config.createTripoProvider ? 'tripo' : config.createMeshyProvider ? 'meshy' : 'mock',
         tripoNodeTypes: [...tripoNodeTypes],
+        meshyNodeTypes: [...meshyNodeTypes],
       })
     }
 
@@ -835,16 +863,7 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
       const node = canvas.nodes.find((candidate) => candidate.id === parts[4])
       if (!node) return json({ error: 'Node not found' }, 404)
       const { mode = 'downstream', provider: requestedProvider } = await parseJson(request)
-      if (requestedProvider && !['mock', 'tripo'].includes(requestedProvider)) {
-        return json({ error: 'provider must be "mock" or "tripo"' }, 400)
-      }
-      if (requestedProvider === 'tripo' && !config.createTripoProvider) {
-        return json({ error: 'Tripo is not configured. Set TRIPO_API_KEY and restart the API server.' }, 503)
-      }
-      // Default to Tripo whenever it is configured; the debug panel sends an
-      // explicit provider to force one side or the other.
-      const useTripo = requestedProvider ? requestedProvider === 'tripo' : Boolean(config.createTripoProvider)
-      const execution = await startPaidExecution(context, canvas, node, mode, useTripo ? config.createTripoProvider : null)
+      const execution = await startPaidExecution(context, canvas, node, mode, resolveProviderFactory(config, requestedProvider))
       return json(executionDto(execution), 202)
     }
 
@@ -854,11 +873,8 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
       const { entryNodeId, nodeIds, mode = 'downstream', provider: requestedProvider, idempotencyKey, parameters } = await parseJson(request)
       const node = canvas.nodes.find((candidate) => candidate.id === entryNodeId)
       if (!node) return json({ error: 'Entry node not found' }, 404)
-      if (requestedProvider && !['mock', 'tripo'].includes(requestedProvider)) return json({ error: 'provider must be "mock" or "tripo"' }, 400)
-      if (requestedProvider === 'tripo' && !config.createTripoProvider) return json({ error: 'Tripo is not configured. Set TRIPO_API_KEY and restart the API server.' }, 503)
-      const useTripo = requestedProvider ? requestedProvider === 'tripo' : Boolean(config.createTripoProvider)
       const enforceActiveTaskLimit = request.headers.get('x-micro-method') === '/tripo.agent.api.run.v1.RunService/CreateRun'
-      const execution = await startPaidExecution(context, canvas, node, mode, useTripo ? config.createTripoProvider : null, { nodeIds, idempotencyKey, parameters, enforceActiveTaskLimit })
+      const execution = await startPaidExecution(context, canvas, node, mode, resolveProviderFactory(config, requestedProvider), { nodeIds, idempotencyKey, parameters, enforceActiveTaskLimit })
       return json(executionDto(execution), 202)
     }
 

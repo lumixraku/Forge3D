@@ -103,8 +103,10 @@ pnpm dev
 
 Set `DEEPSEEK_API_KEY` for Agent turns. Local development uses the Pi Agent
 service by default; set `AGENT_SERVICE_URL=direct` to exercise the built-in
-DeepSeek harness. Set `TRIPO_API_KEY` for real Tripo v3 execution; otherwise the
-workflow runner uses its deterministic mock provider.
+DeepSeek harness. Set `TRIPO_API_KEY` for real Tripo v3 execution or
+`MESHY_API_KEY` for Meshy (the `generate-model` node); otherwise the workflow
+runner uses its deterministic mock provider. The debug panel's provider
+selector forces one backend when several are configured.
 
 ## Verify
 

@@ -1,11 +1,13 @@
 // Node binding for the shared API (see api-core.ts). Everything runtime-specific
 // lives here: the http server, the IncomingMessage/ServerResponse bridge to
-// Web-standard Request/Response, the file-backed store, Tripo, and local assets.
+// Web-standard Request/Response, the file-backed store, Tripo, Meshy, and local
+// assets.
 
 import { createServer } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { createStore } from './store.js'
 import { createTripoRunner, createTripoTaskReader } from './tripo-run.js'
+import { createMeshyRunner } from './meshy-run.js'
 import { persistUploadedAsset, readAsset } from './tripo-assets.js'
 import { createApi } from './api-core.js'
 import { listenOnAvailablePort } from './listen.js'
@@ -14,9 +16,10 @@ const port = Number(process.env.PORT || 8787)
 // Set by the characterization tests so they run against a temp directory
 // instead of the real server/data.
 const dataDirectory = process.env.FORGE3D_DATA_DIR || undefined
-// Null when TRIPO_API_KEY is unset, which keeps every node on the simulated
-// producer so the demo runs without credentials.
+// Null when the matching API key is unset, which keeps every node on the
+// simulated producer so the demo runs without credentials.
 const createTripoProvider = createTripoRunner()
+const createMeshyProvider = createMeshyRunner()
 const getTripoTask = createTripoTaskReader()
 const store = await createStore({ dataDirectory })
 
@@ -41,6 +44,7 @@ const context = {
       model: process.env.DEEPSEEK_MODEL,
     },
     createTripoProvider,
+    createMeshyProvider,
     getTripoTask,
     readAsset,
     uploadAsset: persistUploadedAsset,

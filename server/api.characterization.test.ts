@@ -115,6 +115,7 @@ before(async () => {
       // Keep every run on the simulated producer and the built-in agent loop, so
       // these tests never reach a real provider.
       TRIPO_API_KEY: '',
+      MESHY_API_KEY: '',
       AGENT_SERVICE_URL: 'direct',
       DEEPSEEK_API_KEY: '',
       SSE_IDLE_TIMEOUT_MS: '30',
@@ -160,10 +161,12 @@ test('rejects anything outside /api', async () => {
 test('reports which providers it can actually run', async () => {
   const { status, body } = await api('/api/capabilities')
   assert.equal(status, 200)
-  // No TRIPO_API_KEY in this environment, so only the simulated producer is up.
-  assert.deepEqual(body.providers, { mock: true, tripo: false })
+  // No TRIPO_API_KEY or MESHY_API_KEY in this environment, so only the
+  // simulated producer is up.
+  assert.deepEqual(body.providers, { mock: true, tripo: false, meshy: false })
   assert.equal(body.defaultProvider, 'mock')
   assert.ok(Array.isArray(body.tripoNodeTypes))
+  assert.ok(Array.isArray(body.meshyNodeTypes))
 })
 
 test('reports the persistent default account balance and execution cost', async () => {
@@ -565,12 +568,16 @@ test('rejects an unknown node, an invalid mode and an unconfigured provider', as
   )
   assert.deepEqual(
     await postJson('/api/canvases/canvas-fixture/nodes/canvas-fixture-prompt/executions', { provider: 'banana' }),
-    { status: 400, body: { error: 'provider must be "mock" or "tripo"' } },
+    { status: 400, body: { error: 'provider must be "mock", "tripo" or "meshy"' } },
   )
-  // Tripo has no key in this environment, so asking for it explicitly is a 503.
+  // Neither real provider has a key in this environment, so asking for one
+  // explicitly is a 503.
   const tripo = await postJson('/api/canvases/canvas-fixture/nodes/canvas-fixture-prompt/executions', { provider: 'tripo' })
   assert.equal(tripo.status, 503)
   assert.match(tripo.body.error, /Tripo is not configured/)
+  const meshy = await postJson('/api/canvases/canvas-fixture/nodes/canvas-fixture-prompt/executions', { provider: 'meshy' })
+  assert.equal(meshy.status, 503)
+  assert.match(meshy.body.error, /Meshy is not configured/)
 })
 
 test('reading and cancelling executions', async () => {

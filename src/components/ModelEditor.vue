@@ -24,7 +24,11 @@ const canPreviewModel = computed(() => /\.(glb|gltf)(?:$|[?#])/i.test(modelUrl.v
 const previewImage = computed(() => props.nodeRun?.output?.preview || '')
 // Names the provider that actually produced the file, so a simulated result is
 // not passed off as a real one.
-const assetSummary = computed(() => props.node.data.canvasType === 'reference-image' ? 'Uploaded asset' : `${props.nodeRun?.tripoTaskId ? 'Tripo' : 'Mock'} result · GLB`)
+const assetSummary = computed(() => {
+  if (props.node.data.canvasType === 'reference-image') return 'Uploaded asset'
+  const backend = props.nodeRun?.tripoTaskId ? 'Tripo' : props.nodeRun?.meshyTaskId ? 'Meshy' : 'Mock'
+  return `${backend} result · GLB`
+})
 
 const editorMode = computed(() => {
   const type = props.node.data.canvasType

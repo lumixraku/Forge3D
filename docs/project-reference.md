@@ -530,18 +530,19 @@ When an Agent emits `canvas-updated` with `structure_changed: true`, the fronten
 
 ## Canvas Execution
 
-Agent tools modify the canvas definition; execution is a separate system with two
-interchangeable backends.
+Agent tools modify the canvas definition; execution is a separate system with
+three interchangeable backends.
 
 | Provider | When it runs | Behaviour |
 | --- | --- | --- |
 | `mock` | Always available | Simulated. ~600 ms per node, deterministic previews from `public/`, no credits. |
 | `tripo` | `TRIPO_API_KEY` is set | Real Tripo v3 tasks. Tens of seconds per node, real geometry, spends credits. |
+| `meshy` | `MESHY_API_KEY` is set | Real Meshy tasks. Image/text/multi-view to 3D, spends credits. |
 
-A run picks `tripo` whenever it is configured. The floating debug panel (bottom
-right) overrides that per run, and `POST /api/nodes/:nodeId/executions` accepts an
-explicit `"provider": "mock" | "tripo"`. `GET /api/capabilities` reports which
-providers this server can serve.
+A run picks `tripo` whenever it is configured, then `meshy`. The floating debug
+panel (bottom right) overrides that per run, and `POST /api/nodes/:nodeId/executions`
+accepts an explicit `"provider": "mock" | "tripo" | "meshy"`. `GET /api/capabilities`
+reports which providers this server can serve.
 
 Six node types are backed by Tripo; everything else stays simulated even when the
 provider is `tripo`:
@@ -554,6 +555,13 @@ provider is `tripo`:
 | `segments` | `POST /mesh/segment` |
 | `rigging` | `POST /animations/rig` |
 | `export-model` | `POST /models/convert` |
+
+Meshy backs `generate-model` only; under `meshy` every other node type falls
+through to the simulation:
+
+| Node | Meshy endpoint |
+| --- | --- |
+| `generate-model` | `POST /openapi/v1/image-to-3d`, `/openapi/v1/multi-image-to-3d` (several views), or `/openapi/v2/text-to-3d` with no image upstream (two-step: `preview`, then `refine` when texture is on) |
 
 The 2D image nodes are not mapped yet because Tripo's image models are a separate
 enum (`seedream`, `banana`, `chat_image`).
@@ -1093,21 +1101,22 @@ Request:
 { "mode": "downstream", "provider": "tripo" }
 ```
 
-`provider` is optional and accepts `mock` or `tripo`. Omit it to let the server
-choose, which is `tripo` when a key is configured. Anything else returns `400`, and
-asking for `tripo` without a key returns `503`.
+`provider` is optional and accepts `mock`, `tripo` or `meshy`. Omit it to let the
+server choose, which is `tripo` when a key is configured, then `meshy`. Anything
+else returns `400`, and asking for a real provider without its key returns `503`.
 
-A node produced by Tripo carries three extra fields on its node run:
-`tripoTaskId`, `progress` (0-100, updated while the task runs), and
-`creditsConsumed`. Simulated nodes have none of them.
+A node produced by a real backend carries three extra fields on its node run:
+`tripoTaskId` or `meshyTaskId`, `progress` (0-100, updated while the task runs),
+and `creditsConsumed`. Simulated nodes have none of them.
 
 `/api/capabilities` response:
 
 ```json
 {
-  "providers": { "mock": true, "tripo": true },
+  "providers": { "mock": true, "tripo": true, "meshy": false },
   "defaultProvider": "tripo",
-  "tripoNodeTypes": ["generate-model", "retopology", "texture", "segments", "rigging", "export-model"]
+  "tripoNodeTypes": ["generate-model", "retopology", "texture", "segments", "rigging", "export-model"],
+  "meshyNodeTypes": ["generate-model"]
 }
 ```
 
@@ -1256,10 +1265,17 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-chat
 TRIPO_API_KEY=
 TRIPO_BASE_URL=https://openapi.tripo3d.ai/v3
+MESHY_API_KEY=
+MESHY_BASE_URL=https://api.meshy.ai
 ```
 
 `TRIPO_BASE_URL` must use the `.ai` host. Tripo's own docs show `openapi.tripo3d.com`
 in some samples, but that host rejects a valid key with `Invalid API key`.
+
+Meshy has no file-upload endpoint: reference images reach it as public URLs or
+base64 data URIs (local and uploaded files are inlined by the server). Its model
+URLs are signed and valid for days, so downloads point at them directly instead
+of a refreshing proxy.
 
 Behind an HTTP proxy, note that Node's `fetch` ignores `HTTP_PROXY` unless told
 otherwise. The `dev:server` and `server` scripts pass `--use-env-proxy` and default

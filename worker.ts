@@ -3,8 +3,9 @@
 // collection migrations, and serving the built assets. The route table and turn
 // execution are shared with the Node dev server, so the two cannot drift apart.
 //
-// Tripo and the local asset store are Node-only, so they are passed as null and
-// the shared core reports them as unavailable instead of failing on execution.
+// Tripo, Meshy, and the local asset store are Node-only, so they are passed as
+// null and the shared core reports them as unavailable instead of failing on
+// execution.
 
 import { migrateCanvasRefs, migrateTurns } from './server/migrations.js'
 import { createApi } from './server/api-core.js'
@@ -103,8 +104,9 @@ const handle = createApi({
           baseUrl: env.DEEPSEEK_BASE_URL,
           model: env.DEEPSEEK_MODEL,
         },
-        // Node-only: the Tripo runner and the on-disk asset cache.
+        // Node-only: the Tripo and Meshy runners and the on-disk asset cache.
         createTripoProvider: null,
+        createMeshyProvider: null,
         getTripoTask: null,
         readAsset: null,
         uploadAsset: null,

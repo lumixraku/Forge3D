@@ -7,6 +7,7 @@ export interface NodeRun {
   // Only set when a real backend produced this node; a simulated run has none.
   progress?: number
   tripoTaskId?: string
+  meshyTaskId?: string
   creditsConsumed?: number | null
   output?: {
     message?: string

@@ -46,7 +46,7 @@
 
 ```json
 {
-  "providers": { "mock": true, "tripo": true },
+  "providers": { "mock": true, "tripo": true, "meshy": false },
   "defaultProvider": "tripo",
   "tripoNodeTypes": [
     "generate-model",
@@ -55,11 +55,12 @@
     "segments",
     "rigging",
     "export-model"
-  ]
+  ],
+  "meshyNodeTypes": ["generate-model"]
 }
 ```
 
-未配置 `TRIPO_API_KEY` 时，`providers.tripo` 为 `false`，默认 provider 为 `mock`。
+未配置 `TRIPO_API_KEY` 时，`providers.tripo` 为 `false`；未配置 `MESHY_API_KEY` 时，`providers.meshy` 为 `false`。默认 provider 依次取 Tripo、Meshy，两者都未配置时为 `mock`。Meshy 仅支撑 `generate-model` 节点，其余节点类型在选中 Meshy 时仍走模拟 producer。
 
 实现：`server/index.ts` 的 capabilities 路由。
 

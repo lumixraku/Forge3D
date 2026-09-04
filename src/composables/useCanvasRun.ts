@@ -6,7 +6,7 @@ import { formatDuration, summarizeRun } from '../run-summary'
 // A simulated node settles in well under a second, but a real Tripo task takes
 // tens of seconds and Tripo asks for 1-2s polling, so the interval follows
 // whichever backend the run is actually using.
-const POLL_INTERVAL_MS = { mock: 250, tripo: 1500 }
+const POLL_INTERVAL_MS = { mock: 250, tripo: 1500, meshy: 1500 }
 
 type ExecutionMode = 'node' | 'downstream'
 type ExecutionStatus = 'queued' | 'running' | 'cancelling' | 'cancelled' | 'succeeded' | 'failed'
@@ -146,7 +146,9 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
       run.value = toCanvasRun(execution)
       await onAccountChanged()
       if (runToken.value !== pollToken || activeCanvas.value?.id !== canvasId) return
-      const pollInterval = POLL_INTERVAL_MS[provider.value === 'mock' ? 'mock' : 'tripo']
+      // An unset provider means the server default, which is a real (slow) API
+      // whenever one is configured, so it gets the real-provider interval.
+      const pollInterval = POLL_INTERVAL_MS[provider.value || 'tripo']
       activeExecutions.value = { ...activeExecutions.value, [execution.id]: run.value }
       void pollExecution(execution, plan, canvasId, pollToken, pollInterval)
       await loadExecutions(canvasId)
