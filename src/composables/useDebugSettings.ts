@@ -5,14 +5,15 @@
 import { computed, onMounted, ref } from 'vue'
 import { request } from '../api'
 
-export type RunProvider = 'mock' | 'tripo'
+export type RunProvider = 'mock' | 'tripo' | 'meshy'
 
 const STORAGE_KEY = 'forge3d.runProvider'
+const RUN_PROVIDERS: RunProvider[] = ['mock', 'tripo', 'meshy']
 
 function storedProvider(): RunProvider | null {
   try {
     const value = localStorage.getItem(STORAGE_KEY)
-    return value === 'mock' || value === 'tripo' ? value : null
+    return RUN_PROVIDERS.includes(value as RunProvider) ? (value as RunProvider) : null
   } catch {
     // Private browsing or a blocked store; the session default is fine.
     return null
@@ -20,7 +21,7 @@ function storedProvider(): RunProvider | null {
 }
 
 export function useDebugSettings() {
-  const capabilities = ref<{ providers: Record<RunProvider, boolean>; defaultProvider: RunProvider; tripoNodeTypes: string[] } | null>(null)
+  const capabilities = ref<{ providers: Record<RunProvider, boolean>; defaultProvider: RunProvider; tripoNodeTypes: string[]; meshyNodeTypes: string[] } | null>(null)
   const debugPanelOpen = ref(false)
   // Null means "let the server choose", which is the behaviour before anyone
   // touches the panel.
@@ -28,18 +29,19 @@ export function useDebugSettings() {
   const capabilitiesError = ref('')
 
   const tripoAvailable = computed(() => Boolean(capabilities.value?.providers.tripo))
+  const meshyAvailable = computed(() => Boolean(capabilities.value?.providers.meshy))
   // What a run started right now would actually use.
   const activeProvider = computed<RunProvider>(() => {
     if (selectedProvider.value && capabilities.value?.providers[selectedProvider.value]) return selectedProvider.value
     return capabilities.value?.defaultProvider || 'mock'
   })
   const tripoNodeTypes = computed(() => capabilities.value?.tripoNodeTypes || [])
+  const meshyNodeTypes = computed(() => capabilities.value?.meshyNodeTypes || [])
 
-  function setProvider(provider: RunProvider | null) {
+  function setProvider(provider: RunProvider) {
     selectedProvider.value = provider
     try {
-      if (provider) localStorage.setItem(STORAGE_KEY, provider)
-      else localStorage.removeItem(STORAGE_KEY)
+      localStorage.setItem(STORAGE_KEY, provider)
     } catch {
       // Not being able to remember the choice does not stop it applying now.
     }
@@ -53,5 +55,5 @@ export function useDebugSettings() {
     }
   })
 
-  return { capabilities, capabilitiesError, debugPanelOpen, selectedProvider, activeProvider, tripoAvailable, tripoNodeTypes, setProvider }
+  return { capabilities, capabilitiesError, debugPanelOpen, selectedProvider, activeProvider, tripoAvailable, meshyAvailable, tripoNodeTypes, meshyNodeTypes, setProvider }
 }

@@ -4,6 +4,19 @@
 
 ## Recent Work
 
+### 2026-09-04 - main
+
+- Debug 面板移除执行模式的 Auto 选项，只保留 Mock / Tripo API / Meshy API 三种：单选选中态改由 `activeProvider` 驱动（用户未选择时自动高亮服务器默认值），`setProvider` 收紧为只接受 `RunProvider`（去掉 null 与 localStorage 清除分支），`DebugPanel` 删除 `selectedProvider` prop、`serverDefault` 计算属性与 Auto 按钮，`App.vue` 移除对应绑定。
+- 行为不变：未手动选择时 `selectedProvider` 仍为 null，运行请求依然省略 provider 由服务器决定默认值。
+- 验证：`npm run typecheck`、`npm test`（348/348）、`npm run build`、`git diff --check` 通过；浏览器实测本工作树 dev server（5175），面板仅显示三个选项且 Tripo API（服务器默认）为选中态、Meshy 无 key 置灰。
+- Remaining issues: None。
+
+### 2026-09-03 - main
+
+- 重新发布到 Cloudflare：`npm run cf:deploy`（vite build → prepare-cloudflare-assets → wrangler deploy），工作区干净、无代码变更；部署 worker `forge3d-canvas-studio`，Version ID `63194ab0-f2c0-4bec-963c-4b21d85a9db0`，上传 5 个新静态资产。
+- 验证：`curl https://forge3d.lumixraku.org/` 返回 200 且引用新构建产物 `index-Br5paG_x.js`，与本次构建一致。
+- Remaining issues: None。
+
 ### 2026-09-03 - main
 
 - 节点左右两侧 `+` 按钮弹出的“添加上游/下游节点”菜单改为 viewport UI：`Teleport` 到 `body` 并以 `position: fixed` + 屏幕坐标挂载在按钮旁（`togglePreviousMenu`/`toggleNextMenu`/`anchoredMenuPosition`），不再随画布缩放/平移，与右键菜单一致。

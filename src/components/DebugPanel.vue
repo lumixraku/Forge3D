@@ -5,17 +5,25 @@ import type { RunProvider } from '../composables/useDebugSettings'
 
 const props = defineProps<{
   open: boolean
-  selectedProvider: RunProvider | null
   activeProvider: RunProvider
   tripoAvailable: boolean
+  meshyAvailable: boolean
   tripoNodeTypes: string[]
+  meshyNodeTypes: string[]
   error: string
   // A getter rather than the document itself: serializing the canvas on every
   // node edit to fill a prop nobody reads until the button is pressed would be
   // wasted work.
   readCanvasJson: () => string | null
 }>()
-const emit = defineEmits<{ 'update:open': [boolean]; 'set-provider': [RunProvider | null] }>()
+const emit = defineEmits<{ 'update:open': [boolean]; 'set-provider': [RunProvider] }>()
+
+const PROVIDER_LABELS: Record<RunProvider, string> = { mock: 'Mock', tripo: 'Tripo API', meshy: 'Meshy API' }
+// Null for the simulation; the bare name otherwise, for "Backed by …" copy.
+const activeProviderName = computed(() => (props.activeProvider === 'tripo' ? 'Tripo' : props.activeProvider === 'meshy' ? 'Meshy' : null))
+// The node types the active real backend actually executes; everything else
+// stays simulated even when a real provider is selected.
+const activeNodeTypes = computed(() => (props.activeProvider === 'tripo' ? props.tripoNodeTypes : props.activeProvider === 'meshy' ? props.meshyNodeTypes : []))
 
 type Corner = 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right'
 
@@ -156,18 +164,8 @@ async function copyCanvasJson() {
           <button
             type="button"
             role="radio"
-            :aria-checked="props.selectedProvider === null"
-            :class="{ 'forge3d-selected': props.selectedProvider === null }"
-            @click="emit('set-provider', null)"
-          >
-            <strong>Auto</strong>
-            <small>Server default · {{ props.tripoAvailable ? 'Tripo' : 'Mock' }}</small>
-          </button>
-          <button
-            type="button"
-            role="radio"
-            :aria-checked="props.selectedProvider === 'mock'"
-            :class="{ 'forge3d-selected': props.selectedProvider === 'mock' }"
+            :aria-checked="props.activeProvider === 'mock'"
+            :class="{ 'forge3d-selected': props.activeProvider === 'mock' }"
             @click="emit('set-provider', 'mock')"
           >
             <strong>Mock</strong>
@@ -176,27 +174,39 @@ async function copyCanvasJson() {
           <button
             type="button"
             role="radio"
-            :aria-checked="props.selectedProvider === 'tripo'"
+            :aria-checked="props.activeProvider === 'tripo'"
             :disabled="!props.tripoAvailable"
-            :class="{ 'forge3d-selected': props.selectedProvider === 'tripo' }"
+            :class="{ 'forge3d-selected': props.activeProvider === 'tripo' }"
             :title="props.tripoAvailable ? '' : 'Set TRIPO_API_KEY and restart the API server'"
             @click="emit('set-provider', 'tripo')"
           >
             <strong>Tripo API</strong>
             <small>{{ props.tripoAvailable ? 'Real 3D · spends credits' : 'No API key' }}</small>
           </button>
+          <button
+            type="button"
+            role="radio"
+            :aria-checked="props.activeProvider === 'meshy'"
+            :disabled="!props.meshyAvailable"
+            :class="{ 'forge3d-selected': props.activeProvider === 'meshy' }"
+            :title="props.meshyAvailable ? '' : 'Set MESHY_API_KEY and restart the API server'"
+            @click="emit('set-provider', 'meshy')"
+          >
+            <strong>Meshy API</strong>
+            <small>{{ props.meshyAvailable ? 'Real 3D · spends credits' : 'No API key' }}</small>
+          </button>
         </div>
       </section>
 
       <section class="forge:border-t forge:border-line-subtle forge:p-3 forge:[&_h3]:mb-2 forge:[&_h3]:mt-0 forge:[&_h3]:font-mono forge:[&_h3]:text-[9px] forge:[&_h3]:font-semibold forge:[&_h3]:uppercase forge:[&_h3]:tracking-[.07em] forge:[&_h3]:text-text-muted">
         <h3>Active</h3>
-        <p class="forge:m-0 forge:flex forge:items-center forge:gap-[7px] forge:text-xs forge:text-text-primary forge:[&_i]:size-[7px] forge:[&_i]:rounded-full forge:[&_i]:bg-text-muted forge:[&.forge3d-tripo_i]:bg-acid forge:[&.forge3d-tripo_i]:shadow-[0_0_6px_var(--acid)] forge:[&_b]:ml-auto forge:[&_b]:font-mono forge:[&_b]:text-[9px] forge:[&_b]:font-medium forge:[&_b]:tracking-[.04em] forge:[&_b]:text-acid" :class="bizClass(props.activeProvider)">
+        <p class="forge:m-0 forge:flex forge:items-center forge:gap-[7px] forge:text-xs forge:text-text-primary forge:[&_i]:size-[7px] forge:[&_i]:rounded-full forge:[&_i]:bg-text-muted forge:[&.forge3d-tripo_i]:bg-acid forge:[&.forge3d-tripo_i]:shadow-[0_0_6px_var(--acid)] forge:[&.forge3d-meshy_i]:bg-acid forge:[&.forge3d-meshy_i]:shadow-[0_0_6px_var(--acid)] forge:[&_b]:ml-auto forge:[&_b]:font-mono forge:[&_b]:text-[9px] forge:[&_b]:font-medium forge:[&_b]:tracking-[.04em] forge:[&_b]:text-acid" :class="bizClass(props.activeProvider)">
           <i />
-          <span>{{ props.activeProvider === 'tripo' ? 'Tripo API' : 'Mock' }}</span>
-          <b v-if="props.activeProvider === 'tripo'">spends credits</b>
+          <span>{{ PROVIDER_LABELS[props.activeProvider] }}</span>
+          <b v-if="activeProviderName">spends credits</b>
         </p>
-        <p v-if="props.activeProvider === 'tripo'" class="forge:mb-0 forge:mt-[7px] forge:text-[10px] forge:leading-[1.45] forge:text-text-muted">
-          Backed by Tripo: {{ props.tripoNodeTypes.join(', ') }}. Other node types stay simulated.
+        <p v-if="activeProviderName" class="forge:mb-0 forge:mt-[7px] forge:text-[10px] forge:leading-[1.45] forge:text-text-muted">
+          Backed by {{ activeProviderName }}: {{ activeNodeTypes.join(', ') }}. Other node types stay simulated.
         </p>
         <p v-if="props.error" class="forge:mb-0 forge:mt-[7px] forge:text-[10px] forge:leading-[1.45] forge:text-status-failed">{{ props.error }}</p>
       </section>
@@ -216,15 +226,15 @@ async function copyCanvasJson() {
 
     <button
       type="button"
-      class="forge3d-debug-ball forge:flex forge:size-[52px] forge:cursor-pointer forge:flex-col forge:items-center forge:justify-center forge:gap-0.5 forge:rounded-full forge:border forge:border-line-strong forge:bg-bg-card forge:font-mono forge:text-[9px] forge:font-semibold forge:tracking-[.04em] forge:text-text-secondary forge:shadow-md forge:transition-[transform,border-color,color] forge:hover:-translate-y-px forge:hover:border-acid forge:hover:text-text-primary forge:[&.forge3d-open]:border-acid forge:[&.forge3d-open]:text-text-primary forge:[&_i]:size-[7px] forge:[&_i]:rounded-full forge:[&_i]:bg-text-muted forge:[&.forge3d-tripo_i]:bg-acid forge:[&.forge3d-tripo_i]:shadow-[0_0_6px_var(--acid)] forge:[&.forge3d-tripo]:text-text-primary"
-      :class="[props.activeProvider, { open: props.open }]"
+      class="forge3d-debug-ball forge:flex forge:size-[52px] forge:cursor-pointer forge:flex-col forge:items-center forge:justify-center forge:gap-0.5 forge:rounded-full forge:border forge:border-line-strong forge:bg-bg-card forge:font-mono forge:text-[9px] forge:font-semibold forge:tracking-[.04em] forge:text-text-secondary forge:shadow-md forge:transition-[transform,border-color,color] forge:hover:-translate-y-px forge:hover:border-acid forge:hover:text-text-primary forge:[&.forge3d-open]:border-acid forge:[&.forge3d-open]:text-text-primary forge:[&_i]:size-[7px] forge:[&_i]:rounded-full forge:[&_i]:bg-text-muted forge:[&.forge3d-tripo_i]:bg-acid forge:[&.forge3d-tripo_i]:shadow-[0_0_6px_var(--acid)] forge:[&.forge3d-tripo]:text-text-primary forge:[&.forge3d-meshy_i]:bg-acid forge:[&.forge3d-meshy_i]:shadow-[0_0_6px_var(--acid)] forge:[&.forge3d-meshy]:text-text-primary"
+      :class="[bizClass(props.activeProvider), { 'forge3d-open': props.open }]"
       :aria-expanded="props.open"
-      :aria-label="`Debug settings · running on ${props.activeProvider === 'tripo' ? 'Tripo API' : 'Mock'} · drag to move`"
+      :aria-label="`Debug settings · running on ${PROVIDER_LABELS[props.activeProvider]} · drag to move`"
       @pointerdown="onPointerDown"
       @click="onBallClick"
     >
       <i />
-      <span>{{ props.activeProvider === 'tripo' ? 'API' : 'MOCK' }}</span>
+      <span>{{ activeProviderName ? 'API' : 'MOCK' }}</span>
     </button>
   </div>
 </template>

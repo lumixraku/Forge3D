@@ -233,7 +233,7 @@ configureIdleRelease({
   isBusy: () => saving.value || agentBusy.value || isRunning.value,
 })
 
-const { capabilitiesError, debugPanelOpen, selectedProvider, activeProvider, tripoAvailable, tripoNodeTypes, setProvider } = useDebugSettings()
+const { capabilitiesError, debugPanelOpen, selectedProvider, activeProvider, tripoAvailable, meshyAvailable, tripoNodeTypes, meshyNodeTypes, setProvider } = useDebugSettings()
 
 const { isRunning, runDetails, runSummary, runCanvas, cancelRun, executions, executionsLoading, loadExecutions, activeExecutions } = useCanvasRun({
   activeCanvas,
@@ -1051,10 +1051,11 @@ onUnmounted(() => {
     <ImagePreviewOverlay :preview="imagePreview" @close="closeImagePreview" />
     <DebugPanel
       v-model:open="debugPanelOpen"
-      :selected-provider="selectedProvider"
       :active-provider="activeProvider"
       :tripo-available="tripoAvailable"
+      :meshy-available="meshyAvailable"
       :tripo-node-types="tripoNodeTypes"
+      :meshy-node-types="meshyNodeTypes"
       :error="capabilitiesError"
       :read-canvas-json="canvasJson"
       @set-provider="setProvider"
