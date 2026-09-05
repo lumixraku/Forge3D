@@ -6,9 +6,10 @@
 import { createServer } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { createStore } from './store.js'
+import { createPostgresStore } from './postgres-store.js'
 import { createTripoRunner, createTripoTaskReader } from './tripo-run.js'
 import { createMeshyRunner } from './meshy-run.js'
-import { persistUploadedAsset, readAsset } from './tripo-assets.js'
+import { persistUploadedAsset, readAsset as readAssetFromDisk } from './tripo-assets.js'
 import { createApi } from './api-core.js'
 import { listenOnAvailablePort } from './listen.js'
 
@@ -18,10 +19,14 @@ const port = Number(process.env.PORT || 8787)
 const dataDirectory = process.env.FORGE3D_DATA_DIR || undefined
 // Null when the matching API key is unset, which keeps every node on the
 // simulated producer so the demo runs without credentials.
-const createTripoProvider = createTripoRunner()
-const createMeshyProvider = createMeshyRunner()
+const store = process.env.DATABASE_URL
+  ? await createPostgresStore()
+  : await createStore({ dataDirectory })
+const readAsset = store.readAsset || readAssetFromDisk
+const uploadAsset = store.uploadAsset || persistUploadedAsset
+const createTripoProvider = createTripoRunner(process.env, { readAsset })
+const createMeshyProvider = createMeshyRunner(process.env, { readAsset })
 const getTripoTask = createTripoTaskReader()
-const store = await createStore({ dataDirectory })
 
 // Local dev defaults to the Pi agent service. Set AGENT_SERVICE_URL=direct to use
 // the built-in DeepSeek loop instead.
@@ -47,7 +52,7 @@ const context = {
     createMeshyProvider,
     getTripoTask,
     readAsset,
-    uploadAsset: persistUploadedAsset,
+    uploadAsset,
   },
   // Node keeps the process alive on its own, so a background turn or run only
   // needs its rejection swallowed.

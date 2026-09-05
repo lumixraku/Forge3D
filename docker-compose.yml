@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: forge3d
+      POSTGRES_USER: forge3d
+      POSTGRES_PASSWORD: forge3d
+    ports:
+      - "5432:5432"
+    volumes:
+      - forge3d-postgres:/var/lib/postgresql/data
+
+volumes:
+  forge3d-postgres:

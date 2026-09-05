@@ -55,7 +55,7 @@ export function resolvePrompt(node, canvas) {
  *
  * Tokens are cached per run so the same reference is uploaded once.
  */
-async function toTripoInput(reference, { client, uploads }) {
+async function toTripoInput(reference, { client, uploads, readAsset }) {
   if (!reference || typeof reference !== 'string') return null
   if (/^https?:\/\//.test(reference)) return reference
   if (uploads.has(reference)) return uploads.get(reference)
@@ -69,10 +69,18 @@ async function toTripoInput(reference, { client, uploads }) {
     bytes = Buffer.from(base64 ? payload : decodeURIComponent(payload), base64 ? 'base64' : 'utf8')
     filename = `reference.${(mime.split('/')[1] || 'png').toLowerCase()}`
   } else if (reference.startsWith(assetUrlPrefix)) {
-    const resolved = resolveAssetPath(reference.slice(assetUrlPrefix.length))
-    if (!resolved) throw new Error('The upstream asset could not be read.')
-    bytes = await readFile(resolved)
-    filename = path.basename(resolved)
+    const assetId = reference.slice(assetUrlPrefix.length)
+    if (readAsset) {
+      const asset = await readAsset(assetId)
+      if (!asset) throw new Error('The upstream asset could not be read.')
+      bytes = asset.bytes
+      filename = assetId
+    } else {
+      const resolved = resolveAssetPath(assetId)
+      if (!resolved) throw new Error('The upstream asset could not be read.')
+      bytes = await readFile(resolved)
+      filename = path.basename(resolved)
+    }
   } else if (reference.startsWith('/')) {
     // A bundled demo file such as /shark-reference.png. Tripo cannot fetch a
     // local dev path, so it is uploaded like any other reference.
@@ -262,6 +270,7 @@ export async function executeTripoNode(node, canvas, {
   client,
   context = new Map(),
   uploads = new Map(),
+  readAsset,
   onProgress = async () => {},
   pollIntervalMs = 2000,
 } = {}) {
@@ -277,15 +286,15 @@ export async function executeTripoNode(node, canvas, {
   if (needsModel) {
     // A generation task id is passed straight through; a stored mesh has to be
     // uploaded, because Tripo cannot fetch a local /api/assets path.
-    input = upstreamModel?.taskId || await toTripoInput(upstreamModel?.reference, { client, uploads })
+    input = upstreamModel?.taskId || await toTripoInput(upstreamModel?.reference, { client, uploads, readAsset })
   } else {
-    const toInput = (reference) => toTripoInput(reference, { client, uploads })
+    const toInput = (reference) => toTripoInput(reference, { client, uploads, readAsset })
     const resolved = await resolveGenerateModelImages(node, canvas, context, { toInput, labeledViews: true })
     input = resolved.input ?? null
     multiview = resolved.multiview ?? null
   }
   const imageInput = node.type === 'texture'
-    ? await toTripoInput(resolveUpstreamImage(node, canvas, context), { client, uploads })
+    ? await toTripoInput(resolveUpstreamImage(node, canvas, context), { client, uploads, readAsset })
     : null
 
   const request = tripoRequest(node, { input, prompt: resolvePrompt(node, canvas), imageInput, multiview })

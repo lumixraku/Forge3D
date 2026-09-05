@@ -5,7 +5,7 @@
 import { createMeshyClient, isMeshyConfigured } from './meshy.js'
 import { executeMeshyNode } from './meshy-provider.js'
 
-export function createMeshyRunner(env = process.env) {
+export function createMeshyRunner(env = process.env, { readAsset } = {}) {
   if (!isMeshyConfigured(env)) return null
   const client = createMeshyClient({ apiKey: env.MESHY_API_KEY, baseUrl: env.MESHY_BASE_URL })
 
@@ -16,6 +16,7 @@ export function createMeshyRunner(env = process.env) {
       return executeMeshyNode(node, fullCanvas || executionCanvas, {
         client,
         context,
+        readAsset,
         // Progress is written onto the node run so the canvas can show a percentage
         // while a task that takes minutes is still running.
         onProgress: async ({ meshyTaskId, progress }) => {

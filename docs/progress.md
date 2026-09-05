@@ -4,6 +4,19 @@
 
 ## Recent Work
 
+### 2026-09-05 - main
+
+- 将 Node/PostgreSQL 路径的二进制资源迁移至 `forge3d_assets`：新增 `002_assets.sql`（`BYTEA`），启动时幂等导入 `server/data/assets` 的既有哈希资源；在配置 `DATABASE_URL` 时上传和 `/api/assets/:id` 读取均来自 PostgreSQL，而非本地文件。
+- Tripo 与 Meshy 的本地资源回读改为依赖注入，在 PostgreSQL 模式下可将已上传的引用图读回并分别上传/内联给提供商；未启用数据库时仍保留现有磁盘实现。
+- 新增真实 HTTP + PostgreSQL 验收：通过 `POST /api/projects` 创建项目，`PUT /api/canvases/:id` 更新节点，`POST/GET /api/assets` 写入并读取资源，然后直接查询 `forge3d_documents` 与 `forge3d_assets` 核对结果；测试后清理测试数据。实际验收已通过：项目 201、节点更新 200、资源上传/读取 200，数据库中的 canvas、initial session、节点配置与 BYTEA 字节均匹配。
+- 验证：`pnpm test`（348 passed, 3 skipped）、`pnpm run typecheck`、`pnpm run test:postgres`（3 passed）、`pnpm run build`、`git diff --check` 通过。Remaining issues: Cloudflare Worker/D1 仍未迁移二进制资源，维持原有无 R2 上传限制。
+- 2026-09-05（当前分支 `main`）：备份原 `server/data` 到 `/Users/nan/others/Forge3D-backup-20260905-211425/data`，将 7 个集合共 34 条 JSON 记录和 7 个资源文件（约 42 MB）完整导入 PostgreSQL；按记录和 SHA-256 字节逐项核对一致后删除原 JSON/二进制文件，仅保留 `server/data/.gitkeep`。验证 PostgreSQL API 测试 4 passed、全量测试 348 passed/4 skipped、typecheck 和 build 通过；新增测试确认 PostgreSQL Store 不会写入文件数据目录。Remaining issues: 空数据库首次初始化仍需要只读的 `server/seed/*.json`，Cloudflare Worker/D1 仍未迁移二进制资源。
+- 2026-09-05（当前分支 `main`）：按要求将 PostgreSQL 中的历史数据收敛为一套可用样例：保留 `canvas-3a7cdb1d-1edb-4bd6-98ba-be2a4df427d2` 及其 8 节点/4 连接、关联初始 session、默认 account 和其关联的 1 个参考图资源；删除其余画布、会话、运行记录、turn、trace、积分流水及未关联资源。重新运行 PostgreSQL 测试 4 passed、全量测试 348 passed/4 skipped、typecheck 和 build 通过。全量测试的文件 Store 会按设计生成临时 `server/data` 文件，已在测试后再次删除；当前 `server/data` 仅保留 `.gitkeep`。Remaining issues: None。
+
+- 新增可实际运行的 PostgreSQL 持久化路径：Node API 设置 `DATABASE_URL` 后使用 `forge3d_documents` JSONB 表，启动时自动建表并从 `server/seed/*.json` 初始化；未设置时保留 JSON 文件存储，Worker/D1 路径不变。
+- 新增 `docker-compose.yml`，提供 PostgreSQL 16 本地容器；补充 `pg` 依赖、环境变量和 README 启动说明。
+- 验证：`pnpm install --lockfile-only`、`pnpm test`（348 passed, 1 skipped）、`pnpm run typecheck`、`pnpm run build`、`docker compose config`、`git diff --check`、`pnpm run test:postgres`（1 passed）通过；Docker 容器 `forge3d-postgres-1` 正常运行并接受连接。Remaining issues: None。
+
 ### 2026-09-04 - main
 
 - Debug 面板移除执行模式的 Auto 选项，只保留 Mock / Tripo API / Meshy API 三种：单选选中态改由 `activeProvider` 驱动（用户未选择时自动高亮服务器默认值），`setProvider` 收紧为只接受 `RunProvider`（去掉 null 与 localStorage 清除分支），`DebugPanel` 删除 `selectedProvider` prop、`serverDefault` 计算属性与 Auto 按钮，`App.vue` 移除对应绑定。

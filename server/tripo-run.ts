@@ -5,7 +5,7 @@
 import { createTripoClient, isTripoConfigured } from './tripo.js'
 import { executeTripoNode } from './tripo-provider.js'
 
-export function createTripoRunner(env = process.env) {
+export function createTripoRunner(env = process.env, { readAsset } = {}) {
   if (!isTripoConfigured(env)) return null
   const client = createTripoClient({ apiKey: env.TRIPO_API_KEY, baseUrl: env.TRIPO_BASE_URL })
 
@@ -19,6 +19,7 @@ export function createTripoRunner(env = process.env) {
       return executeTripoNode(node, fullCanvas || executionCanvas, {
         client,
         context,
+        readAsset,
         uploads,
         // Progress is written onto the node run so the canvas can show a percentage
         // while a task that takes minutes is still running.

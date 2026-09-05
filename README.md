@@ -98,8 +98,14 @@ corepack enable
 corepack prepare pnpm@11.16.0 --activate
 pnpm install --frozen-lockfile
 cp .env.example .env
+docker compose up -d postgres
 pnpm dev
 ```
+
+With `DATABASE_URL` set in `.env`, the Node API uses PostgreSQL and creates the
+`forge3d_documents` table on startup. The first startup seeds it from
+`server/seed/*.json`; subsequent startups read and write the database. Remove
+`DATABASE_URL` to use the legacy file-backed store.
 
 Set `DEEPSEEK_API_KEY` for Agent turns. Local development uses the Pi Agent
 service by default; set `AGENT_SERVICE_URL=direct` to exercise the built-in

@@ -39,6 +39,10 @@ const CONTENT_TYPE_BY_EXTENSION = {
 // the asset directory.
 const ASSET_FILE_PATTERN = /^[a-f0-9]{32}\.[a-z0-9]{2,4}$/
 
+export function isAssetFileName(file) {
+  return ASSET_FILE_PATTERN.test(file)
+}
+
 /** Picks the stored extension from the URL path, falling back to the content type. */
 export function assetExtension(url, contentType = '') {
   const fromUrl = new URL(url, 'https://placeholder.invalid').pathname.split('.').pop()?.toLowerCase()
@@ -52,7 +56,7 @@ export function assetContentType(file) {
 
 /** Resolves a request path to a file on disk, or null when it is not a valid asset name. */
 export function resolveAssetPath(file) {
-  if (!ASSET_FILE_PATTERN.test(file)) return null
+  if (!isAssetFileName(file)) return null
   const resolved = path.join(assetDirectory, file)
   // Belt and braces: the pattern already excludes separators and dots.
   return resolved.startsWith(assetDirectory + path.sep) ? resolved : null

@@ -28,17 +28,25 @@ const IMAGE_MIME_BY_EXTENSION = {
  *   inlined as a data URI
  * - a public http(s) URL -> passed through untouched
  */
-async function toMeshyInput(reference) {
+async function toMeshyInput(reference, { readAsset } = {}) {
   if (!reference || typeof reference !== 'string') return null
   if (/^https?:\/\//.test(reference) || reference.startsWith('data:')) return reference
 
   let bytes
   let filename
   if (reference.startsWith(assetUrlPrefix)) {
-    const resolved = resolveAssetPath(reference.slice(assetUrlPrefix.length))
-    if (!resolved) throw new Error('The upstream asset could not be read.')
-    bytes = await readFile(resolved)
-    filename = path.basename(resolved)
+    const assetId = reference.slice(assetUrlPrefix.length)
+    if (readAsset) {
+      const asset = await readAsset(assetId)
+      if (!asset) throw new Error('The upstream asset could not be read.')
+      bytes = asset.bytes
+      filename = assetId
+    } else {
+      const resolved = resolveAssetPath(assetId)
+      if (!resolved) throw new Error('The upstream asset could not be read.')
+      bytes = await readFile(resolved)
+      filename = path.basename(resolved)
+    }
   } else if (reference.startsWith('/')) {
     // A bundled demo file such as /shark-reference.png. Meshy cannot fetch a
     // local dev path, so it is inlined like any other reference.
@@ -66,13 +74,15 @@ async function toMeshyInput(reference) {
 export async function executeMeshyNode(node, canvas, {
   client,
   context = new Map(),
+  readAsset,
   onProgress = async () => {},
   pollIntervalMs = 2000,
 } = {}) {
   if (!usesMeshy(node)) return null
   const startedAt = Date.now()
 
-  const resolved = await resolveGenerateModelImages(node, canvas, context, { toInput: toMeshyInput, labeledViews: false })
+  const toInput = (reference) => toMeshyInput(reference, { readAsset })
+  const resolved = await resolveGenerateModelImages(node, canvas, context, { toInput, labeledViews: false })
   const request = meshyRequest(node, {
     input: resolved.input ?? null,
     prompt: resolvePrompt(node, canvas),
