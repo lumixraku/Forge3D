@@ -1,54 +1,13 @@
 # Progress
 
-> 仓库工作日志。为保持体积稳定，历史按主题合并为长期能力总结（不逐条追加），只在本文件末尾的 Recent Work 中保留短期更新；Recent Work 单调累积时定期把旧条目并入对应主题。
-
-## Recent Work
-
-### 2026-09-05 - main
-
-- 将 Node/PostgreSQL 路径的二进制资源迁移至 `forge3d_assets`：新增 `002_assets.sql`（`BYTEA`），启动时幂等导入 `server/data/assets` 的既有哈希资源；在配置 `DATABASE_URL` 时上传和 `/api/assets/:id` 读取均来自 PostgreSQL，而非本地文件。
-- Tripo 与 Meshy 的本地资源回读改为依赖注入，在 PostgreSQL 模式下可将已上传的引用图读回并分别上传/内联给提供商；未启用数据库时仍保留现有磁盘实现。
-- 新增真实 HTTP + PostgreSQL 验收：通过 `POST /api/projects` 创建项目，`PUT /api/canvases/:id` 更新节点，`POST/GET /api/assets` 写入并读取资源，然后直接查询 `forge3d_documents` 与 `forge3d_assets` 核对结果；测试后清理测试数据。实际验收已通过：项目 201、节点更新 200、资源上传/读取 200，数据库中的 canvas、initial session、节点配置与 BYTEA 字节均匹配。
-- 验证：`pnpm test`（348 passed, 3 skipped）、`pnpm run typecheck`、`pnpm run test:postgres`（3 passed）、`pnpm run build`、`git diff --check` 通过。Remaining issues: Cloudflare Worker/D1 仍未迁移二进制资源，维持原有无 R2 上传限制。
-- 2026-09-05（当前分支 `main`）：备份原 `server/data` 到 `/Users/nan/others/Forge3D-backup-20260905-211425/data`，将 7 个集合共 34 条 JSON 记录和 7 个资源文件（约 42 MB）完整导入 PostgreSQL；按记录和 SHA-256 字节逐项核对一致后删除原 JSON/二进制文件，仅保留 `server/data/.gitkeep`。验证 PostgreSQL API 测试 4 passed、全量测试 348 passed/4 skipped、typecheck 和 build 通过；新增测试确认 PostgreSQL Store 不会写入文件数据目录。Remaining issues: 空数据库首次初始化仍需要只读的 `server/seed/*.json`，Cloudflare Worker/D1 仍未迁移二进制资源。
-- 2026-09-05（当前分支 `main`）：按要求将 PostgreSQL 中的历史数据收敛为一套可用样例：保留 `canvas-3a7cdb1d-1edb-4bd6-98ba-be2a4df427d2` 及其 8 节点/4 连接、关联初始 session、默认 account 和其关联的 1 个参考图资源；删除其余画布、会话、运行记录、turn、trace、积分流水及未关联资源。重新运行 PostgreSQL 测试 4 passed、全量测试 348 passed/4 skipped、typecheck 和 build 通过。全量测试的文件 Store 会按设计生成临时 `server/data` 文件，已在测试后再次删除；当前 `server/data` 仅保留 `.gitkeep`。Remaining issues: None。
-
-- 新增可实际运行的 PostgreSQL 持久化路径：Node API 设置 `DATABASE_URL` 后使用 `forge3d_documents` JSONB 表，启动时自动建表并从 `server/seed/*.json` 初始化；未设置时保留 JSON 文件存储，Worker/D1 路径不变。
-- 新增 `docker-compose.yml`，提供 PostgreSQL 16 本地容器；补充 `pg` 依赖、环境变量和 README 启动说明。
-- 验证：`pnpm install --lockfile-only`、`pnpm test`（348 passed, 1 skipped）、`pnpm run typecheck`、`pnpm run build`、`docker compose config`、`git diff --check`、`pnpm run test:postgres`（1 passed）通过；Docker 容器 `forge3d-postgres-1` 正常运行并接受连接。Remaining issues: None。
-
-### 2026-09-04 - main
-
-- Debug 面板移除执行模式的 Auto 选项，只保留 Mock / Tripo API / Meshy API 三种：单选选中态改由 `activeProvider` 驱动（用户未选择时自动高亮服务器默认值），`setProvider` 收紧为只接受 `RunProvider`（去掉 null 与 localStorage 清除分支），`DebugPanel` 删除 `selectedProvider` prop、`serverDefault` 计算属性与 Auto 按钮，`App.vue` 移除对应绑定。
-- 行为不变：未手动选择时 `selectedProvider` 仍为 null，运行请求依然省略 provider 由服务器决定默认值。
-- 验证：`npm run typecheck`、`npm test`（348/348）、`npm run build`、`git diff --check` 通过；浏览器实测本工作树 dev server（5175），面板仅显示三个选项且 Tripo API（服务器默认）为选中态、Meshy 无 key 置灰。
-- Remaining issues: None。
-
-### 2026-09-03 - main
-
-- 重新发布到 Cloudflare：`npm run cf:deploy`（vite build → prepare-cloudflare-assets → wrangler deploy），工作区干净、无代码变更；部署 worker `forge3d-canvas-studio`，Version ID `63194ab0-f2c0-4bec-963c-4b21d85a9db0`，上传 5 个新静态资产。
-- 验证：`curl https://forge3d.lumixraku.org/` 返回 200 且引用新构建产物 `index-Br5paG_x.js`，与本次构建一致。
-- Remaining issues: None。
-
-### 2026-09-03 - main
-
-- 节点左右两侧 `+` 按钮弹出的“添加上游/下游节点”菜单改为 viewport UI：`Teleport` 到 `body` 并以 `position: fixed` + 屏幕坐标挂载在按钮旁（`togglePreviousMenu`/`toggleNextMenu`/`anchoredMenuPosition`），不再随画布缩放/平移，与右键菜单一致。
-- 点击空白画布（`VueFlow @pane-click` → `dismissCanvasPopups`）同样关闭右键菜单与 `+` 菜单，不再仅限画布移动/缩放时。
-- 验证：`pnpm run typecheck`、`pnpm run build` 通过；build 仅保留既有 large-chunk warning。
-- Remaining issues: 未在浏览器实测视觉位置（本地 dev 指向不确定），逻辑与右键菜单同构。
-
-## Current State
-
-- Branch: `main`（最近提交 `3da0c15 fix: throttle canvas saves at 2s, save structural edits immediately`）。
-- 测试基线：`pnpm test` 302/302 通过；`pnpm run typecheck`、`pnpm run build` 干净（build 保留既有 large-chunk warning）；`git diff --check` 通过。
-- 浏览器验证说明：本机 5175/5176 的 dev server 偶发指向 `/Users/nan/repos/tripo-forge3d-demo`（第二个分叉 clone，含 `forge:`→`forge-` 前缀迁移），因此部分条目未做浏览器验证；验证时需确认运行的是本工作树。
-- 生产环境：`https://forge3d.lumixraku.org`（worker `forge3d-canvas-studio`，D1 `forge3d`/`9b7fb975-...`），`TRIPO_API_KEY`/`TRIPO_BASE_URL` 来自 `.env`；Tripo 仅在本地 Node server 可跑，Cloudflare 上不可用（见 Capability Summaries 内 “Tripo 与 Cloudflare”）。
+> 按功能维护的项目状态记录。同一功能的后续改动直接更新原主题，不按 commit 或操作次数逐条追加；仅保留当前能力、验证结论与未解决问题。
 
 ## Capability Summaries
 
 ### 画布编辑与交互
 
-- 节点目录分 Input / 2D / 3D / Video 分类；点击目录或从目录拖拽创建节点、自动选中并居中到视野；右上 `+` 菜单只列出兼容后继节点。
+- 节点目录分 Input / 2D / 3D / Video 分类；点击目录或从目录拖拽创建节点、自动选中并居中到视野；节点左右 `+` 菜单分别筛选兼容上游和下游节点，创建后自动连线。
+- 节点 `+` 菜单与右键菜单均为挂载到 `body` 的 viewport UI，不随画布缩放或平移；点击空白画布、移动或缩放都会关闭菜单。
 - 连接生命周期（`onConnect`/`onConnectStart`/`onConnectEnd`/`onConnectCancel`）与类型化端口（`text`/`image`/`model`/`asset`/`any`），拒绝不兼容连接；`+ Incompatible edges` 在加载时过滤；source/target 端口元数据随连线持久化；指针命中扩展为 36px 不可见命中线，Shift 扩展选择。
 - Ctrl+D 复制节点：直接追加到渲染图、保留相对布局与参数（24px 偏移）、刷新节点/边/父节点 ID、复制不携带运行结果，也不重排既有 Section。
 - 选中感知的 Auto Layout：无选择=全局布局；选中节点=仅其坐标范围；仅选中一个 Section=只布局其直接内容；Section+外部节点=作为组节点。Auto Layout 不再伴随 fitView（拆分出工具栏主动调用）。
@@ -86,6 +45,9 @@
 - 保存收敛为一个入口：`saveCanvas({ immediate, keepalive })`（默认 700ms debounce，`immediate` 立即发），删除 `flushPendingSave`/`pendingSaveSnapshot`/`localSequence` 竞态；`savePromise` 链式串行，避免 409 覆盖；2016-08-30 起改为 2000ms throttle + 结构性改动（增删节点、上传完成、Agent 面板聚焦）立即保存。
 - 服务器端 `baseRevision` 条件写、stale 返回 409；草稿持久化到 localStorage；blur/pagehide/keepalive 尽快 flush。
 - 协作：进程内 edit lease（30s 过期、10s 续租、blur/page exit 释放、30s 无编辑自动释放）、per-tab 访客身份、当前编辑者 top notice（advisory，不阻塞编辑）；帧内边距与 `componentGap` 与 zoom 无关，避免不同缩放两端互相 refit 来回写。
+- Node API 配置 `DATABASE_URL` 时，画布、会话、运行、Agent trace、账户和积分流水存入 `forge3d_documents`（JSONB），上传资源存入 `forge3d_assets`（BYTEA）；API、Tripo 和 Meshy 均从数据库读写资源，且数据库模式不写 `server/data`。无数据库时保留文件 Store。
+- PostgreSQL 迁移在启动时自动执行，空库从只读的 `server/seed/*.json` 初始化，`docker-compose.yml` 提供本地 PostgreSQL 16。原文件数据备份在 `/Users/nan/others/Forge3D-backup-20260905-211425/data`，`server/data` 仅保留 `.gitkeep`。
+- PostgreSQL 当前保留一套完整样例：1 个含 8 节点、4 连接和参考图的画布，以及关联 session、默认 account 和 1 个资源；其余历史业务数据已清理。
 - 历史既有的数据迁移：`workflows`→`canvases`、`tasks`→`turns`、`workflowId`→`canvasId`、`outputResult`→`generatedAssets`、消息端口迁移；D1 六集合备份在 `~/backups/forge3d-d1/2026-08-03-pre-canvas-migration/`。
 
 ### 账户、积分与扣费
@@ -104,11 +66,14 @@
 - Tailwind 迁移：应用级规则从 `styles.css` 迁入组件按需类（`forge:` 前缀 + `forge3d-` 命名，适配宿主内嵌）；`light:` 变体；执行中边缘流动高亮、进度条、输出端口 halo。
 - 主题：`index.html` 在首帧前同步解析 `data-theme`（消除 light 主题刷新闪烁）、主题色同步、浅/深主题 token（`--node-ring` 等）。
 - 聊天/顶栏：紧凑 99px composer、30px 圆形按钮（Send/Stop 合并）、附件 pinned 宽度 120px、消息边框统一、顶部按钮群等高对齐。
+- Debug 面板的执行模式仅展示 Mock / Tripo API / Meshy API；未手动指定 provider 时高亮服务器默认值，请求仍省略 provider 交由服务器选择，不可用提供商置灰。
+- All README files are written in English. The root README focuses on features, local versus Cloudflare capabilities, prerequisites, credentials, startup, and deployment; `docs/README.md` indexes architecture and design details, while `docker/README.md` covers local PostgreSQL and the file-store fallback.
 - 其它：调试球可拖拽并吸附四角（corner 记忆）、pinch-zoom 仅画布、执行边缘动画、autosave 后 `Saved` 状态、README 截图与文档迁移到 `docs/`。
 
 ### 稳定性与基础设施
 
 - 共享 API core 消除 Node/Worker 双实现分歧；`listen.ts` 端口自动探测（`EADDRINUSE` 递增）、Vite 端口 fallback；并行保存期间也允许自动布局（`CanvasToolbar` 不再在多 PUT 期间置灰）。
+- 生产环境为 `https://forge3d.lumixraku.org`，Cloudflare Worker `forge3d-canvas-studio` 提供前端静态资源与 D1 API；最近部署版本已核对首页 200 且引用构建产物一致。
 - 修过的关键事故：自定义域名曾在重命名后流浪到旧 worker（wrangler `name` 即身份，`[[routes]] custom_domain` 修复）；重命名未随附数据迁移（`migrateCanvasRefs`）；空库时无法新建第一个画布（TopBar 空态分支）；`bizClass` 未导入导致 debug ball/任务队列空白；Node 双进程互相删 canvas（`persistCanvasFiles` 改为只写、显式 `removeCanvas`）。
 - 记录到的真实 bug：`ExecutionOutputPanel` 引用未定义的 `bizClass`；Node 服务 `EADDRINUSE` 崩溃；`outputResult` 改名后遗留旧树未迁移。
 
@@ -119,8 +84,10 @@
 
 ## Verification Summary
 
+- 最近核验：2026-09-05，分支 `main`；所有 README 已统一为英文并按功能重组，Markdown 相对链接、Docker Compose 配置和 `git diff --check` 均通过。除下述 Outstanding Issues 外无新增遗留问题。
 - 常规验证命令：`pnpm test`、`pnpm run typecheck`、`pnpm run build`、`git diff --check`、`npx wrangler deploy --dry-run`。
-- 测试规模沿革：20 → 182 → 186 → 192 → 227 → 253 → 259 → 265 → 269 → 284 → 288 → 294 → 297 → 300 → 301 → 302（当前）。
+- 当前基线：`pnpm test` 348 passed/4 skipped，`pnpm run test:postgres` 4/4 通过，`pnpm run typecheck` 与 `pnpm run build` 通过（build 仅有既有 large-chunk warning）。
+- PostgreSQL 验收覆盖真实 HTTP 创建项目、更新节点、上传和读取资源，并直查数据库确认 JSONB 文档与 BYTEA 字节一致；同时覆盖数据库模式不写文件目录。
 - 浏览器验证集中在现有 Chrome/Chrome MCP 会话的 localhost dev server；本地 dev 指向第二个 clone 的时段（2026-08-29 起）阻止了部分视觉验证。
 - `docs/execution-engine.md`、`docs/project-reference.md`、`docs/api.md` 与本日志同属文档主力；执行引擎细节与 SSE 协议另见 `docs/agent-sse-data-design.md`。
 
@@ -136,24 +103,3 @@
 - `generate-model` 的四视图/单图/多图检测仍依赖顺序假定；`nodule` 仅有声明但无节点使用（`any` 端口无人使用）。
 - Asset Upload 无 R2 时不提供上传（Worker 上不可用）。
 - 微信外链图片可能带 hotlink 防护；需在浏览器验证失败下线逻辑（属于既有高风险项，未在本轮完成后复测）。
-
-## Recent Work
-
-### 2026-09-01 - main
-
-- 节点左侧新增上游 `+`：菜单按目标节点输入端口反向筛选兼容节点；选择后在目标左侧创建节点并自动建立上游→当前节点连线；右侧后继菜单保持不变，两个菜单互斥展开。
-- 新增 `compatibleUpstreamNodeTypes` 及覆盖 Asset Upload/Gen HD Model/终端节点的单测。
-- 验证：`pnpm run typecheck`、`pnpm test`（303/303）、`pnpm run build`、`git diff --check` 通过；build 仅保留既有 large-chunk warning。
-- Remaining issues: None。
-
-### 2026-09-01 - main
-
-- 拖图片到画布：落点自动创建 Asset Upload（`reference-image`）节点并立即上传；临时 `File` 仅作非枚举 live-node 触发器，持久 URL 写 `uploadAssets` 后立即保存；保留既有节点目录拖拽路径，不支持的文件仍被画布认领（防浏览器导航），图片扩展名兜底 MIME 缺失。
-- 验证：`pnpm run typecheck`、`pnpm test` (302/302)、`pnpm run build`、`git diff --check` 通过。
-- Remaining issues: None。
-
-### 2026-08-31 - main
-
-- 运行门控从端口迁到参数：`NodePortSpec` 去掉 `required`/`requiredGroup`（仅数据流语义），`CanvasNodeSchema.requires` 声明参数（嵌套数组=任一），端口携带时在线即算满足、否则用 `fallbackConfig`，无端口携带则读 `config`；概念名同步更新（`requireParameters`/`required_parameter_missing`/`missingParametersByNode`/`missing-parameters`）；文档同步。
-- 验证：`pnpm run typecheck` 干净，`pnpm test` 302/302；新增测试覆盖连接满足端口参数、旧端口测试迁移、无 `required` 端口 + `requires: ['image']`。
-- Remaining issues: 浏览器未验证（dev server 指向第二个 clone）；行为按设计不变，预期无视觉差异。
