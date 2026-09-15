@@ -8,6 +8,13 @@ let executionsResponse = []
 const executionReads = []
 let executionById = {}
 
+const storage = new Map()
+globalThis.localStorage = {
+  getItem: (key) => storage.get(key) ?? null,
+  setItem: (key, value) => storage.set(key, value),
+  removeItem: (key) => storage.delete(key),
+}
+
 globalThis.fetch = async (url) => {
   if (url.endsWith('/executions')) {
     return { ok: true, status: 200, text: async () => JSON.stringify(executionsResponse) }
@@ -22,6 +29,7 @@ const { useCanvasRun } = await import('./composables/useCanvasRun.ts')
 function harness() {
   const run = ref(null)
   const nodeRuns = ref({})
+  const batches = []
   const canvas = useCanvasRun({
     activeCanvas: ref({ id: 'c1' }),
     nodes: ref([{ id: 'n1', type: 'canvas', data: { canvasType: 'generate-image' } }]),
@@ -32,10 +40,10 @@ function harness() {
     error: ref(''),
     runToken: ref(0),
     saveCanvas: async () => {},
-    materializeRunBatch: () => {},
+    materializeRunBatch: (sourceId, runId, previews) => batches.push({ sourceId, runId, previews }),
     provider: ref('mock'),
   })
-  return { canvas, run, nodeRuns }
+  return { canvas, run, nodeRuns, batches }
 }
 
 async function settle(isDone) {
@@ -45,6 +53,7 @@ async function settle(isDone) {
 }
 
 test('a task still running when the canvas opens is polled through to its output', async () => {
+  storage.clear()
   const running = { id: 'run-1', entryNodeId: 'n1', mode: 'node', status: 'running', nodeExecutions: { n1: { status: 'running', durationMs: null, output: null, error: null } } }
   const finished = { ...running, status: 'succeeded', nodeExecutions: { n1: { status: 'succeeded', durationMs: 10, output: { preview: '/model.png' }, error: null } } }
   executionsResponse = [running]
@@ -66,16 +75,35 @@ test('a task still running when the canvas opens is polled through to its output
   assert.deepEqual(nodeRuns.value.n1.output, { preview: '/model.png' })
 })
 
-test('a settled task is listed without being polled again', async () => {
-  executionsResponse = [{ id: 'run-2', entryNodeId: 'n1', mode: 'node', status: 'succeeded', nodeExecutions: {} }]
+test('a task that finished while the page was away still delivers its output', async () => {
+  const nodeExecutions = { n1: { status: 'succeeded', durationMs: 10, output: { previews: ['/a.png', '/b.png'] }, error: null } }
+  // The page saw this task running before it went away.
+  storage.set('forge3d.watched-executions', JSON.stringify(['run-3']))
+  executionsResponse = [{ id: 'run-3', entryNodeId: 'n1', mode: 'node', status: 'succeeded', nodeExecutions }]
   executionById = {}
   executionReads.length = 0
 
-  const { canvas, run } = harness()
+  const { canvas, batches } = harness()
+  await canvas.loadExecutions('c1')
+
+  assert.deepEqual(batches, [{ sourceId: 'n1', runId: 'run-3', previews: ['/a.png', '/b.png'] }])
+  assert.deepEqual(executionReads, [])
+  // Delivered once: a later reload must not place the same batch again.
+  assert.deepEqual(JSON.parse(storage.get('forge3d.watched-executions')), [])
+})
+
+test('a settled task nothing was waiting on is listed without being polled or replayed', async () => {
+  storage.clear()
+  executionsResponse = [{ id: 'run-2', entryNodeId: 'n1', mode: 'node', status: 'succeeded', nodeExecutions: { n1: { status: 'succeeded', output: { previews: ['/old.png'] }, error: null } } }]
+  executionById = {}
+  executionReads.length = 0
+
+  const { canvas, run, batches } = harness()
   await canvas.loadExecutions('c1')
 
   assert.equal(canvas.executions.value.length, 1)
   assert.equal(canvas.isRunning.value, false)
   assert.equal(run.value, null)
   assert.deepEqual(executionReads, [])
+  assert.deepEqual(batches, [])
 })

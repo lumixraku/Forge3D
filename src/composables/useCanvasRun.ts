@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { request } from '../api'
 import { planNodes } from '../run-plan'
 import { formatDuration, summarizeRun } from '../run-summary'
@@ -8,6 +8,39 @@ import { formatDuration, summarizeRun } from '../run-summary'
 // whichever backend the run is actually using.
 const POLL_INTERVAL_MS = { mock: 250, tripo: 1500, meshy: 1500 }
 const ACTIVE_STATUSES = ['queued', 'running', 'cancelling']
+// Runs this browser started or picked back up but never saw finish. A task keeps
+// going while the page is gone, so what it produced still has to be placed on
+// the canvas when the page returns. Runs from before this list knew about them
+// are never replayed, which is what stops a reload from resurrecting generated
+// nodes the user has since deleted.
+const WATCHED_EXECUTIONS_KEY = 'forge3d.watched-executions'
+const WATCHED_EXECUTIONS_LIMIT = 100
+
+function readWatchedExecutions(): string[] {
+  try {
+    const stored = JSON.parse(globalThis.localStorage?.getItem(WATCHED_EXECUTIONS_KEY) || '[]')
+    return Array.isArray(stored) ? stored.filter((id) => typeof id === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function writeWatchedExecutions(ids: string[]) {
+  try {
+    globalThis.localStorage?.setItem(WATCHED_EXECUTIONS_KEY, JSON.stringify(ids.slice(-WATCHED_EXECUTIONS_LIMIT)))
+  } catch {
+    // Storage can be denied; the page still runs, it just cannot bridge a reload.
+  }
+}
+
+function watchExecution(executionId: string) {
+  const watched = readWatchedExecutions()
+  if (!watched.includes(executionId)) writeWatchedExecutions([...watched, executionId])
+}
+
+function unwatchExecution(executionId: string) {
+  writeWatchedExecutions(readWatchedExecutions().filter((id) => id !== executionId))
+}
 
 type ExecutionMode = 'node' | 'downstream'
 type ExecutionStatus = 'queued' | 'running' | 'cancelling' | 'cancelled' | 'succeeded' | 'failed'
@@ -68,6 +101,9 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
   const activeExecutions = ref<Record<string, CanvasRun>>({})
   const executions = ref([])
   const executionsLoading = ref(false)
+  // An output can arrive before the canvas it belongs to has finished loading,
+  // so it waits here until its source node exists.
+  const pendingBatches = ref<{ canvasId: string; nodeId: string; runId: string; previews: string[] }[]>([])
   const isRunning = computed(() => Object.values(activeExecutions.value).some((execution) => ['queued', 'running', 'cancelling'].includes(execution.status)))
   const runDetails = computed(() => summarizeRun(run.value, nodes.value))
   const runSummary = computed(() => {
@@ -95,6 +131,27 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
     }
   }
 
+  function flushPendingBatches() {
+    if (!pendingBatches.value.length) return
+    pendingBatches.value = pendingBatches.value.filter((batch) => {
+      if (batch.canvasId !== activeCanvas.value?.id) return false
+      const source = nodes.value.find((node) => node.id === batch.nodeId)
+      if (!source) return true
+      if (source.data?.canvasType === 'generate-image') materializeRunBatch(batch.nodeId, batch.runId, batch.previews)
+      return false
+    })
+  }
+
+  watch(nodes, flushPendingBatches)
+
+  function queueBatches(nodeExecutions: Record<string, NodeExecution>, runId: string, canvasId: string) {
+    for (const [nodeId, nodeRun] of Object.entries(nodeExecutions || {})) {
+      const previews = nodeRun.output?.previews
+      if (Array.isArray(previews) && previews.length) pendingBatches.value = [...pendingBatches.value, { canvasId, nodeId, runId, previews }]
+    }
+    flushPendingBatches()
+  }
+
   async function loadExecutions(canvasId = activeCanvas.value?.id) {
     if (!canvasId) {
       executions.value = []
@@ -119,8 +176,18 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
   function resumeExecutions(canvasId: string, loaded: ExecutionDto[]) {
     if (activeCanvas.value?.id !== canvasId) return
     const pollInterval = POLL_INTERVAL_MS[provider.value || 'tripo']
+    const watched = readWatchedExecutions()
     for (const execution of loaded) {
-      if (!ACTIVE_STATUSES.includes(execution.status) || activeExecutions.value[execution.id]) continue
+      if (activeExecutions.value[execution.id]) continue
+      if (!ACTIVE_STATUSES.includes(execution.status)) {
+        // It finished while the page was away: there is nothing left to poll,
+        // but nobody ever placed what it produced.
+        if (!watched.includes(execution.id)) continue
+        if (execution.status === 'succeeded') queueBatches(execution.nodeExecutions, execution.id, canvasId)
+        unwatchExecution(execution.id)
+        continue
+      }
+      watchExecution(execution.id)
       const resumed = toCanvasRun(execution)
       activeExecutions.value = { ...activeExecutions.value, [execution.id]: resumed }
       nodeRuns.value = { ...nodeRuns.value, ...resumed.nodeRuns }
@@ -170,6 +237,7 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
       // whenever one is configured, so it gets the real-provider interval.
       const pollInterval = POLL_INTERVAL_MS[provider.value || 'tripo']
       activeExecutions.value = { ...activeExecutions.value, [execution.id]: run.value }
+      watchExecution(execution.id)
       void pollExecution(execution, plan.map((node) => node.id), canvasId, pollToken, pollInterval)
       await loadExecutions(canvasId)
     } catch (caught) {
@@ -201,16 +269,13 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
         run.value = current
         nodeRuns.value = { ...nodeRuns.value, ...current.nodeRuns }
       }
-      // Resolved now rather than when polling started: a resumed run picks its
-      // task up before the canvas it belongs to has finished loading.
+      queueBatches(Object.fromEntries(planNodeIds.map((nodeId) => [nodeId, current.nodeRuns[nodeId]]).filter(([, nodeRun]) => nodeRun)), current.id, canvasId)
       for (const nodeId of planNodeIds) {
         const node = nodes.value.find((candidate) => candidate.id === nodeId)
         const nodeRun = current.nodeRuns[nodeId]
-        if (!node || !nodeRun) continue
-        const previews = nodeRun.output?.previews
-        if (node.data?.canvasType === 'generate-image' && Array.isArray(previews) && previews.length) materializeRunBatch(node.id, current.id, previews)
-        if (node.data?.canvasType === 'export-model') downloadExport(nodeRun)
+        if (node?.data?.canvasType === 'export-model' && nodeRun) downloadExport(nodeRun)
       }
+      unwatchExecution(execution.id)
       await loadExecutions(canvasId)
       await onAccountChanged()
     } catch (caught) {
