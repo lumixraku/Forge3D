@@ -28,6 +28,15 @@ test('keeps only the newest state for a node', () => {
   assert.deepEqual(latestNodeRuns(canvas, runs).retopology, { status: 'failed', output: null, error: 'failed' })
 })
 
+test('keeps a task still in flight after an edit moved the canvas on', () => {
+  const running = { status: 'running', durationMs: null, output: null, error: null }
+  const runs = [
+    { canvasId: 'canvas-test', canvasRevision: 1, nodeRuns: { 'text-to-3d': running, retopology: { status: 'queued' } }, status: 'running' },
+  ]
+
+  assert.deepEqual(latestNodeRuns(canvas, runs)['text-to-3d'], running)
+})
+
 test('ignores other canvases, revisions, and deleted nodes', () => {
   const runs = [
     { canvasId: 'other', canvasRevision: 2, nodeRuns: { retopology: { status: 'failed' } } },
