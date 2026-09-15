@@ -7,6 +7,7 @@ import { formatDuration, summarizeRun } from '../run-summary'
 // tens of seconds and Tripo asks for 1-2s polling, so the interval follows
 // whichever backend the run is actually using.
 const POLL_INTERVAL_MS = { mock: 250, tripo: 1500, meshy: 1500 }
+const ACTIVE_STATUSES = ['queued', 'running', 'cancelling']
 
 type ExecutionMode = 'node' | 'downstream'
 type ExecutionStatus = 'queued' | 'running' | 'cancelling' | 'cancelled' | 'succeeded' | 'failed'
@@ -101,11 +102,30 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
     }
     executionsLoading.value = true
     try {
-      executions.value = await request(`/api/canvases/${canvasId}/executions`)
+      const loaded = await request(`/api/canvases/${canvasId}/executions`) as ExecutionDto[]
+      executions.value = loaded
+      resumeExecutions(canvasId, loaded)
     } catch (caught) {
       error.value = caught.message
     } finally {
       executionsLoading.value = false
+    }
+  }
+
+  // A run outlives the page that started it, so every task still in flight has to
+  // be picked back up: its node states go back onto the canvas and its polling
+  // continues until it settles, otherwise a reload leaves the node frozen and its
+  // outputs never land.
+  function resumeExecutions(canvasId: string, loaded: ExecutionDto[]) {
+    if (activeCanvas.value?.id !== canvasId) return
+    const pollInterval = POLL_INTERVAL_MS[provider.value || 'tripo']
+    for (const execution of loaded) {
+      if (!ACTIVE_STATUSES.includes(execution.status) || activeExecutions.value[execution.id]) continue
+      const resumed = toCanvasRun(execution)
+      activeExecutions.value = { ...activeExecutions.value, [execution.id]: resumed }
+      nodeRuns.value = { ...nodeRuns.value, ...resumed.nodeRuns }
+      if (!run.value) run.value = resumed
+      void pollExecution(execution, Object.keys(execution.nodeExecutions || {}), canvasId, runToken.value, pollInterval)
     }
   }
 
@@ -150,7 +170,7 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
       // whenever one is configured, so it gets the real-provider interval.
       const pollInterval = POLL_INTERVAL_MS[provider.value || 'tripo']
       activeExecutions.value = { ...activeExecutions.value, [execution.id]: run.value }
-      void pollExecution(execution, plan, canvasId, pollToken, pollInterval)
+      void pollExecution(execution, plan.map((node) => node.id), canvasId, pollToken, pollInterval)
       await loadExecutions(canvasId)
     } catch (caught) {
       error.value = caught.message
@@ -171,7 +191,7 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
     }
   }
 
-  async function pollExecution(execution: ExecutionDto, plan: any[], canvasId: string, pollToken: number, pollInterval: number) {
+  async function pollExecution(execution: ExecutionDto, planNodeIds: string[], canvasId: string, pollToken: number, pollInterval: number) {
     try {
       let current = toCanvasRun(execution)
       while (['queued', 'running', 'cancelling'].includes(current.status) && activeCanvas.value?.id === canvasId) {
@@ -181,9 +201,12 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
         run.value = current
         nodeRuns.value = { ...nodeRuns.value, ...current.nodeRuns }
       }
-      for (const node of plan) {
-        const nodeRun = current.nodeRuns[node.id]
-        if (!nodeRun) continue
+      // Resolved now rather than when polling started: a resumed run picks its
+      // task up before the canvas it belongs to has finished loading.
+      for (const nodeId of planNodeIds) {
+        const node = nodes.value.find((candidate) => candidate.id === nodeId)
+        const nodeRun = current.nodeRuns[nodeId]
+        if (!node || !nodeRun) continue
         const previews = nodeRun.output?.previews
         if (node.data?.canvasType === 'generate-image' && Array.isArray(previews) && previews.length) materializeRunBatch(node.id, current.id, previews)
         if (node.data?.canvasType === 'export-model') downloadExport(nodeRun)
