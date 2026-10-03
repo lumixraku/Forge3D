@@ -372,8 +372,7 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
       }
       const canvasIndex = state.canvases.findIndex((item) => item.id === turn.canvasId)
       if (canvasIndex < 0) throw new Error('Project was deleted while this turn was running')
-      state.canvases[canvasIndex] = applyAgentCanvas(state.canvases[canvasIndex], plan.canvas)
-      const executionCanvas = state.canvases[canvasIndex]
+      const executionCanvas = applyAgentCanvas(state.canvases[canvasIndex], plan.canvas)
       const executionRequests = plan.executionRequests || (plan.executionRequest ? [plan.executionRequest] : [])
       const startedExecutions = []
       for (const executionRequest of executionRequests) {
@@ -400,12 +399,15 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
       turn.result = structuredClone({ ...plan, session: nextSession })
       turn.completedAt = new Date().toISOString()
       turn.updatedAt = turn.completedAt
-      await store.persist(['canvases', 'sessions', 'turns'])
+      await store.persist(['sessions', 'turns'])
       if (trace) {
         await recordTrace('turn_succeeded', { changedNodeIds: plan.changedNodeIds, structureChanged: plan.structureChanged }, { status: 'succeeded', completedAt: turn.completedAt })
       }
       emit('text', { step_id: 'final-response', id: assistantMessageId, text: plan.reply })
-      emit('canvas-updated', { changed_node_ids: plan.changedNodeIds, structure_changed: plan.structureChanged })
+      emit('agent-result', {
+        source_client_id: turn.clientId,
+        plan: structuredClone(plan),
+      })
       emit('finish', { finish_reason: 'stop' })
     } catch (error) {
       await store.reload(['turns']).catch(() => {})
@@ -716,6 +718,7 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
         canvasId: canvas.id,
         message: input.message,
         attachments: Array.isArray(input.attachments) ? input.attachments : [],
+        clientId: typeof input.clientId === 'string' ? input.clientId : undefined,
         status: 'queued',
         progress: [],
         createdAt: now,

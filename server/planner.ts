@@ -4,7 +4,7 @@ import { applyNodeParameter, nodeDefaults as schemaDefaults, canvasNodeSchema } 
 import { nodeInputPorts, nodeOutputPorts } from '../src/canvas-nodes.js'
 
 export const nodeDefaults = Object.fromEntries(canvasNodeSchema
-  .filter((node) => node.type !== 'frame' && node.type !== 'generated-image')
+  .filter((node) => node.role !== 'container' && node.role !== 'result')
   .map((node) => [node.type, { name: node.label, config: schemaDefaults(node.type) }]))
 
 function frameName(message) {

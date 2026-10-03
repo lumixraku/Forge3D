@@ -1,8 +1,8 @@
 import { canvasNodeSchema, isExecutableNodeType, nodeSchema } from './canvas-schema'
 import type { NodePort, NodePorts, PortType, CanvasNodeSchema } from './canvas-schema'
 
-export { applyNodeParameter, conditionsMatch, hasModelEditor, isExecutableNodeType, nodeDefaults, nodeSchema, parameterRange, canvasNodeSchema, canvasNodeSchemas } from './canvas-schema'
-export type { NodeParameter, NodeRequirement, ParameterCondition, ParameterOption, ParameterRange, CanvasNodeSchema } from './canvas-schema'
+export { applyNodeParameter, conditionsMatch, hasModelEditor, isExecutableNodeType, isInputNodeType, isResultNodeType, nodeDefaults, nodeRole, nodeSchema, parameterRange, canvasNodeSchema, canvasNodeSchemas } from './canvas-schema'
+export type { NodeParameter, NodeRequirement, NodeRole, ParameterCondition, ParameterOption, ParameterRange, CanvasNodeSchema } from './canvas-schema'
 
 export type { NodePort, NodePorts, NodePortSpec, PortType } from './canvas-schema'
 export type NodeDefinition = CanvasNodeSchema
@@ -137,9 +137,10 @@ export function nodeOutputPortValues(node: CanvasGraphNode, produced?: Record<st
     const fallback = node.type === 'reference-image'
       ? uploads.assetType === 'model' ? uploads.modelUrl ?? uploads.assetUrl : output.preview ?? uploads.assetUrl
       : port.type === 'model'
-      // modelUrl is not a generated key: its only writer is the asset upload, which
-      // makes it input the user gave rather than something a run produced.
-      ? produced?.modelUrl ?? uploads.modelUrl
+      // modelUrl is not a generated key: its only writer used to be the asset
+      // upload. A generated-model result node also carries one, so it is read
+      // from the result tree too.
+      ? produced?.modelUrl ?? uploads.modelUrl ?? output.modelUrl
       : port.type === 'text'
         ? produced?.text ?? config.prompt
         : viewPreviews[port.id]

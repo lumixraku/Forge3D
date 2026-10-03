@@ -63,7 +63,7 @@ function toCanvasRun(execution: ExecutionDto): CanvasRun {
   }
 }
 
-export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvasBusy, error, runToken, saveCanvas, materializeRunBatch, onAccountChanged = async () => {}, provider = { value: null } }) {
+export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvasBusy, error, runToken, saveCanvas, materializeResults, onAccountChanged = async () => {}, provider = { value: null } }) {
   const activeExecutions = ref<Record<string, CanvasRun>>({})
   const executions = ref([])
   const executionsLoading = ref(false)
@@ -184,8 +184,9 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
       for (const node of plan) {
         const nodeRun = current.nodeRuns[node.id]
         if (!nodeRun) continue
-        const previews = nodeRun.output?.previews
-        if (node.data?.canvasType === 'generate-image' && Array.isArray(previews) && previews.length) materializeRunBatch(node.id, current.id, previews)
+        // Result nodes are materialized from the stage's raw output; the export
+        // node additionally downloads its file once as the run finishes.
+        materializeResults(node.id, current.id, nodeRun.output)
         if (node.data?.canvasType === 'export-model') downloadExport(nodeRun)
       }
       await loadExecutions(canvasId)

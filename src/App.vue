@@ -31,7 +31,8 @@ import { useCanvasRun } from './composables/useCanvasRun'
 import { useDebugSettings } from './composables/useDebugSettings'
 import { request } from './api'
 import { edgeDefaults, nodePresentation } from './canvas-graph'
-import { canConnectNodeTypes, compatibleNodeTypes, compatibleUpstreamNodeTypes, hasModelEditor, isExecutableNodeType, missingParametersByNode, nodeCatalog, nodeCategories, nodeDefaults, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
+import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, compatibleUpstreamNodeTypes, hasModelEditor, isExecutableNodeType, missingParametersByNode, nodeCatalog, nodeCategories, nodeDefaults, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
+import { resultArtifacts } from './run-results'
 
 const ModelEditor = defineAsyncComponent(() => import('./components/ModelEditor.vue'))
 
@@ -246,7 +247,7 @@ const { isRunning, runDetails, runSummary, runCanvas, cancelRun, executions, exe
   runToken: canvasRunToken,
   // A run cannot wait out the debounce: creating it reads the saved canvas.
   saveCanvas: () => saveCanvas({ immediate: true }),
-  materializeRunBatch: (sourceId, runId, previews) => materializeRunBatch(sourceId, runId, previews),
+  materializeResults: (sourceId, runId, output) => materializeResults(sourceId, runId, output),
   onAccountChanged: loadAccount,
   // Null lets the server pick; the debug panel forces one backend.
   provider: selectedProvider,
@@ -400,12 +401,17 @@ function addConnection(connection) {
   if (!source || !target || !isValidConnection(connection)) return false
   const exists = edges.value.some((edge) => edge.source === source.id && edge.target === target.id)
   if (exists) return false
+  // A collapsed visual handle carries its logical port pairs as edge data. Most
+  // connections leave this to the save-time inference; a reroute that knows the
+  // pairs (a view result re-homed onto a multi-view port) passes them explicitly.
+  const logicalConnections = connection.logicalConnections?.length ? { logicalConnections: connection.logicalConnections } : null
   edges.value = addEdge({
     id: `edge-${source.id}-${target.id}-${Date.now().toString(36)}`,
     source: source.id,
     target: target.id,
     sourceHandle: 'output',
     targetHandle: 'input',
+    ...(logicalConnections ? { data: logicalConnections } : {}),
     ...edgeDefaults,
   }, edges.value)
   saveCanvas()
@@ -472,7 +478,10 @@ function openModelEditor(id) {
   if (!id) return
   const node = nodes.value.find((candidate) => candidate.id === id)
   const uploadedModel = node?.data.canvasType === 'reference-image' && node.data.uploadAssets?.assetType === 'model' && typeof node.data.uploadAssets?.modelUrl === 'string'
-  if (!node || !hasModelEditor(node.data.canvasType) || (!uploadedModel && nodeRuns.value[id]?.status !== 'succeeded')) return
+  // A model result node carries its file in generatedAssets: it was never run, so
+  // there is no node run to check.
+  const resultModel = node?.data.canvasType === 'generated-model' && typeof node.data.generatedAssets?.modelUrl === 'string'
+  if (!node || !hasModelEditor(node.data.canvasType) || (!uploadedModel && !resultModel && nodeRuns.value[id]?.status !== 'succeeded')) return
   modelEditorNodeId.value = node.id
   workspaceMode.value = 'model-editor'
   nextTick(() => window.scrollTo({ top: 0 }))
@@ -646,44 +655,91 @@ function addUpstreamNode(type, targetId, position) {
   focusNode(node.id)
 }
 
-// Generated images are paid artifacts, so a rerun never overwrites an earlier
-// batch: each run appends a fresh column of generated-image nodes to the right
-// of the source, stacked below whatever previous batches already occupy.
-const BATCH_COLUMN_GAP = 340
-const BATCH_ROW_GAP = 150
+// A run's artifacts are separate result nodes to the right of the stage that made
+// them: one image node per candidate or view, one model node, one file node. A
+// rerun replaces its previous result nodes wholesale — the old ones go, and any
+// edges that left them are re-homed onto the fresh batch so the chain keeps working.
+const RESULT_COLUMN_GAP = 340
 
-function batchOrigin(sourceNode) {
-  const existing = nodes.value.filter((node) => node.data?.generatedAssets?.runBatch?.sourceId === sourceNode.id)
-  const x = sourceNode.position.x + BATCH_COLUMN_GAP
-  if (!existing.length) return { x, y: sourceNode.position.y }
-  return { x, y: Math.max(...existing.map((node) => node.position.y)) + BATCH_ROW_GAP }
+// Every node downstream of a stage, however many hops away, read along the edges.
+// Used to make room for a stage's result nodes without covering the chain after it.
+function downstreamIds(sourceId) {
+  const ids = new Set()
+  const queue = [sourceId]
+  while (queue.length) {
+    const current = queue.shift()
+    for (const edge of edges.value) {
+      if (edge.source !== current || ids.has(edge.target)) continue
+      ids.add(edge.target)
+      queue.push(edge.target)
+    }
+  }
+  ids.delete(sourceId)
+  return ids
 }
 
-function materializeRunBatch(sourceId, runId, previews) {
+function materializeResults(sourceId, runId, output) {
   const source = nodes.value.find((node) => node.id === sourceId)
-  if (!source || !previews.length) return
+  if (!source || !output) return
   // Idempotent: polling delivers the same succeeded output repeatedly.
-  if (nodes.value.some((node) => node.data?.generatedAssets?.runBatch?.runId === runId && node.data?.generatedAssets?.runBatch?.sourceId === sourceId)) return
+  if (nodes.value.some((node) => node.data?.generatedAssets?.resultOf?.runId === runId && node.data?.generatedAssets?.resultOf?.sourceId === sourceId)) return
+  const artifacts = resultArtifacts(source.data.canvasType, output, { runId, sourceId })
+  if (!artifacts.length) return
 
-  const origin = batchOrigin(source)
+  const previous = nodes.value.filter((node) => node.data?.generatedAssets?.resultOf?.sourceId === sourceId)
+  const previousIds = new Set(previous.map((node) => node.id))
+  // The result nodes stand in front of the stage's downstream: the stage's own
+  // outgoing edges (first run) and any edges that left the replaced results
+  // (rerun) are both re-homed onto the fresh batch.
+  const direct = edges.value.filter((edge) => edge.source === sourceId && !previousIds.has(edge.target))
+  const carried = edges.value.filter((edge) => previousIds.has(edge.source))
+  const replacedEdgeIds = new Set([...direct, ...carried].map((edge) => edge.id))
+  const targets = [...new Set([...direct, ...carried].map((edge) => edge.target))]
+  // The result row occupies the gap to the right of the stage, so everything after
+  // it moves over by the difference in width — nothing on a rerun, since the row
+  // replaces the old one in place.
+  const shift = (artifacts.length - previous.length) * RESULT_COLUMN_GAP
+  if (shift) {
+    const moved = new Set([...downstreamIds(sourceId)].filter((id) => !previousIds.has(id)))
+    nodes.value = nodes.value.map((node) => (moved.has(node.id) ? { ...node, position: { ...node.position, x: node.position.x + shift } } : node))
+  }
+
+  const origin = { x: source.position.x + RESULT_COLUMN_GAP, y: source.position.y }
   const taken = new Set()
-  const created = previews.map((preview, index) => {
-    const id = nextNodeId('generated-image', taken)
+  const created = artifacts.map((artifact, index) => {
+    const id = nextNodeId(artifact.type, taken)
     taken.add(id)
-    return buildCanvasNode('generated-image', {
+    return buildCanvasNode(artifact.type, {
       id,
-      position: { x: origin.x + index * BATCH_COLUMN_GAP, y: origin.y },
+      position: { x: origin.x + index * RESULT_COLUMN_GAP, y: origin.y },
       parentNode: source.parentNode,
-      // The image and its batch membership are both results: copying a generated
-      // node gives an empty one, and getting that image means copying its source.
-      generatedAssets: { preview, runBatch: { runId, sourceId, index } },
+      generatedAssets: artifact.generatedAssets,
     })
   })
 
-  nodes.value = [...nodes.value, ...created]
+  nodes.value = [...nodes.value.filter((node) => !previousIds.has(node.id)), ...created]
+  edges.value = edges.value.filter((edge) => !previousIds.has(edge.source) && !previousIds.has(edge.target) && !replacedEdgeIds.has(edge.id))
   nextTick(() => {
     for (const node of created) {
       addConnection({ source: sourceId, sourceHandle: 'output', target: node.id, targetHandle: 'input' })
+    }
+    // Each downstream target is fed by the result nodes: a multi-view result lands
+    // on its namesake port, and a `multiple` target port collects them all.
+    for (const targetId of targets) {
+      const target = nodes.value.find((node) => node.id === targetId)
+      if (!target) continue
+      const targetPorts = nodeInputPorts(target.data.canvasType)
+      const usedPorts = new Set()
+      for (const node of created) {
+        const outputPort = nodeOutputPorts(node.data.canvasType)[0]
+        if (!outputPort) continue
+        const view = node.data.generatedAssets?.view
+        const port = (view && targetPorts.find((candidate) => candidate.id === view))
+          || targetPorts.find((candidate) => canConnectPorts(node.data.canvasType, outputPort.id, target.data.canvasType, candidate.id) && (candidate.multiple || !usedPorts.has(candidate.id)))
+        if (!port || (!port.multiple && usedPorts.has(port.id))) continue
+        usedPorts.add(port.id)
+        addConnection({ source: node.id, sourceHandle: 'output', target: targetId, targetHandle: 'input', logicalConnections: [{ sourcePort: outputPort.id, targetPort: port.id }] })
+      }
     }
     saveCanvas()
   })

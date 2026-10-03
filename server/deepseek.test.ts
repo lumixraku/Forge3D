@@ -27,6 +27,23 @@ test('emits only safe activity labels while calling tools', async () => {
   assert.ok(progress.every((event) => !JSON.stringify(event).includes('text-to-3d')))
 })
 
+test('instructs the agent to format complex replies as markdown', async () => {
+  const canvas = planCanvas('Create a text-to-3D canvas').canvas
+  const result = await runDeepSeekAgent({
+    apiKey: 'test-key',
+    message: 'Summarize the workflow',
+    canvas,
+    fetchImpl: async (_url, options) => {
+      const body = JSON.parse(options.body)
+      assert.match(body.messages[0].content, /readable Markdown/i)
+      assert.match(body.messages[0].content, /Markdown tables/i)
+      return response({ choices: [{ message: { role: 'assistant', content: '**Summary**\n\n- Ready.' } }] })
+    },
+  })
+
+  assert.equal(result.reply, '**Summary**\n\n- Ready.')
+})
+
 test('returns a validated generic user selection request', async () => {
   const canvas = planCanvas('Create a text-to-3D canvas').canvas
   const result = await runDeepSeekAgent({

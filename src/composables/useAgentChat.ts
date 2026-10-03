@@ -164,6 +164,13 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
     }
   }
 
+  async function applyAgentResult(event) {
+    if (event.source_client_id !== clientId || !event.plan?.canvas) return
+    if (event.plan.canvas.id !== activeCanvas.value?.id) return
+    await toCanvas(event.plan.canvas)
+    await saveCanvas({ immediate: true })
+  }
+
   // The canvas's single event channel, opened when the canvas opens and closed
   // when it closes. Nothing is replayed on reconnect, so every re-open of the
   // socket re-reads the canvas, the session and the in-flight turns over REST —
@@ -201,6 +208,7 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
       }
       if (event.session_id !== activeSession.value?.id) return
       applyAgentEvent(event)
+      if (event.type === 'agent-result') await applyAgentResult(event)
       if (event.type === 'canvas-updated') await refreshCanvas(event.canvas_id, event.turn_id)
     }
     source.addEventListener('message', handle)
@@ -274,14 +282,16 @@ export function useAgentChat({ activeCanvas, activeSession, busy, error, runToke
     continuingTurnId.value = message.turnId
     error.value = ''
     message.pending = true
+    const submittedOptionIds = selectedOptionIds(message, selectedOptions.value)
     try {
       ensureCanvasEvents(activeCanvas.value?.id)
       // The turn resumes on the canvas channel; this only hands over the selection.
       await request(`/api/turns/${message.turnId}/continue`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ request_id: message.request.request_id, selected_option_ids: selectedOptionIds(message, selectedOptions.value) }),
+        body: JSON.stringify({ request_id: message.request.request_id, selected_option_ids: submittedOptionIds }),
       })
+      message.selection = { request_id: message.request.request_id, selected_option_ids: submittedOptionIds }
       delete selectedOptions.value[message.turnId]
     } catch (caught) {
       message.pending = false

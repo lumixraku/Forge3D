@@ -1,7 +1,7 @@
 import { canvasParameterJsonSchema } from './canvas-parameters.js'
 import { canvasNodeSchema } from '../src/canvas-schema.js'
 
-export const canvasNodeTypes = canvasNodeSchema.filter((node) => !['frame', 'generated-image'].includes(node.type)).map((node) => node.type)
+export const canvasNodeTypes = canvasNodeSchema.filter((node) => node.role !== 'container' && node.role !== 'result').map((node) => node.type)
 
 export const canvasToolDefinitions = [
   {

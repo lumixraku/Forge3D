@@ -63,3 +63,14 @@ test('a turn still running is neither added twice nor repaired', () => {
   assert.deepEqual(additions, [])
   assert.deepEqual(repairs, [])
 })
+
+test('a submitted selection is not restored as an active card', () => {
+  const messages = [{ turnId: 't1', request: { request_id: 'r1' }, selection: null }]
+  const turns = [{ id: 't1', request: { request_id: 'r1' }, selection: { request_id: 'r1', selected_option_ids: ['a'] } }]
+
+  const { additions, repairs } = reconcileRestoredTurns(messages, turns)
+
+  assert.deepEqual(additions, [])
+  assert.deepEqual(repairs, [])
+  assert.deepEqual(messages[0].selection, turns[0].selection)
+})

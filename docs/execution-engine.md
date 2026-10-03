@@ -27,9 +27,9 @@ submitted plan that does not match its own (`409`, `server/executions.ts:150`).
 
 ## 2. The plan
 
-Only **executable** node types enter a plan — input nodes and frames carry no
-work. `isExecutableNodeType` (`src/canvas-schema.ts`) decides, driven by the node
-schema's `executable` flag.
+Only **executable** node types enter a plan — input nodes, result nodes, and
+frames carry no work. `isExecutableNodeType` (`src/canvas-schema.ts`) decides,
+driven by the node schema's `executable` flag.
 
 `src/run-plan.ts`:
 
@@ -209,8 +209,10 @@ How the gate holds:
 
 `pollExecution` (`useCanvasRun.ts:172`) polls `GET /api/executions/:id` until a
 terminal state (`mock: 250ms`, `tripo: 1500ms`, `useCanvasRun.ts:9`), merging
-per-node status into the canvas. On completion it also materializes generated
-image batches and triggers model downloads (`useCanvasRun.ts:182-188`).
+per-node status into the canvas. On completion it materializes each stage's
+artifacts as result nodes (`resultArtifacts` in `src/run-results.ts`, via
+`materializeResults` in `App.vue`) and triggers export downloads. A rerun replaces
+a stage's previous result nodes rather than accumulating them.
 
 ## 10. API surface
 

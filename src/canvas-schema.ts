@@ -2,6 +2,14 @@ export type PortType = 'image' | 'text' | 'model' | 'any'
 export type ParameterValue = string | number | boolean
 
 /**
+ * What part a node plays in the canvas. Every node is exactly one of these:
+ * input carries what the user gave, execution runs and is configured, result
+ * presents what a run produced. A frame is a container and plays no role in the
+ * data flow.
+ */
+export type NodeRole = 'input' | 'execution' | 'result' | 'container'
+
+/**
  * One port as declared on a node schema. The port id is the key it is declared
  * under, so `inputs`/`outputs` cannot drift from the ids edges reference.
  */
@@ -74,6 +82,8 @@ export interface CanvasNodeSchema {
   category: string
   label: string
   description: string
+  /** The forced part this node plays: input, execution, result, or container. */
+  role: NodeRole
   presentation: { kind: string; detail: string; tone: string }
   inputs: NodePorts
   outputs: NodePorts
@@ -129,12 +139,16 @@ const modelParameters: NodeParameter[] = [
 ]
 const modelEffects: NodeEffect[] = [{ when: { field: 'generateParts', equals: true }, set: { topology: 'triangle', texture: false, pbr: false } }]
 
-export const canvasNodeSchema: CanvasNodeSchema[] = [
+const canvasNodeDefinitions: Array<Omit<CanvasNodeSchema, 'role'>> = [
   { type: 'frame', category: 'Annotate', label: 'Section', description: 'Group related canvas steps', presentation: { kind: 'SECTION', detail: 'Canvas group', tone: 'slate' }, inputs: {}, outputs: {}, defaults: {}, parameters: [] },
   // No upload defaults: what the user uploaded lives in `uploadAssets`, not in
   // config (see UPLOAD_KEYS). An empty default would only migrate back into it.
   { type: 'reference-image', category: 'Input', label: 'Asset Upload', description: 'Add an image or 3D model input', presentation: { kind: 'INPUT', detail: 'Reference asset', tone: 'cyan' }, inputs: {}, outputs: { image: { type: 'any', label: 'Asset' } }, modelEditor: true, defaults: {}, parameters: [] },
+  // Result nodes present what a run produced. They are hidden from Add node:
+  // a run creates them, and they carry the artifact in generatedAssets.
   { type: 'generated-image', category: 'Output', label: 'Image', description: 'An image created by a canvas step', presentation: { kind: 'OUTPUT', detail: 'Generated view', tone: 'amber' }, inputs: { image: { type: 'image' } }, outputs: { image: { type: 'image' } }, hidden: true, defaults: {}, parameters: [] },
+  { type: 'generated-model', category: 'Output', label: 'Model', description: 'A 3D model created by a canvas step', presentation: { kind: 'OUTPUT', detail: 'Generated model', tone: 'green' }, inputs: { model: { type: 'model' } }, outputs: { model: { type: 'model' } }, hidden: true, modelEditor: true, defaults: {}, parameters: [] },
+  { type: 'generated-export', category: 'Output', label: 'Exported File', description: 'A file exported by a canvas step', presentation: { kind: 'OUTPUT', detail: 'Exported file', tone: 'amber' }, inputs: {}, outputs: {}, hidden: true, defaults: {}, parameters: [] },
   { type: 'prompt', category: 'Input', label: 'Text Prompt', description: 'Set creative direction', presentation: { kind: 'PROMPT', detail: 'Creative direction', tone: 'violet' }, inputs: {}, outputs: { text: { type: 'text' } }, defaults: { prompt: 'Production-ready stylized 3D asset' }, parameters: [{ key: 'prompt', label: 'Prompt', control: 'textarea' }] },
   { type: 'generate-image', category: '2D', label: 'Gen Image', description: 'Create concept images', presentation: { kind: 'IMAGE', detail: 'Concept generation', tone: 'amber' }, inputs: { image: { type: 'image' }, text: promptText }, outputs: { image: { type: 'image' } }, requires: [['image', 'text']], executable: true, defaults: { modelVersion: 'gemini_2.5_flash_image_preview', amount: 4, scale: '1:1', tPose: false }, parameters: [{ key: 'modelVersion', label: 'Image Model', control: 'select', options: imageModels }, { key: 'amount', label: 'Images', control: 'select', options: imageAmounts }, { key: 'scale', label: 'Aspect Ratio', control: 'select', options: scales }, { key: 'tPose', label: 'T-Pose', control: 'toggle' }] },
   { type: 'image-decomposition', category: '2D', label: 'Image Decomposition', description: 'Break an image into editable visual parts', presentation: { kind: 'DECOMPOSE', detail: 'Image parts', tone: 'cyan' }, inputs: { image: { type: 'image' } }, outputs: { image: { type: 'image' } }, requires: ['image'], executable: true, defaults: { modelVersion: 'gemini_2.5_flash_image_preview', prompt: '', amount: 4, scale: '1:1', resolution: '1K', templateKey: 'asset_extraction' }, parameters: [{ key: 'modelVersion', label: 'Image Model', control: 'select', options: imageModels }, { key: 'prompt', label: 'Prompt', control: 'textarea', placeholder: 'Optional extraction instructions' }, { key: 'amount', label: 'Outputs', control: 'select', options: imageAmounts }, { key: 'scale', label: 'Aspect Ratio', control: 'select', options: scales }, { key: 'resolution', label: 'Resolution', control: 'select', options: options([['1K', '1K'], ['2K', '2K'], ['4K', '4K']]) }] },
@@ -142,7 +156,7 @@ export const canvasNodeSchema: CanvasNodeSchema[] = [
   // `approved` is not a default: it records that this run was let through by
   // hand, which makes it a result and puts it in generatedAssets (see OUTPUT_KEYS).
   { type: 'review', category: 'Annotate', label: 'Check', description: 'Pause to check the image before continuing', presentation: { kind: 'CHECK', detail: 'Approval gate', tone: 'rose' }, inputs: { image: { type: 'image' } }, outputs: { image: { type: 'image' } }, requires: ['image'], executable: true, defaults: { instruction: 'Review the generated image before continuing.' }, parameters: [] },
-  ...['generate-model', 'multiview-to-3d', 'text-to-3d'].map((type): CanvasNodeSchema => ({ type, category: '3D', label: type === 'generate-model' ? 'Gen HD Model' : type === 'multiview-to-3d' ? 'Multi-view to 3D' : 'Text to 3D', description: type === 'generate-model' ? 'Turn an image or text prompt into a model' : type === 'multiview-to-3d' ? 'Turn four labeled image views into a 3D model' : 'Turn a text prompt into a model', presentation: { kind: '3D MODEL', detail: type === 'generate-model' ? 'Image or text to 3D' : type === 'multiview-to-3d' ? 'Four-view reconstruction' : 'Text to 3D', tone: 'green' }, inputs: type === 'text-to-3d' ? { text: promptText } : type === 'multiview-to-3d' ? multiViewImages : { image: multiImage, ...multiViewImages, text: promptText }, outputs: { model: { type: 'model' } }, requires: type === 'text-to-3d' ? ['text'] : type === 'multiview-to-3d' ? viewKeys : [['image', ...viewKeys, 'text']], hidden: type !== 'generate-model', executable: true, modelEditor: true, defaults: { ...modelDefaults }, parameters: modelParameters, effects: modelEffects })),
+  ...['generate-model', 'multiview-to-3d', 'text-to-3d'].map((type): Omit<CanvasNodeSchema, 'role'> => ({ type, category: '3D', label: type === 'generate-model' ? 'Gen HD Model' : type === 'multiview-to-3d' ? 'Multi-view to 3D' : 'Text to 3D', description: type === 'generate-model' ? 'Turn an image or text prompt into a model' : type === 'multiview-to-3d' ? 'Turn four labeled image views into a 3D model' : 'Turn a text prompt into a model', presentation: { kind: '3D MODEL', detail: type === 'generate-model' ? 'Image or text to 3D' : type === 'multiview-to-3d' ? 'Four-view reconstruction' : 'Text to 3D', tone: 'green' }, inputs: type === 'text-to-3d' ? { text: promptText } : type === 'multiview-to-3d' ? multiViewImages : { image: multiImage, ...multiViewImages, text: promptText }, outputs: { model: { type: 'model' } }, requires: type === 'text-to-3d' ? ['text'] : type === 'multiview-to-3d' ? viewKeys : [['image', ...viewKeys, 'text']], hidden: type !== 'generate-model', executable: true, modelEditor: true, defaults: { ...modelDefaults }, parameters: modelParameters, effects: modelEffects })),
   { type: 'smart-mesh', category: '3D', label: 'Smart Mesh', description: 'Generate a mesh from an image or text prompt', presentation: { kind: '3D MODEL', detail: 'Smart mesh generation', tone: 'green' }, inputs: { image: multiImage, text: promptText }, outputs: { model: { type: 'model' } }, requires: [['image', 'text']], executable: true, modelEditor: true, defaults: { topology: 'triangle', faceCount: 5000 }, parameters: [{ key: 'faceCount', label: 'Polycount', control: 'slider', range: { min: 500, max: 20000, step: 500 } }] },
   { type: 'retopology', category: '3D', label: 'Retopology', description: 'Optimize model geometry', presentation: { kind: 'MESH', detail: 'Geometry optimization', tone: 'rose' }, inputs: { model: { type: 'model' } }, outputs: { model: { type: 'model' } }, requires: ['model'], executable: true, modelEditor: true, defaults: { topology: 'quad', smartPoly: false, faceLimit: 10000 }, parameters: [{ key: 'topology', label: 'Topology', control: 'segmented', options: retopologyTopology }, { key: 'smartPoly', label: 'Smart Low Poly v2', control: 'toggle' }, { key: 'faceLimit', label: 'Polygon Count', control: 'slider', range: { min: 500, max: 50000, step: 500 } }] },
   { type: 'texture', category: '3D', label: 'UV Texture', description: 'Create UV textures from a model, image, or text', presentation: { kind: 'MATERIAL', detail: 'UV texture generation', tone: 'violet' }, inputs: { model: { type: 'model' }, image: { type: 'image' }, text: promptText }, outputs: { model: { type: 'model' } }, requires: ['model'], executable: true, modelEditor: true, defaults: { inputMode: 'imageGenerate', prompt: '', textureQuality: 'extreme', textureStyle: 'None' }, parameters: [{ key: 'inputMode', label: 'Input', control: 'segmented', options: options([['imageGenerate', 'Image'], ['multiViewGenerate', 'Model'], ['textGenerate', 'Text']]) }, { key: 'prompt', label: 'Prompt', control: 'textarea', visibleWhen: [{ field: 'inputMode', equals: 'textGenerate' }] }, { key: 'textureStyle', label: 'Create Your Own Texture Style', control: 'select', options: options(['None', 'Mecha Pop', 'Heritage', 'Mecha', 'Wood', 'Custom'].map((value) => [value, value])) }, { key: 'textureQuality', label: 'Texture Resolution', control: 'segmented', options: textureQualities }] },
@@ -151,6 +165,20 @@ export const canvasNodeSchema: CanvasNodeSchema[] = [
   { type: 'model-preview', category: '3D', label: 'Model Preview', description: 'Review the 3D result', presentation: { kind: 'REVIEW', detail: 'Interactive preview', tone: 'cyan' }, inputs: { model: { type: 'model' } }, outputs: { model: { type: 'model' } }, requires: ['model'], executable: true, modelEditor: true, defaults: { materialMode: 'standard', shading: 'smooth', pbrPreview: false, metallic: 0, roughness: 1, wireframe: false }, parameters: [{ key: 'materialMode', label: 'View Mode', control: 'select', options: options([['matcap', 'Solid View'], ['standard', 'Textured View'], ['normal', 'Normal'], ['unlit', 'Unlit'], ['cartoon', 'Cartoon Style'], ['sketch', 'Sketch Style'], ['hologram', 'Hologram Style']]) }, { key: 'shading', label: 'Shading', control: 'select', options: options([['flat', 'Flat'], ['smooth', 'Smooth']]) }, { key: 'pbrPreview', label: 'PBR', control: 'toggle', visibleWhen: [{ field: 'materialMode', equals: 'standard' }] }, { key: 'metallic', label: 'Metallic', control: 'slider', range: { min: 0, max: 1, step: 0.01 }, visibleWhen: [{ field: 'materialMode', equals: 'standard' }, { field: 'pbrPreview', equals: true }] }, { key: 'roughness', label: 'Roughness', control: 'slider', range: { min: 0, max: 1, step: 0.01 }, visibleWhen: [{ field: 'materialMode', equals: 'standard' }, { field: 'pbrPreview', equals: true }] }, { key: 'wireframe', label: 'Wireframe', control: 'toggle' }] },
   { type: 'export-model', category: 'Output', label: 'Export', description: 'Export an image or 3D model', presentation: { kind: 'EXPORT', detail: 'Export image or 3D model', tone: 'amber' }, inputs: { image: { type: 'image' }, model: { type: 'model' } }, outputs: {}, requires: [['image', 'model']], executable: true, modelEditor: true, defaults: { fileName: 'shark-gardener', modelFormat: 'gltf', fbxPreset: 'blender', textureSize: 2048, withAnimation: false, packUV: false, animateInPlace: false, exportVertexColors: false }, parameters: [{ key: 'fileName', label: 'File Name', control: 'text' }, { key: 'modelFormat', label: 'Format', control: 'select', options: options([['usdz', 'USD'], ['fbx', 'FBX'], ['obj', 'OBJ'], ['stl', 'STL'], ['gltf', 'GLB'], ['3mf', '3MF']]) }, { key: 'fbxPreset', label: 'FBX Preset', control: 'select', options: options([['blender', 'Blender'], ['mixamo', 'Mixamo'], ['3dsmax', '3ds Max']]), visibleWhen: [{ field: 'modelFormat', equals: 'fbx' }] }, { key: 'textureSize', label: 'Texture Resolution', control: 'select', options: options([[512, '512'], [1024, '1K'], [2048, '2K'], [4096, '4K'], [8192, '8K']]) }, { key: 'withAnimation', label: 'Export Skeleton', control: 'toggle' }, { key: 'packUV', label: 'Pack UV', control: 'toggle' }, { key: 'animateInPlace', label: 'Animation Stay in Place', control: 'toggle', visibleWhen: [{ field: 'withAnimation', equals: true }] }, { key: 'exportVertexColors', label: 'Export Vertex Colors', control: 'toggle', visibleWhen: [{ field: 'modelFormat', equals: 'obj' }] }] },
 ]
+
+// Result nodes are created by runs, never picked from Add node. Input nodes are
+// the two that carry only user-given data. Everything else runs and is configured.
+const RESULT_NODE_TYPES = new Set(['generated-image', 'generated-model', 'generated-export'])
+const INPUT_NODE_TYPES = new Set(['reference-image', 'prompt'])
+
+function nodeRoleFor(node: Omit<CanvasNodeSchema, 'role'>): NodeRole {
+  if (node.type === 'frame') return 'container'
+  if (RESULT_NODE_TYPES.has(node.type)) return 'result'
+  if (INPUT_NODE_TYPES.has(node.type)) return 'input'
+  return 'execution'
+}
+
+export const canvasNodeSchema: CanvasNodeSchema[] = canvasNodeDefinitions.map((node) => ({ ...node, role: nodeRoleFor(node) }))
 
 export const canvasNodeSchemas = Object.fromEntries(canvasNodeSchema.map((node) => [node.type, node])) as Record<string, CanvasNodeSchema>
 
@@ -173,6 +201,21 @@ export function isExecutableNodeType(type: string) {
 /** Whether this node type's result can be opened in the Model Editor. */
 export function hasModelEditor(type: string) {
   return Boolean(nodeSchema(type)?.modelEditor)
+}
+
+/** The forced part a node type plays, or undefined for an unknown type. */
+export function nodeRole(type: string): NodeRole | undefined {
+  return nodeSchema(type)?.role
+}
+
+/** Whether a run materializes this node type as a produced artifact. */
+export function isResultNodeType(type: string) {
+  return nodeRole(type) === 'result'
+}
+
+/** Whether this node type only carries user-given data and never runs. */
+export function isInputNodeType(type: string) {
+  return nodeRole(type) === 'input'
 }
 
 /**

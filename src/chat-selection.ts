@@ -28,7 +28,8 @@ export function reconcileRestoredTurns(messages, turns) {
       additions.push(turn)
       continue
     }
-    if (turn.request && !existing.request) repairs.push({ message: existing, request: turn.request })
+    if (turn.request && !existing.request && !turn.selection) repairs.push({ message: existing, request: turn.request })
+    if (turn.selection && existing.request && !existing.selection) existing.selection = turn.selection
   }
   return { additions, repairs }
 }

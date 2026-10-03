@@ -115,7 +115,7 @@ test('persists trace callbacks before the terminal turn status', async (t) => {
   ])
 })
 
-test('runs one agent turn and persists its generated canvas without coordinator metadata', async (t) => {
+test('runs one agent turn without persisting the generated canvas in the coordinator', async (t) => {
   const canvas = { id: 'canvas-1', revision: 1, nodes: [], edges: [] }
   const generated = {
     ...canvas,
@@ -135,7 +135,8 @@ test('runs one agent turn and persists its generated canvas without coordinator 
   assert.equal(api.calls(), 1)
   assert.equal(persisted.turns.length, 1)
   assert.equal(persisted.turns[0].status, 'succeeded')
-  assert.equal(persisted.canvases[0].nodes[0].config.prompt, 'orange robot')
+  assert.deepEqual(persisted.canvases[0], canvas)
+  assert.equal(persisted.turns[0].result.canvas.nodes[0].config.prompt, 'orange robot')
   assert.equal(persisted.sessions[0].messages.at(-1).content, 'Created the workflow.')
 })
 

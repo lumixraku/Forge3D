@@ -6,7 +6,8 @@ import type { NodeRun } from '../node-runs'
 
 type ModelConfig = Record<string, unknown> & { wireframe?: boolean; autoRotate?: boolean; preview?: string; environment?: string }
 type ModelUploadAssets = Record<string, unknown> & { assetType?: string; modelUrl?: string }
-interface ModelNode { data: { label: string; canvasType: string; config: ModelConfig; uploadAssets?: ModelUploadAssets } }
+type ModelGeneratedAssets = Record<string, unknown> & { modelUrl?: string; preview?: string; resultOf?: { sourceType?: string } }
+interface ModelNode { data: { label: string; canvasType: string; config: ModelConfig; uploadAssets?: ModelUploadAssets; generatedAssets?: ModelGeneratedAssets } }
 
 const props = defineProps<{ node: ModelNode; nodeRun?: NodeRun | null }>()
 const emit = defineEmits<{ back: []; 'update-config': [config: ModelConfig] }>()
@@ -15,23 +16,27 @@ const modelUrl = computed(() => {
   if (typeof output?.modelUrl === 'string') return output.modelUrl
   const download = Array.isArray(output?.outputs) ? output.outputs.find((item) => item?.downloadUrl) : null
   if (typeof download?.downloadUrl === 'string') return download.downloadUrl
+  // A model result node carries its file in generatedAssets; it was never run.
+  const generated = props.node.data.generatedAssets
+  if (typeof generated?.modelUrl === 'string') return generated.modelUrl
   const uploads = props.node.data.uploadAssets
   return props.node.data.canvasType === 'reference-image' && uploads?.assetType === 'model' && typeof uploads.modelUrl === 'string' ? uploads.modelUrl : ''
 })
 const segmentedUrl = computed(() => modelUrl.value)
 const downloadName = computed(() => modelUrl.value.split('/').pop()?.split('?')[0] || 'model.glb')
 const canPreviewModel = computed(() => /\.(glb|gltf)(?:$|[?#])/i.test(modelUrl.value))
-const previewImage = computed(() => props.nodeRun?.output?.preview || '')
+const previewImage = computed(() => props.nodeRun?.output?.preview || props.node.data.generatedAssets?.preview || '')
 // Names the provider that actually produced the file, so a simulated result is
 // not passed off as a real one.
 const assetSummary = computed(() => {
   if (props.node.data.canvasType === 'reference-image') return 'Uploaded asset'
+  if (props.node.data.canvasType === 'generated-model') return 'Generated model · GLB'
   const backend = props.nodeRun?.tripoTaskId ? 'Tripo' : props.nodeRun?.meshyTaskId ? 'Meshy' : 'Mock'
   return `${backend} result · GLB`
 })
 
 const editorMode = computed(() => {
-  const type = props.node.data.canvasType
+  const type = props.node.data.generatedAssets?.resultOf?.sourceType || props.node.data.canvasType
   if (type === 'segments') return 'split'
   if (type === 'rigging') return 'rig'
   if (props.node.data.config.wireframe) return 'wireframe'

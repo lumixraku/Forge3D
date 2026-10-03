@@ -186,10 +186,32 @@ Hidden nodes remain valid definitions so older persisted canvases can still load
 | 3D | `rigging` | Rigging | Model | Model | Visible |
 | 3D | `segments` | Segments | Model | Model | Visible |
 | 3D | `model-preview` | Model preview | Model | Model | Visible |
-| Output | `generated-image` | Image | Image | Image | Hidden compatibility type |
+| Output | `generated-image` | Image | Image | Image | Hidden result type |
+| Output | `generated-model` | Model | Model | Model | Hidden result type |
+| Output | `generated-export` | Exported File | None | None | Hidden result type |
 | Output | `export-model` | Export | Image, model | None | Visible |
 
 `Export` belongs to the `Output` category. The generic generated `Image` node is intentionally hidden from Add node while remaining loadable.
+
+### Node Roles
+
+Every node plays exactly one forced role, declared as `role` on the node schema:
+
+- **input** (`reference-image`, `prompt`): carries only user-given data and never runs.
+- **execution** (every `executable` type, including `export-model`): is configured and run.
+- **result** (`generated-image`, `generated-model`, `generated-export`): presents what a run produced. A run creates these; they are hidden from Add node.
+- **container** (`frame`): a visual group, not part of the data flow.
+
+The role decides the card. An execution card shows the header, a compact run status,
+and its parameters — never a result. A result card shows the artifact and its
+actions (image preview, Open in Model Editor, download) and no parameters. A
+successful run materializes one result node per produced artifact to the right of
+the stage that made it: one image node per candidate or view, one model node, one
+file node. Inputs, containers, and `review` gates produce none.
+
+Rerunning a stage replaces its previous result nodes: the old ones are removed and
+any edges that left them are re-homed onto the fresh batch, so a downstream chain
+keeps working. A stage output is therefore never accumulated across runs.
 
 ### Runtime Port Model
 
@@ -237,18 +259,14 @@ This distinction is important when reproducing the current UI: implement the con
 
 ## Node UI And Parameters
 
-Normal nodes share a common card structure:
+Node cards follow the node's role:
 
-- Input handle.
-- Node kind and runtime status.
-- Editable title.
-- Result preview or execution state.
-- Type-specific controls.
-- Generate/regenerate action.
-- Run downstream action.
-- Optional Open in Model Editor action.
-- Run duration/error details.
-- Output handle and downstream `+` action.
+- **Execution** cards show the node kind and runtime status, an editable title, a
+  compact run status line, type-specific controls, a Generate/regenerate action,
+  a Run downstream action, and run duration/error details. They carry no result.
+- **Input** cards show the upload zone or the prompt control.
+- **Result** cards show the artifact preview plus its actions: preview the image,
+  Open in Model Editor for a model, or download the exported file.
 
 Double-click a node title to rename it. Node run status takes precedence over static node state and supports `ready`, `queued`, `running`, `succeeded`, `failed`, and `waiting_review`.
 
