@@ -10,10 +10,13 @@ function node(type, config = {}) {
 }
 
 test('nodes without a Meshy endpoint fall through to the mock producer', () => {
-  for (const type of ['review', 'model-preview', 'prompt', 'reference-image', 'frame', 'generate-image', 'retopology', 'texture', 'segments', 'rigging', 'export-model']) {
+  for (const type of ['review', 'model-preview', 'prompt', 'reference-image', 'frame', 'generate-image', 'retopology', 'texture', 'segments', 'rigging']) {
     assert.equal(meshyRequest(node(type), { input: 'https://cdn/in.png' }), null, type)
     assert.equal(usesMeshy(node(type)), false, type)
   }
+  const exportNode = node('export-model')
+  assert.equal(meshyRequest(exportNode, { input: 'https://cdn/model.glb' }), null)
+  assert.equal(usesMeshy(exportNode), true)
 })
 
 test('generate-model reconstructs from an image when one is upstream', () => {

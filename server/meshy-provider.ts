@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { meshyNodeOutput, meshyRequest, usesMeshy } from './meshy-mapping.js'
 import { assetUrlPrefix, resolveAssetPath } from './tripo-assets.js'
 import { resolveGenerateModelImages, resolvePrompt, resolveUpstreamPreview } from './tripo-provider.js'
+import { nodeInputPorts, nodeOutputPortValues, resolveInputSources } from '../src/canvas-nodes.js'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
 const publicDirectory = path.join(root, '..', 'public')
@@ -81,6 +82,29 @@ export async function executeMeshyNode(node, canvas, {
   if (!usesMeshy(node)) return null
   const startedAt = Date.now()
 
+  if (node.type === 'export-model') {
+    const sources = resolveInputSources(node, canvas)
+    const modelPort = nodeInputPorts(node.type).find((port) => port.type === 'model')
+    const source = (sources[modelPort?.id] || [])[0]
+    const produced = source ? context.get(source.node.id) : null
+    const modelUrl = produced?.modelUrl || (source ? nodeOutputPortValues(source.node, produced)[modelPort.id] : null)
+    if (!modelUrl) throw new Error(`${node.name || 'Export'} needs an upstream 3D model.`)
+    const fileName = node.config?.fileName || 'model'
+    return {
+      nodeId: node.id,
+      status: 'succeeded',
+      durationMs: Math.max(1, Date.now() - startedAt),
+      progress: 100,
+      output: {
+        message: `${node.name || 'Export'} ready`,
+        target: '3D Model',
+        format: 'gltf',
+        modelUrl,
+        outputs: [{ destination: 'dcc', format: 'gltf', filename: `${fileName}.glb`, downloadUrl: modelUrl }],
+      },
+    }
+  }
+
   const toInput = (reference) => toMeshyInput(reference, { readAsset })
   const resolved = await resolveGenerateModelImages(node, canvas, context, { toInput, labeledViews: false })
   const request = meshyRequest(node, {
@@ -113,7 +137,6 @@ export async function executeMeshyNode(node, canvas, {
     })
     creditsConsumed = (previewCredits ?? 0) + (task.consumed_credits ?? 0) || null
   }
-
   return {
     nodeId: node.id,
     status: 'succeeded',

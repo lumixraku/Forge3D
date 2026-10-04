@@ -3,10 +3,10 @@
 // the caller resolves `input` (a public URL or a data URI — Meshy has no file
 // upload endpoint) and performs the HTTP call.
 //
-// Only `generate-model` is backed by Meshy today. Every other node type returns
-// null here and stays on the mock producer (or on Tripo when that provider runs).
+// Meshy generates models and exposes their GLB through export-model. Other node
+// types return null and are rejected as unsupported by the real provider.
 
-export const meshyNodeTypes = new Set(['generate-model'])
+export const meshyNodeTypes = new Set(['generate-model', 'export-model'])
 const MESHY_NODE_TYPES = meshyNodeTypes
 
 // The node's textureQuality names line up with Meshy's texture_resolution steps.
@@ -54,7 +54,7 @@ function sharedBody(config) {
  * off; the preview's own GLB is then the result.
  */
 export function meshyRequest(node, { input = null, prompt = '', multiview = null } = {}) {
-  if (!MESHY_NODE_TYPES.has(node.type)) return null
+  if (node.type !== 'generate-model') return null
   const config = node.config || {}
   const body = sharedBody(config)
 

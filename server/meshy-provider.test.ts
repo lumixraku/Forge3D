@@ -32,7 +32,7 @@ function canvasOf(nodes, edges) {
 const REFERENCE = { id: 'ref', type: 'reference-image', name: 'Ref', config: {}, uploadAssets: { assetType: 'image', assetUrl: '/shark-reference.png' } }
 const MODEL = { id: 'model', type: 'generate-model', name: 'Model', config: { faceCount: 10000 } }
 
-test('a node type Meshy does not back is left to the mock producer', async () => {
+test('a node type Meshy does not back is rejected by the real provider', async () => {
   const canvas = canvasOf([{ id: 'review', type: 'review', name: 'Check', config: {} }], [])
   const client = stubClient()
   assert.equal(await executeMeshyNode(canvas.nodes[0], canvas, { client }), null)
@@ -106,6 +106,26 @@ test('a text prompt runs the two-step preview then refine flow', async () => {
   assert.equal(result.creditsConsumed, 60)
   assert.equal(result.output.modelUrl, 'https://cdn/m.glb')
   assert.equal(result.output.preview, 'https://cdn/p.png')
+})
+
+test('export-model exposes the upstream Meshy GLB without creating another task', async () => {
+  const exportNode = { id: 'export', type: 'export-model', name: 'Export', config: { fileName: 'garden-shark', modelFormat: 'fbx' } }
+  const canvas = canvasOf([MODEL, exportNode], [['model', 'export']])
+  const client = stubClient()
+  const context = new Map([['model', { modelUrl: 'https://cdn/model.glb', preview: 'https://cdn/model.png' }]])
+
+  const result = await executeMeshyNode(exportNode, canvas, { client, context })
+
+  assert.equal(client.calls.tasks.length, 0)
+  assert.equal(result.status, 'succeeded')
+  assert.equal(result.output.modelUrl, 'https://cdn/model.glb')
+  assert.equal(result.output.format, 'gltf')
+  assert.deepEqual(result.output.outputs, [{ destination: 'dcc', format: 'gltf', filename: 'garden-shark.glb', downloadUrl: 'https://cdn/model.glb' }])
+})
+
+test('export-model requires an upstream model URL', async () => {
+  const exportNode = { id: 'export', type: 'export-model', name: 'Export', config: {} }
+  await assert.rejects(() => executeMeshyNode(exportNode, canvasOf([exportNode], []), { client: stubClient() }), /needs an upstream 3D model/)
 })
 
 test('a text prompt without texture stops at the preview', async () => {

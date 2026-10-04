@@ -91,7 +91,7 @@ test('capabilities report Meshy when its key is configured', async (t) => {
   assert.deepEqual(body.providers, { mock: true, tripo: false, meshy: true })
   // Tripo stays the default when both could be configured; alone, Meshy is it.
   assert.equal(body.defaultProvider, 'meshy')
-  assert.deepEqual(body.meshyNodeTypes, ['generate-model'])
+  assert.deepEqual(body.meshyNodeTypes, ['generate-model', 'export-model'])
 })
 
 test('an empty canvas can select any of the three API modes', async (t) => {
