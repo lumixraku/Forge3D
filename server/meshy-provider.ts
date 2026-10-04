@@ -142,6 +142,7 @@ export async function executeMeshyNode(node, canvas, {
     status: 'succeeded',
     durationMs: Math.max(1, Date.now() - startedAt),
     meshyTaskId: task.id,
+    meshyTaskEndpoint: request.refine ? '/openapi/v2/text-to-3d' : request.endpoint,
     progress: 100,
     creditsConsumed,
     output: meshyNodeOutput(node, task, { fallbackPreview: resolveUpstreamPreview(node, canvas, context) }),

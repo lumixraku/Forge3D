@@ -11,6 +11,14 @@ interface ModelNode { data: { label: string; canvasType: string; config: ModelCo
 
 const props = defineProps<{ node: ModelNode; nodeRun?: NodeRun | null }>()
 const emit = defineEmits<{ back: []; 'update-config': [config: ModelConfig] }>()
+const stableMeshyModelUrl = computed(() => {
+  const result = props.node.data.generatedAssets?.resultOf
+  const runId = result?.runId || props.nodeRun?.executionId
+  const nodeId = result?.sourceId || props.nodeRun?.nodeId
+  return props.nodeRun?.meshyTaskId && runId && nodeId
+    ? `/api/executions/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}/model`
+    : ''
+})
 const modelUrl = computed(() => {
   const output = props.nodeRun?.output
   if (typeof output?.modelUrl === 'string') return output.modelUrl
@@ -22,8 +30,22 @@ const modelUrl = computed(() => {
   const uploads = props.node.data.uploadAssets
   return props.node.data.canvasType === 'reference-image' && uploads?.assetType === 'model' && typeof uploads.modelUrl === 'string' ? uploads.modelUrl : ''
 })
-const segmentedUrl = computed(() => modelUrl.value)
+const previewModelUrl = computed(() => {
+  try {
+    const url = new URL(modelUrl.value)
+    return url.hostname === 'assets.meshy.ai' ? stableMeshyModelUrl.value || `/api/meshy/assets?url=${encodeURIComponent(url.href)}` : modelUrl.value
+  } catch {
+    return modelUrl.value
+  }
+})
 const downloadName = computed(() => modelUrl.value.split('/').pop()?.split('?')[0] || 'model.glb')
+const downloadUrl = computed(() => {
+  try {
+    return new URL(modelUrl.value).hostname === 'assets.meshy.ai' ? stableMeshyModelUrl.value || modelUrl.value : modelUrl.value
+  } catch {
+    return modelUrl.value
+  }
+})
 const canPreviewModel = computed(() => /\.(glb|gltf)(?:$|[?#])/i.test(modelUrl.value))
 const previewImage = computed(() => props.nodeRun?.output?.preview || props.node.data.generatedAssets?.preview || '')
 // Names the provider that actually produced the file, so a simulated result is
@@ -70,12 +92,12 @@ function update(key: string, value: unknown) {
         <div class="forge:flex forge:gap-1.5 forge:[&>*]:inline-flex forge:[&>*]:min-h-[30px] forge:[&>*]:items-center forge:[&>*]:rounded-md forge:[&>*]:border forge:[&>*]:border-line-strong forge:[&>*]:bg-bg-input forge:[&>*]:px-[10px] forge:[&>*]:font-mono forge:[&>*]:text-[8px] forge:[&>*]:font-medium forge:[&>*]:text-text-muted forge:[&>*]:no-underline forge:[&>*]:transition-colors forge:[&>*]:hover:bg-bg-input-hover forge:[&>*]:hover:text-text-primary forge:[&_.forge3d-primary]:border-acid forge:[&_.forge3d-primary]:bg-acid forge:[&_.forge3d-primary]:text-text-inverse forge:[&_.forge3d-primary]:hover:brightness-108 forge:max-[760px]:[&>*:not(.forge3d-primary)]:hidden">
           <button>Compare</button>
           <button>Snapshot</button>
-          <a v-if="modelUrl" class="forge3d-primary" :href="modelUrl" :download="downloadName">Download model</a>
+          <a v-if="modelUrl" class="forge3d-primary" :href="downloadUrl" :download="downloadName">Download model</a>
         </div>
       </header>
 
       <div class="forge:relative forge:min-h-0 forge:min-w-0 forge:overflow-hidden forge:bg-[#202322] forge:bg-[linear-gradient(rgba(255,255,255,.018)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.018)_1px,transparent_1px),radial-gradient(circle_at_50%_45%,rgba(108,122,109,.18),transparent_52%)] forge:bg-[size:32px_32px,32px_32px,auto] forge:light:bg-[linear-gradient(rgba(28,40,31,.035)_1px,transparent_1px),linear-gradient(90deg,rgba(28,40,31,.035)_1px,transparent_1px),radial-gradient(circle_at_50%_45%,rgba(196,207,198,.2),transparent_52%)] forge:after:pointer-events-none forge:after:absolute forge:after:bottom-[15%] forge:after:left-0 forge:after:right-0 forge:after:h-px forge:after:bg-[linear-gradient(90deg,transparent,color-mix(in_srgb,var(--acid)_20%,transparent),transparent)]">
-        <Model3D v-if="canPreviewModel" :mode="editorMode" :src="modelUrl" :seg-src="segmentedUrl" :auto-rotate="node.data.config.autoRotate !== false" />
+        <Model3D v-if="canPreviewModel" :mode="editorMode" :src="previewModelUrl" :seg-src="previewModelUrl" :auto-rotate="node.data.config.autoRotate !== false" />
         <div v-else class="forge:absolute forge:inset-0 forge:grid forge:place-items-center forge:px-8 forge:text-center forge:font-mono forge:text-[9px] forge:font-medium forge:text-text-muted">{{ modelUrl ? 'This model format is available for download but cannot be previewed here.' : 'This run did not produce a model file.' }}</div>
         <div class="forge:absolute forge:bottom-[14px] forge:left-4 forge:z-[2] forge:flex forge:items-center forge:gap-[7px] forge:font-mono forge:text-[8px] forge:font-medium forge:text-text-muted forge:pointer-events-none"><i class="forge:size-1.5 forge:rounded-full forge:bg-acid forge:shadow-[0_0_8px_color-mix(in_srgb,var(--acid)_70%,transparent)]" /> REALTIME · GLB · {{ editorMode === 'split' ? 'SEGMENTS' : editorMode === 'rig' ? 'RIG' : 'PBR' }}</div>
         <div class="forge:absolute forge:bottom-[14px] forge:right-4 forge:z-[2] forge:font-mono forge:text-[8px] forge:font-medium forge:text-text-muted forge:pointer-events-none forge:max-[760px]:hidden">Drag to orbit · Scroll to zoom · Double-click to focus</div>

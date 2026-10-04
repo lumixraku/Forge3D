@@ -19,8 +19,12 @@ function stubMeshy(t) {
   const calls = []
   const originalFetch = globalThis.fetch
   globalThis.fetch = async (url, options = {}) => {
-    const path = new URL(url).pathname
+    const parsedUrl = new URL(url)
+    const path = parsedUrl.pathname
     calls.push(`${options.method || 'GET'} ${path}`)
+    if (parsedUrl.hostname === 'assets.meshy.ai') {
+      return new Response(new Uint8Array([0x67, 0x6c, 0x54, 0x46]), { headers: { 'content-type': 'model/gltf-binary' } })
+    }
     const reply = (body) => new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } })
     if (options.method === 'POST') {
       const mode = JSON.parse(options.body).mode
@@ -62,6 +66,7 @@ function createTestApi(t, { withMeshy = true } = {}) {
       deepseek: {},
       createTripoProvider: null,
       createMeshyProvider: withMeshy ? createMeshyRunner({ MESHY_API_KEY: 'test-key', MESHY_BASE_URL: 'https://meshy.test' }) : null,
+      getMeshyTask: withMeshy ? async (taskId) => ({ id: taskId, status: 'SUCCEEDED', model_urls: { glb: 'https://assets.meshy.ai/tasks/latest/model.glb?Signature=fresh' } }) : null,
       getTripoTask: null,
       readAsset: null,
       uploadAsset: null,
@@ -92,6 +97,46 @@ test('capabilities report Meshy when its key is configured', async (t) => {
   // Tripo stays the default when both could be configured; alone, Meshy is it.
   assert.equal(body.defaultProvider, 'meshy')
   assert.deepEqual(body.meshyNodeTypes, ['generate-model', 'export-model'])
+})
+
+test('Meshy assets are streamed through the API for the interactive preview', async (t) => {
+  const { handle } = createTestApi(t)
+  const modelUrl = 'https://assets.meshy.ai/tasks/task-1/output/model.glb?Signature=signed'
+  const response = await handle(new Request(`https://forge.test/api/meshy/assets?url=${encodeURIComponent(modelUrl)}`))
+
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('content-type'), 'model/gltf-binary')
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), new Uint8Array([0x67, 0x6c, 0x54, 0x46]))
+})
+
+test('the Meshy preview proxy rejects non-Meshy URLs', async (t) => {
+  const { handle } = createTestApi(t)
+  const response = await handle(new Request('https://forge.test/api/meshy/assets?url=https%3A%2F%2Fexample.com%2Fmodel.glb'))
+
+  assert.equal(response.status, 400)
+  assert.match((await response.json()).error, /Only Meshy asset URLs/)
+})
+
+test('a persisted Meshy task serves a fresh model URL after refresh', async (t) => {
+  const { handle, state } = createTestApi(t)
+  state.runs.push({
+    id: 'run-meshy',
+    canvasId: 'canvas-1',
+    nodeRuns: {
+      gen: {
+        status: 'succeeded',
+        meshyTaskId: 'task-1',
+        meshyTaskEndpoint: '/openapi/v2/text-to-3d',
+        output: { modelUrl: 'https://assets.meshy.ai/tasks/old/model.glb?Signature=expired' },
+      },
+    },
+  })
+
+  const response = await handle(new Request('https://forge.test/api/executions/run-meshy/nodes/gen/model'))
+
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('content-type'), 'model/gltf-binary')
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), new Uint8Array([0x67, 0x6c, 0x54, 0x46]))
 })
 
 test('an empty canvas can select any of the three API modes', async (t) => {

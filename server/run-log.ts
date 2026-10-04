@@ -16,6 +16,7 @@ export function recordNodeExecution(runs, { runId, canvas, node, result, entryNo
     // Only present when a real backend produced this node.
     ...(result.tripoTaskId ? { tripoTaskId: result.tripoTaskId } : {}),
     ...(result.meshyTaskId ? { meshyTaskId: result.meshyTaskId } : {}),
+    ...(result.meshyTaskEndpoint ? { meshyTaskEndpoint: result.meshyTaskEndpoint } : {}),
     ...(result.progress === undefined ? {} : { progress: result.progress }),
     ...(result.creditsConsumed === undefined || result.creditsConsumed === null ? {} : { creditsConsumed: result.creditsConsumed }),
   }

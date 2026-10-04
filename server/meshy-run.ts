@@ -30,3 +30,22 @@ export function createMeshyRunner(env = process.env, { readAsset } = {}) {
     }
   }
 }
+
+export function createMeshyTaskReader(env = process.env) {
+  if (!isMeshyConfigured(env)) return null
+  const client = createMeshyClient({ apiKey: env.MESHY_API_KEY, baseUrl: env.MESHY_BASE_URL })
+  const endpoints = ['/openapi/v2/text-to-3d', '/openapi/v1/image-to-3d', '/openapi/v1/multi-image-to-3d']
+
+  return async (taskId, endpoint = null) => {
+    if (endpoint) return client.getTask(endpoint, taskId)
+    let lastFailure
+    for (const candidate of endpoints) {
+      try {
+        return await client.getTask(candidate, taskId)
+      } catch (failure) {
+        lastFailure = failure
+      }
+    }
+    throw lastFailure
+  }
+}

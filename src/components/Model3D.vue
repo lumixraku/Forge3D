@@ -28,14 +28,14 @@ let raf: number | undefined
 let resizeObserver: ResizeObserver | undefined
 let disposed = false
 
-function fitAndCenter(geometry: THREE.BufferGeometry) {
-  geometry.computeBoundingBox()
-  const box = geometry.boundingBox
+function fitAndCenter(root: THREE.Object3D) {
+  root.updateMatrixWorld(true)
+  const box = new THREE.Box3().setFromObject(root)
   const center = new THREE.Vector3()
   const size = new THREE.Vector3()
   box.getCenter(center)
   box.getSize(size)
-  geometry.translate(-center.x, -center.y, -center.z)
+  root.position.sub(center)
   return size
 }
 
@@ -108,30 +108,32 @@ function buildSkeleton(size: THREE.Vector3) {
 }
 
 function applyMode(root: THREE.Group, mode: ViewerMode) {
-  let mesh: THREE.Mesh | undefined
-  root.updateMatrixWorld(true)
-  root.traverse((object) => { if (!mesh && object instanceof THREE.Mesh) mesh = object })
-  if (!mesh) return root
-
-  const geo = mesh.geometry.clone()
-  geo.applyMatrix4(mesh.matrixWorld)
-  const size = fitAndCenter(geo)
+  const content = root
+  const size = fitAndCenter(content)
   const maxDim = Math.max(size.x, size.y, size.z) || 1
-  const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material
 
-  const content = new THREE.Group()
   if (mode === 'rig') {
-    const mat = material.clone()
-    mat.transparent = true
-    mat.opacity = 0.55
-    content.add(new THREE.Mesh(geo, mat))
+    content.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return
+      const materials = Array.isArray(object.material) ? object.material : [object.material]
+      object.material = materials.map((material) => {
+        const transparent = material.clone()
+        transparent.transparent = true
+        transparent.opacity = 0.55
+        return transparent
+      })
+    })
     content.add(buildSkeleton(size))
   } else if (mode === 'wireframe') {
-    const mat = material.clone()
-    mat.wireframe = true
-    content.add(new THREE.Mesh(geo, mat))
-  } else {
-    content.add(new THREE.Mesh(geo, material))
+    content.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return
+      const materials = Array.isArray(object.material) ? object.material : [object.material]
+      object.material = materials.map((material) => {
+        const wireframe = material.clone()
+        wireframe.wireframe = true
+        return wireframe
+      })
+    })
   }
   const scale = 2 / maxDim
   content.scale.setScalar(scale)

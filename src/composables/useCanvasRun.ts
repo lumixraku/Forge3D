@@ -56,7 +56,7 @@ function toCanvasRun(execution: ExecutionDto): CanvasRun {
     entryNodeId: execution.entryNodeId,
     mode: execution.mode,
     status: execution.status,
-    nodeRuns: execution.nodeExecutions,
+    nodeRuns: Object.fromEntries(Object.entries(execution.nodeExecutions).map(([nodeId, nodeRun]) => [nodeId, { ...nodeRun, executionId: execution.id, nodeId }])),
     parameters: execution.parameters,
     createdAt: execution.createdAt,
     completedAt: execution.completedAt,

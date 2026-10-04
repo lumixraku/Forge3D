@@ -8,6 +8,9 @@ export interface NodeRun {
   progress?: number
   tripoTaskId?: string
   meshyTaskId?: string
+  meshyTaskEndpoint?: string
+  executionId?: string
+  nodeId?: string
   creditsConsumed?: number | null
   output?: {
     message?: string

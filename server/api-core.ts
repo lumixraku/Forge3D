@@ -516,6 +516,47 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
       })
     }
 
+    if (method === 'GET' && parts[1] === 'meshy' && parts[2] === 'assets' && parts.length === 3) {
+      const assetUrl = url.searchParams.get('url')
+      let remoteUrl
+      try {
+        remoteUrl = new URL(assetUrl || '')
+      } catch {
+        return json({ error: 'A valid Meshy asset URL is required' }, 400)
+      }
+      if (remoteUrl.protocol !== 'https:' || remoteUrl.hostname !== 'assets.meshy.ai') {
+        return json({ error: 'Only Meshy asset URLs can be previewed' }, 400)
+      }
+      const asset = await fetch(remoteUrl, { signal: request.signal, redirect: 'error' })
+      if (!asset.ok || !asset.body) return json({ error: 'Meshy asset could not be loaded' }, 502)
+      return new Response(asset.body, {
+        headers: {
+          'content-type': asset.headers.get('content-type') || 'model/gltf-binary',
+          'cache-control': 'private, no-store',
+        },
+      })
+    }
+
+    if (method === 'GET' && parts[1] === 'executions' && parts[2] && parts[3] === 'nodes' && parts[4] && parts[5] === 'model' && parts.length === 6) {
+      if (!config.getMeshyTask) return json({ error: 'Meshy is not configured.' }, 503)
+      const execution = executionById(state.runs, parts[2])
+      const nodeRun = execution?.nodeRuns?.[parts[4]]
+      const taskId = nodeRun?.meshyTaskId || nodeRun?.output?.meshyTaskId
+      if (!taskId) return json({ error: 'Meshy model task not found' }, 404)
+      const task = await config.getMeshyTask(taskId, nodeRun.meshyTaskEndpoint)
+      const modelUrl = task?.model_urls?.glb
+      if (!modelUrl) return json({ error: 'Meshy task has no GLB model' }, 404)
+      const asset = await fetch(modelUrl, { signal: request.signal, redirect: 'error' })
+      if (!asset.ok || !asset.body) return json({ error: 'Meshy model could not be loaded' }, 502)
+      return new Response(asset.body, {
+        headers: {
+          'content-type': asset.headers.get('content-type') || 'model/gltf-binary',
+          'content-disposition': 'inline; filename="model.glb"',
+          'cache-control': 'private, no-store',
+        },
+      })
+    }
+
     if (method === 'GET' && parts[1] === 'projects' && parts.length === 2) {
       return json(state.canvases.map(projectDto))
     }
