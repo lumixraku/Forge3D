@@ -17,7 +17,7 @@
     "cf:deploy": "unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy && npm run build && node scripts/prepare-cloudflare-assets.mjs && npx wrangler deploy",
     "cf:d1:migrate": "unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy && npx wrangler d1 migrations apply forge3d --remote",
     "cf:release": "npm run test && npm run cf:d1:migrate && npm run cf:deploy",
-    "test": "node --import tsx --test server/*.test.ts src/*.test.js",
+    "test": "node --env-file-if-exists=.env --import tsx --test server/*.test.ts src/*.test.js",
     "test:postgres": "TEST_DATABASE_URL=postgresql://forge3d:forge3d@127.0.0.1:5432/forge3d node --import tsx --test server/postgres-store.test.ts server/postgres-http.test.ts",
     "agent:eval": "node --import tsx --test server/agent-eval.test.ts"
   },

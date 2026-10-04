@@ -18,6 +18,7 @@ const emit = defineEmits<{
   rename: [name: string]
   'open-canvas': [id: string]
   'create-canvas': []
+  'set-provider': [provider: 'mock' | 'tripo' | 'meshy']
   'canvas-context-menu': [payload: { event: MouseEvent; canvas: any }]
   'import-file': [file: File]
   'set-theme': [theme: string]
@@ -124,6 +125,11 @@ onUnmounted(() => window.removeEventListener('pointerdown', dismissSwitcher, tru
       <template v-else-if="workspaceMode === 'canvas'">
         <div class="forge:flex forge:min-w-0 forge:flex-[0_1_auto] forge:items-center forge:gap-3">
           <strong class="forge:min-w-0 forge:flex-[0_1_auto] forge:cursor-text forge:truncate forge:text-sm forge:font-bold" title="Double-click to rename" @dblclick="startRename">{{ activeCanvas.name }}</strong>
+          <select class="forge:h-7 forge:rounded-md forge:border forge:border-line-strong forge:bg-bg-input forge:px-2 forge:font-mono forge:text-[9px] forge:font-semibold forge:uppercase forge:text-text-secondary forge:disabled:cursor-not-allowed forge:disabled:opacity-60" :value="activeCanvas.provider" :disabled="busy || activeCanvas.nodes.length > 0" :title="activeCanvas.nodes.length ? 'Provider is locked after the first node is added' : 'Execution provider'" aria-label="Canvas provider" @change="emit('set-provider', ($event.target as HTMLSelectElement).value as 'mock' | 'tripo' | 'meshy')">
+            <option value="mock">Mock</option>
+            <option value="tripo">Tripo</option>
+            <option value="meshy">Meshy</option>
+          </select>
           <div class="forge:flex forge:flex-none forge:items-center forge:gap-2">
             <div ref="switcherAnchor" class="forge:relative forge:flex-none">
               <div class="forge:flex forge:h-9 forge:flex-none forge:items-stretch forge:overflow-hidden forge:rounded-lg forge:border forge:border-line-strong forge:bg-bg-input forge:transition-colors forge:[&_button]:flex forge:[&_button]:h-full forge:[&_button]:items-center forge:[&_button]:gap-1.5 forge:[&_button]:border-0 forge:[&_button]:border-l forge:[&_button]:border-line forge:[&_button]:bg-transparent forge:[&_button]:px-3 forge:[&_button]:text-[11px] forge:[&_button]:font-medium forge:[&_button]:leading-none forge:[&_button]:text-text-secondary forge:[&_button]:transition-colors forge:[&_button]:hover:bg-bg-input-hover forge:[&_button]:hover:text-text-primary forge:[&_button:first-child]:border-l-0 forge:[&.forge3d-open_.forge3d-wbg-label]:bg-bg-input-hover forge:[&.forge3d-open_.forge3d-wbg-label]:text-text-primary forge:[&.forge3d-open_.forge3d-chevron-icon]:rotate-180" :class="{ 'forge3d-open': switcherOpen }">

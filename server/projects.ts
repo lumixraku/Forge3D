@@ -3,6 +3,7 @@ export function projectDto(canvas) {
     id: canvas.id,
     name: canvas.name,
     description: canvas.description,
+    provider: canvas.provider,
     revision: canvas.revision,
     createdAt: canvas.createdAt,
     updatedAt: canvas.updatedAt,
@@ -17,6 +18,7 @@ export function replaceCanvasDocument(project, input, canvasId, updatedAt) {
     id: canvasId,
     name: project.name,
     description: project.description,
+    provider: input.provider ?? project.provider,
     createdAt: project.createdAt,
     revision: project.revision + 1,
     updatedAt,
@@ -28,6 +30,7 @@ export function applyAgentCanvas(project, canvas) {
     ...canvas,
     name: project.name,
     description: project.description,
+    provider: project.provider,
     createdAt: project.createdAt,
   }
 }

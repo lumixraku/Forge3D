@@ -7,7 +7,7 @@ import os from 'node:os'
 import pg from 'pg'
 import { createPostgresStore } from './postgres-store.js'
 
-const connectionString = process.env.TEST_DATABASE_URL
+const connectionString = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL
 
 test('PostgreSQL store persists, reloads, and removes documents', { skip: !connectionString }, async () => {
   const store = await createPostgresStore({ connectionString })

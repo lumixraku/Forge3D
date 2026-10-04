@@ -9,6 +9,8 @@ function invalid(message) {
 
 export function createCanvas(input) {
   if (!input.name?.trim()) invalid('Canvas name is required')
+  const provider = input.provider ?? 'tripo'
+  if (!['mock', 'tripo', 'meshy'].includes(provider)) invalid('Canvas provider must be "mock", "tripo", or "meshy"')
   if (!Array.isArray(input.nodes)) invalid('Canvas nodes are invalid')
   if (!input.nodes.every((node) =>
     typeof node.id === 'string' && node.id &&
@@ -35,6 +37,7 @@ export function createCanvas(input) {
     id: `canvas-${randomUUID()}`,
     name: input.name.trim(),
     description: input.description?.trim() || '',
+    provider,
     revision: 1,
     createdAt: now,
     updatedAt: now,

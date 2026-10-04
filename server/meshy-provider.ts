@@ -66,7 +66,7 @@ async function toMeshyInput(reference, { readAsset } = {}) {
 /**
  * Executes one node through Meshy and returns the same `{ status, durationMs,
  * output }` shape the mock producer returns. Returns null for a node type Meshy
- * does not back, which leaves it to the simulation.
+ * does not back; the shared runner turns that into an unsupported-node failure.
  *
  * `context` is the run-scoped Map of nodeId -> produced media, which this reads
  * for upstream input and the caller updates from the result.

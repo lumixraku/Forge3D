@@ -148,9 +148,9 @@ export function downstreamCanvas(canvas, startNodeId) {
 // Executes one node and returns its result. Failing nodes surface as a thrown
 // error so the caller can stop the sequence and report which node broke.
 //
-// `provider` runs the node against a real backend. It returns null for a node it
-// does not handle, which falls through to the simulation below, so a canvas with
-// no provider configured behaves exactly as it always has.
+// `provider` runs the node against a real backend. Real modes must handle every
+// executable node in their catalog; a null result is an explicit unsupported
+// node failure rather than an implicit switch to fake data.
 export async function executeNode(node, canvas, {
   wait = (duration) => new Promise((resolve) => setTimeout(resolve, duration)),
   provider = null,
@@ -164,6 +164,9 @@ export async function executeNode(node, canvas, {
   if (provider) {
     const produced = await provider(node, canvas)
     if (produced) return produced
+    const error = new Error(`${node.name || node.type} is not supported by the selected provider`)
+    error.statusCode = 422
+    throw error
   }
 
   const startedAt = Date.now()

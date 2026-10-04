@@ -11,6 +11,7 @@ test('creates a canvas and initial session with server-owned fields', () => {
     createdAt: '2000-01-01T00:00:00.000Z',
     updatedAt: '2000-01-01T00:00:00.000Z',
     name: ' Selected canvas ',
+    provider: 'meshy',
     nodes: [node('a'), node('b', 300)],
     edges: [{ id: 'a-b', source: { nodeId: 'a', port: 'image' }, target: { nodeId: 'b', port: 'image' } }],
   })
@@ -19,6 +20,7 @@ test('creates a canvas and initial session with server-owned fields', () => {
   assert.match(canvas.id, /^canvas-/)
   assert.notEqual(canvas.id, 'caller-id')
   assert.equal(canvas.name, 'Selected canvas')
+  assert.equal(canvas.provider, 'meshy')
   assert.equal(canvas.revision, 1)
   assert.notEqual(canvas.createdAt, '2000-01-01T00:00:00.000Z')
   assert.equal(canvas.updatedAt, canvas.createdAt)
@@ -43,6 +45,7 @@ test('imports an exported canvas as a new canvas', () => {
     id: 'canvas-exported',
     name: ' Exported canvas ',
     description: 'Portable canvas',
+    provider: 'meshy',
     revision: 9,
     createdAt: '2000-01-01T00:00:00.000Z',
     updatedAt: '2000-01-01T00:00:00.000Z',
@@ -55,6 +58,7 @@ test('imports an exported canvas as a new canvas', () => {
   assert.notEqual(imported.id, exported.id)
   assert.equal(imported.name, 'Exported canvas')
   assert.equal(imported.description, exported.description)
+  assert.equal(imported.provider, 'meshy')
   assert.equal(imported.revision, 1)
   assert.deepEqual(imported.nodes, exported.nodes)
   assert.deepEqual(imported.edges, exported.edges)
@@ -64,6 +68,7 @@ test('imports an exported canvas as a new canvas', () => {
 test('duplicates a canvas with fresh graph IDs', () => {
   const source = createCanvas({
     name: 'Source',
+    provider: 'meshy',
     nodes: [node('frame'), { ...node('child', 300), ui: { position: { x: 300, y: 0 }, parentFrameId: 'frame' } }],
     edges: [{ id: 'frame-child', source: { nodeId: 'frame', port: 'image' }, target: { nodeId: 'child', port: 'image' } }],
   })
@@ -71,6 +76,7 @@ test('duplicates a canvas with fresh graph IDs', () => {
 
   assert.notEqual(copy.id, source.id)
   assert.equal(copy.name, 'Source Copy')
+  assert.equal(copy.provider, 'meshy')
   assert.equal(copy.revision, 1)
   assert.ok(copy.nodes.every((copied, index) => copied.id !== source.nodes[index].id))
   assert.equal(copy.nodes[1].ui.parentFrameId, copy.nodes[0].id)
@@ -82,8 +88,18 @@ test('duplicates a canvas with fresh graph IDs', () => {
 test('requires a name and accepts an empty canvas', () => {
   assert.throws(() => createCanvas({ name: ' ', nodes: [node('a')] }), /name is required/)
   const canvas = createCanvas({ name: 'Empty', nodes: [], edges: [] })
+  assert.equal(canvas.provider, 'tripo')
   assert.deepEqual(canvas.nodes, [])
   assert.deepEqual(canvas.edges, [])
+})
+
+test('rejects an unknown canvas provider', () => {
+  assert.throws(() => createCanvas({ name: 'Unknown', provider: 'invalid', nodes: [], edges: [] }), /provider must be "mock", "tripo", or "meshy"/)
+})
+
+test('accepts explicit mock execution mode', () => {
+  const canvas = createCanvas({ name: 'Mock canvas', provider: 'mock', nodes: [], edges: [] })
+  assert.equal(canvas.provider, 'mock')
 })
 
 test('rejects duplicate node IDs and dangling edges', () => {

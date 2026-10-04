@@ -335,6 +335,12 @@ export function useCanvasDocument({
   async function createCanvas() {
     const name = window.prompt('Name this canvas', 'New 3D canvas')?.trim()
     if (!name) return
+    const provider = window.prompt('Provider: mock, tripo, or meshy', 'tripo')?.trim().toLowerCase()
+    if (!provider) return
+    if (!['mock', 'tripo', 'meshy'].includes(provider)) {
+      error.value = 'Canvas provider must be "mock", "tripo", or "meshy"'
+      return
+    }
 
     try {
       const canvas = await request('/api/projects', {
@@ -343,6 +349,7 @@ export function useCanvasDocument({
         body: JSON.stringify({
           name,
           description: 'A new 3D production canvas ready to customize.',
+          provider,
           nodes: [],
           edges: [],
           viewport: { x: 80, y: 160, zoom: 0.72 },
@@ -362,6 +369,21 @@ export function useCanvasDocument({
     })
     activeCanvas.value = { ...activeCanvas.value, name: project.name, updatedAt: project.updatedAt }
     syncCanvasSummary(activeCanvas.value)
+  }
+
+  async function setCanvasProvider(provider) {
+    if (!activeCanvas.value || activeCanvas.value.nodes.length) return
+    try {
+      const project = await request(`/api/projects/${activeCanvas.value.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ provider }),
+      })
+      activeCanvas.value = { ...activeCanvas.value, provider: project.provider, revision: project.revision, updatedAt: project.updatedAt }
+      syncCanvasSummary(activeCanvas.value)
+    } catch (caught) {
+      error.value = caught.message
+    }
   }
 
   async function exportCanvas(canvasId) {
@@ -411,6 +433,7 @@ export function useCanvasDocument({
     deleteCanvas,
     createCanvas,
     renameCanvas,
+    setCanvasProvider,
     exportCanvas,
     importCanvasFile,
   }

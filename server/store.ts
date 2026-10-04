@@ -21,6 +21,10 @@ export function migrateCanvas(canvas, now = () => new Date().toISOString()) {
   const retainedNodes = migrated.nodes.filter((node) => !retiredNodeTypes.has(node.type))
   const retainedNodeIds = new Set(retainedNodes.map((node) => node.id))
   let changed = retainedNodes.length !== migrated.nodes.length
+  if (migrated.provider === undefined) {
+    migrated.provider = 'tripo'
+    changed = true
+  }
 
   migrated.nodes = retainedNodes.map((node) => {
     if (node.type === 'frame') return node

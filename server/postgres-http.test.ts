@@ -5,7 +5,7 @@ import pg from 'pg'
 import { createApi } from './api-core.js'
 import { createPostgresStore } from './postgres-store.js'
 
-const connectionString = process.env.TEST_DATABASE_URL
+const connectionString = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL
 
 test('HTTP project and asset mutations are persisted in PostgreSQL', { skip: !connectionString }, async () => {
   const store = await createPostgresStore({ connectionString })

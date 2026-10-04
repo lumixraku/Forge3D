@@ -3,23 +3,25 @@
 // without silently changing behaviour. Nothing here asserts what the API
 // *should* do - only what it already does.
 //
-// The real server is spawned as a child process against a temp data directory,
-// which is the only way to cover the layer that server/index.ts and worker.ts
-// each implement by hand.
+// The real server is spawned as a child process against an isolated PostgreSQL
+// database, which is the only way to cover the layer that server/index.ts and
+// worker.ts each implement by hand.
 
 import assert from 'node:assert/strict'
 import test, { after, before } from 'node:test'
 import { spawn } from 'node:child_process'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import pg from 'pg'
+import { createPostgresStore } from './postgres-store.js'
 
 const serverEntry = path.join(path.dirname(fileURLToPath(import.meta.url)), 'index.ts')
 
 let child
 let baseUrl
-let dataDirectory
+let databaseName
+let databaseUrl
 
 // Node IDs are looked up across every canvas at once, so each fixture needs its
 // own prefix or a run would report the ID as ambiguous. See the dedicated test
@@ -30,6 +32,7 @@ function canvasFixture(id, { prefix = id, ...overrides } = {}) {
     id,
     name: id,
     description: '',
+    provider: 'mock',
     revision: 1,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
@@ -60,17 +63,21 @@ async function postJson(pathname, payload) {
 }
 
 before(async () => {
-  dataDirectory = await mkdtemp(path.join(tmpdir(), 'forge3d-api-'))
-  await mkdir(path.join(dataDirectory, 'canvases'), { recursive: true })
-  await writeFile(
-    path.join(dataDirectory, 'canvases', 'canvas-fixture.json'),
-    JSON.stringify(canvasFixture('canvas-fixture')),
-  )
-  await writeFile(
-    path.join(dataDirectory, 'canvases', 'canvas-without-session.json'),
-    JSON.stringify(canvasFixture('canvas-without-session')),
-  )
-  await writeFile(path.join(dataDirectory, 'sessions.json'), JSON.stringify([
+  const sourceUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL
+  if (!sourceUrl) throw new Error('DATABASE_URL is required for API characterization tests')
+  databaseName = `forge3d_test_${randomUUID().replaceAll('-', '')}`
+  const adminUrl = new URL(sourceUrl)
+  adminUrl.pathname = '/postgres'
+  const admin = new pg.Pool({ connectionString: adminUrl.toString() })
+  await admin.query(`CREATE DATABASE "${databaseName}"`)
+  await admin.end()
+  const isolatedUrl = new URL(sourceUrl)
+  isolatedUrl.pathname = `/${databaseName}`
+  databaseUrl = isolatedUrl.toString()
+
+  const store = await createPostgresStore({ connectionString: databaseUrl })
+  store.state.canvases = [canvasFixture('canvas-fixture'), canvasFixture('canvas-without-session')]
+  store.state.sessions = [
     {
       id: 'session-fixture',
       canvasId: 'canvas-fixture',
@@ -82,11 +89,11 @@ before(async () => {
         { id: 'msg-request', role: 'assistant', content: '', turnId: 'turn-waiting', createdAt: '2026-01-01T00:00:00.000Z' },
       ],
     },
-  ]))
-  await writeFile(path.join(dataDirectory, 'runs.json'), '[]')
+  ]
+  store.state.runs = []
   // A running turn with a user selection request, so the continue endpoint can be exercised
   // without driving a real agent.
-  await writeFile(path.join(dataDirectory, 'turns.json'), JSON.stringify([
+  store.state.turns = [
     {
       id: 'turn-waiting',
       sessionId: 'session-fixture',
@@ -105,15 +112,16 @@ before(async () => {
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
     },
-  ]))
+  ]
+  await Promise.all(['canvases', 'sessions', 'runs', 'turns'].map(store.persist))
+  await store.close()
 
   child = spawn('node', ['--import', 'tsx', serverEntry], {
     env: {
       ...process.env,
       PORT: '0',
-      FORGE3D_DATA_DIR: dataDirectory,
-      // Keep every run on the simulated producer and the built-in agent loop, so
-      // these tests never reach a real provider.
+      DATABASE_URL: databaseUrl,
+      // These fixtures explicitly bind to mock, so no real provider is reached.
       TRIPO_API_KEY: '',
       MESHY_API_KEY: '',
       AGENT_SERVICE_URL: 'direct',
@@ -150,7 +158,13 @@ before(async () => {
 
 after(async () => {
   child?.kill('SIGKILL')
-  if (dataDirectory) await rm(dataDirectory, { recursive: true, force: true })
+  if (!databaseName || !databaseUrl) return
+  const adminUrl = new URL(databaseUrl)
+  adminUrl.pathname = '/postgres'
+  const admin = new pg.Pool({ connectionString: adminUrl.toString() })
+  await admin.query('SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1', [databaseName])
+  await admin.query(`DROP DATABASE IF EXISTS "${databaseName}"`)
+  await admin.end()
 })
 
 test('rejects anything outside /api', async () => {
@@ -542,11 +556,13 @@ test('a node that carries no work cannot be the entry point', async () => {
 test('a node ID present on more than one canvas is resolved within the requested canvas', async () => {
   const source = await postJson('/api/projects', {
     name: 'Ambiguous source',
+    provider: 'mock',
     nodes: canvasFixture('y', { prefix: 'ambiguous' }).nodes,
     edges: canvasFixture('y', { prefix: 'ambiguous' }).edges,
   })
   const duplicate = await postJson('/api/projects', {
     name: 'Second canvas with legacy IDs',
+    provider: 'mock',
     nodes: canvasFixture('y', { prefix: 'ambiguous' }).nodes,
     edges: canvasFixture('y', { prefix: 'ambiguous' }).edges,
   })
@@ -557,7 +573,7 @@ test('a node ID present on more than one canvas is resolved within the requested
   assert.notEqual(started.body.canvasId, source.body.id)
 })
 
-test('rejects an unknown node, an invalid mode and an unconfigured provider', async () => {
+test('rejects an unknown node and invalid mode, and ignores request provider overrides', async () => {
   assert.deepEqual(
     await postJson('/api/canvases/canvas-fixture/nodes/missing/executions', { mode: 'node' }),
     { status: 404, body: { error: 'Node not found' } },
@@ -566,18 +582,9 @@ test('rejects an unknown node, an invalid mode and an unconfigured provider', as
     await postJson('/api/canvases/canvas-fixture/nodes/canvas-fixture-prompt/executions', { mode: 'sideways' }),
     { status: 400, body: { error: 'Invalid execution mode' } },
   )
-  assert.deepEqual(
-    await postJson('/api/canvases/canvas-fixture/nodes/canvas-fixture-prompt/executions', { provider: 'banana' }),
-    { status: 400, body: { error: 'provider must be "mock", "tripo" or "meshy"' } },
-  )
-  // Neither real provider has a key in this environment, so asking for one
-  // explicitly is a 503.
-  const tripo = await postJson('/api/canvases/canvas-fixture/nodes/canvas-fixture-prompt/executions', { provider: 'tripo' })
-  assert.equal(tripo.status, 503)
-  assert.match(tripo.body.error, /Tripo is not configured/)
-  const meshy = await postJson('/api/canvases/canvas-fixture/nodes/canvas-fixture-prompt/executions', { provider: 'meshy' })
-  assert.equal(meshy.status, 503)
-  assert.match(meshy.body.error, /Meshy is not configured/)
+  const started = await postJson('/api/canvases/canvas-fixture/nodes/canvas-fixture-generate-image/executions', { provider: 'banana', mode: 'node' })
+  assert.equal(started.status, 202)
+  assert.equal(started.body.canvasId, 'canvas-fixture')
 })
 
 test('reading and cancelling executions', async () => {
@@ -607,8 +614,11 @@ test('reading and cancelling executions', async () => {
 test('rejects an execution without retaining a run when credits are insufficient', async () => {
   const account = (await api('/api/account')).body
   const historyBefore = (await api('/api/canvases/canvas-fixture/executions')).body.length
-  const accountsPath = path.join(dataDirectory, 'accounts.json')
-  await writeFile(accountsPath, JSON.stringify([{ id: account.id, name: account.name, balance: 0 }]))
+  const pool = new pg.Pool({ connectionString: databaseUrl })
+  await pool.query(
+    "UPDATE forge3d_documents SET document = jsonb_set(document, '{balance}', '0'::jsonb) WHERE collection = 'accounts' AND document_id = $1",
+    [account.id],
+  )
 
   const rejected = await postJson('/api/canvases/canvas-fixture/nodes/canvas-fixture-generate-image/executions', { mode: 'node' })
   assert.deepEqual(rejected, {
@@ -617,7 +627,11 @@ test('rejects an execution without retaining a run when credits are insufficient
   })
   assert.equal((await api('/api/canvases/canvas-fixture/executions')).body.length, historyBefore)
 
-  await writeFile(accountsPath, JSON.stringify([{ id: account.id, name: account.name, balance: account.balance }]))
+  await pool.query(
+    "UPDATE forge3d_documents SET document = jsonb_set(document, '{balance}', to_jsonb($2::integer)) WHERE collection = 'accounts' AND document_id = $1",
+    [account.id, account.balance],
+  )
+  await pool.end()
   const restored = await postJson('/api/canvases/canvas-fixture/nodes/canvas-fixture-generate-image/executions', { mode: 'node' })
   assert.equal(restored.status, 202)
 })

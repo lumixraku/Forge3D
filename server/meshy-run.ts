@@ -1,6 +1,6 @@
 // Builds the per-run provider that `executeExecution` calls for each node.
-// Returns null when Meshy is not configured, which leaves the whole canvas on
-// the simulated producer.
+// Returns null when Meshy is not configured; the API rejects that mode before
+// creating a run.
 
 import { createMeshyClient, isMeshyConfigured } from './meshy.js'
 import { executeMeshyNode } from './meshy-provider.js'

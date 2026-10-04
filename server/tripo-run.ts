@@ -1,6 +1,6 @@
 // Builds the per-run provider that `executeExecution` calls for each node.
-// Returns null when Tripo is not configured, which leaves the whole canvas on
-// the simulated producer.
+// Returns null when Tripo is not configured; the API rejects that mode before
+// creating a run.
 
 import { createTripoClient, isTripoConfigured } from './tripo.js'
 import { executeTripoNode } from './tripo-provider.js'

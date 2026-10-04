@@ -63,7 +63,7 @@ function toCanvasRun(execution: ExecutionDto): CanvasRun {
   }
 }
 
-export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvasBusy, error, runToken, saveCanvas, materializeResults, onAccountChanged = async () => {}, provider = { value: null } }) {
+export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvasBusy, error, runToken, saveCanvas, materializeResults, onAccountChanged = async () => {} }) {
   const activeExecutions = ref<Record<string, CanvasRun>>({})
   const executions = ref([])
   const executionsLoading = ref(false)
@@ -136,8 +136,6 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
           mode: scope === 'downstream' ? 'downstream' : 'node',
           idempotencyKey: crypto.randomUUID(),
           parameters,
-          // Omitted entirely when no override is set, so the server keeps deciding.
-          ...(provider.value ? { provider: provider.value } : {}),
         }),
       }) as Promise<ExecutionDto>
       // A run executes the canvas as it stands, so the queued save cannot be left
@@ -146,9 +144,7 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
       run.value = toCanvasRun(execution)
       await onAccountChanged()
       if (runToken.value !== pollToken || activeCanvas.value?.id !== canvasId) return
-      // An unset provider means the server default, which is a real (slow) API
-      // whenever one is configured, so it gets the real-provider interval.
-      const pollInterval = POLL_INTERVAL_MS[provider.value || 'tripo']
+      const pollInterval = POLL_INTERVAL_MS[activeCanvas.value.provider || 'tripo']
       activeExecutions.value = { ...activeExecutions.value, [execution.id]: run.value }
       void pollExecution(execution, plan, canvasId, pollToken, pollInterval)
       await loadExecutions(canvasId)

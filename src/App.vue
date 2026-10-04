@@ -170,7 +170,7 @@ const { syncHistoryCanvas, recordHistory, undo, redo } = useCanvasHistory({
 const {
   hydrating, toCanvas, fromCanvas, syncCanvasSummary, loadCanvass, openCanvas,
   saveCanvas, stopPendingSave, duplicateCanvas, deleteCanvas, createCanvas,
-  renameCanvas, exportCanvas, importCanvasFile, refreshCanvasFromServer,
+  renameCanvas, setCanvasProvider, exportCanvas, importCanvasFile, refreshCanvasFromServer,
 } = useCanvasDocument({
   canvases,
   activeCanvas,
@@ -234,7 +234,7 @@ configureIdleRelease({
   isBusy: () => saving.value || agentBusy.value || isRunning.value,
 })
 
-const { capabilitiesError, debugPanelOpen, selectedProvider, activeProvider, tripoAvailable, meshyAvailable, tripoNodeTypes, meshyNodeTypes, setProvider } = useDebugSettings()
+const { capabilitiesError, debugPanelOpen, tripoAvailable, meshyAvailable, tripoNodeTypes, meshyNodeTypes } = useDebugSettings()
 
 const { isRunning, runDetails, runSummary, runCanvas, cancelRun, executions, executionsLoading, loadExecutions, activeExecutions } = useCanvasRun({
   activeCanvas,
@@ -249,8 +249,6 @@ const { isRunning, runDetails, runSummary, runCanvas, cancelRun, executions, exe
   saveCanvas: () => saveCanvas({ immediate: true }),
   materializeResults: (sourceId, runId, output) => materializeResults(sourceId, runId, output),
   onAccountChanged: loadAccount,
-  // Null lets the server pick; the debug panel forces one backend.
-  provider: selectedProvider,
 })
 
 watch([() => run.value?.id, () => run.value?.status], ([runId]) => {
@@ -1014,6 +1012,7 @@ onUnmounted(() => {
       @rename="renameCanvas"
       @open-canvas="openCanvas"
       @create-canvas="createCanvas"
+      @set-provider="setCanvasProvider"
       @canvas-context-menu="openCanvasMenu($event.event, $event.canvas)"
       @import-file="importCanvasFile"
       @set-theme="setTheme"
@@ -1107,14 +1106,13 @@ onUnmounted(() => {
     <ImagePreviewOverlay :preview="imagePreview" @close="closeImagePreview" />
     <DebugPanel
       v-model:open="debugPanelOpen"
-      :active-provider="activeProvider"
+      :active-provider="activeCanvas?.provider || 'tripo'"
       :tripo-available="tripoAvailable"
       :meshy-available="meshyAvailable"
       :tripo-node-types="tripoNodeTypes"
       :meshy-node-types="meshyNodeTypes"
       :error="capabilitiesError"
       :read-canvas-json="canvasJson"
-      @set-provider="setProvider"
     />
   </main>
 </template>

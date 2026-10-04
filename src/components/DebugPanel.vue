@@ -16,14 +16,17 @@ const props = defineProps<{
   // wasted work.
   readCanvasJson: () => string | null
 }>()
-const emit = defineEmits<{ 'update:open': [boolean]; 'set-provider': [RunProvider] }>()
+const emit = defineEmits<{ 'update:open': [boolean] }>()
 
 const PROVIDER_LABELS: Record<RunProvider, string> = { mock: 'Mock', tripo: 'Tripo API', meshy: 'Meshy API' }
-// Null for the simulation; the bare name otherwise, for "Backed by …" copy.
-const activeProviderName = computed(() => (props.activeProvider === 'tripo' ? 'Tripo' : props.activeProvider === 'meshy' ? 'Meshy' : null))
-// The node types the active real backend actually executes; everything else
-// stays simulated even when a real provider is selected.
-const activeNodeTypes = computed(() => (props.activeProvider === 'tripo' ? props.tripoNodeTypes : props.activeProvider === 'meshy' ? props.meshyNodeTypes : []))
+const activeProviderName = computed(() => PROVIDER_LABELS[props.activeProvider])
+// The node types the active backend actually executes.
+const activeNodeTypes = computed(() => props.activeProvider === 'mock'
+  ? []
+  : props.activeProvider === 'tripo' ? props.tripoNodeTypes : props.meshyNodeTypes)
+const providerDescription = computed(() => props.activeProvider === 'mock'
+  ? 'Bound to Mock: executions return simulated data in the standard run format.'
+  : `Bound to ${activeProviderName.value}: ${activeNodeTypes.value.join(', ')}. A missing API key fails the run; it never returns simulated data.`)
 
 type Corner = 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right'
 
@@ -159,54 +162,14 @@ async function copyCanvasJson() {
       </header>
 
       <section class="forge:p-3 forge:[&_h3]:mb-2 forge:[&_h3]:mt-0 forge:[&_h3]:font-mono forge:[&_h3]:text-[9px] forge:[&_h3]:font-semibold forge:[&_h3]:uppercase forge:[&_h3]:tracking-[.07em] forge:[&_h3]:text-text-muted">
-        <h3>Node execution</h3>
-        <div class="forge:flex forge:flex-col forge:gap-[5px] forge:[&_button]:flex forge:[&_button]:flex-col forge:[&_button]:gap-px forge:[&_button]:rounded-md forge:[&_button]:border forge:[&_button]:border-line forge:[&_button]:bg-bg-input forge:[&_button]:px-[9px] forge:[&_button]:py-[7px] forge:[&_button]:text-left forge:[&_button]:hover:bg-bg-input-hover forge:[&_button.forge3d-selected]:border-acid forge:[&_button.forge3d-selected]:bg-bg-active forge:[&_strong]:text-xs forge:[&_strong]:font-medium forge:[&_strong]:text-text-primary forge:[&_small]:text-[10px] forge:[&_small]:text-text-muted" role="radiogroup" aria-label="Execution provider">
-          <button
-            type="button"
-            role="radio"
-            :aria-checked="props.activeProvider === 'mock'"
-            :class="{ 'forge3d-selected': props.activeProvider === 'mock' }"
-            @click="emit('set-provider', 'mock')"
-          >
-            <strong>Mock</strong>
-            <small>Simulated · no credits</small>
-          </button>
-          <button
-            type="button"
-            role="radio"
-            :aria-checked="props.activeProvider === 'tripo'"
-            :disabled="!props.tripoAvailable"
-            :class="{ 'forge3d-selected': props.activeProvider === 'tripo' }"
-            :title="props.tripoAvailable ? '' : 'Set TRIPO_API_KEY and restart the API server'"
-            @click="emit('set-provider', 'tripo')"
-          >
-            <strong>Tripo API</strong>
-            <small>{{ props.tripoAvailable ? 'Real 3D · spends credits' : 'No API key' }}</small>
-          </button>
-          <button
-            type="button"
-            role="radio"
-            :aria-checked="props.activeProvider === 'meshy'"
-            :disabled="!props.meshyAvailable"
-            :class="{ 'forge3d-selected': props.activeProvider === 'meshy' }"
-            :title="props.meshyAvailable ? '' : 'Set MESHY_API_KEY and restart the API server'"
-            @click="emit('set-provider', 'meshy')"
-          >
-            <strong>Meshy API</strong>
-            <small>{{ props.meshyAvailable ? 'Real 3D · spends credits' : 'No API key' }}</small>
-          </button>
-        </div>
-      </section>
-
-      <section class="forge:border-t forge:border-line-subtle forge:p-3 forge:[&_h3]:mb-2 forge:[&_h3]:mt-0 forge:[&_h3]:font-mono forge:[&_h3]:text-[9px] forge:[&_h3]:font-semibold forge:[&_h3]:uppercase forge:[&_h3]:tracking-[.07em] forge:[&_h3]:text-text-muted">
         <h3>Active</h3>
         <p class="forge:m-0 forge:flex forge:items-center forge:gap-[7px] forge:text-xs forge:text-text-primary forge:[&_i]:size-[7px] forge:[&_i]:rounded-full forge:[&_i]:bg-text-muted forge:[&.forge3d-tripo_i]:bg-acid forge:[&.forge3d-tripo_i]:shadow-[0_0_6px_var(--acid)] forge:[&.forge3d-meshy_i]:bg-acid forge:[&.forge3d-meshy_i]:shadow-[0_0_6px_var(--acid)] forge:[&_b]:ml-auto forge:[&_b]:font-mono forge:[&_b]:text-[9px] forge:[&_b]:font-medium forge:[&_b]:tracking-[.04em] forge:[&_b]:text-acid" :class="bizClass(props.activeProvider)">
           <i />
           <span>{{ PROVIDER_LABELS[props.activeProvider] }}</span>
-          <b v-if="activeProviderName">spends credits</b>
+          <b>spends credits</b>
         </p>
-        <p v-if="activeProviderName" class="forge:mb-0 forge:mt-[7px] forge:text-[10px] forge:leading-[1.45] forge:text-text-muted">
-          Backed by {{ activeProviderName }}: {{ activeNodeTypes.join(', ') }}. Other node types stay simulated.
+        <p class="forge:mb-0 forge:mt-[7px] forge:text-[10px] forge:leading-[1.45] forge:text-text-muted">
+          {{ providerDescription }}
         </p>
         <p v-if="props.error" class="forge:mb-0 forge:mt-[7px] forge:text-[10px] forge:leading-[1.45] forge:text-status-failed">{{ props.error }}</p>
       </section>
@@ -234,7 +197,7 @@ async function copyCanvasJson() {
       @click="onBallClick"
     >
       <i />
-      <span>{{ activeProviderName ? 'API' : 'MOCK' }}</span>
+      <span>API</span>
     </button>
   </div>
 </template>

@@ -9,6 +9,7 @@ import { createMeshyRunner } from './meshy-run.js'
 
 const CANVAS = {
   id: 'canvas-1',
+  provider: 'meshy',
   revision: 1,
   nodes: [{ id: 'gen', type: 'generate-model', name: 'Gen HD Model', config: { prompt: 'a stylized shark' } }],
   edges: [],
@@ -77,6 +78,12 @@ const post = (path, body) => new Request(`https://forge.test${path}`, {
   body: JSON.stringify(body),
 })
 
+const patch = (path, body) => new Request(`https://forge.test${path}`, {
+  method: 'PATCH',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify(body),
+})
+
 test('capabilities report Meshy when its key is configured', async (t) => {
   const { handle } = createTestApi(t)
   const response = await handle(new Request('https://forge.test/api/capabilities'))
@@ -87,11 +94,35 @@ test('capabilities report Meshy when its key is configured', async (t) => {
   assert.deepEqual(body.meshyNodeTypes, ['generate-model'])
 })
 
+test('an empty canvas can select any of the three API modes', async (t) => {
+  const { handle, state } = createTestApi(t)
+  state.canvases[0].nodes = []
+
+  for (const provider of ['mock', 'tripo', 'meshy']) {
+    const response = await handle(patch('/api/projects/canvas-1', { provider }))
+    assert.equal(response.status, 200)
+    assert.equal((await response.json()).provider, provider)
+  }
+})
+
+test('a non-empty canvas keeps its selected API mode', async (t) => {
+  const { handle } = createTestApi(t)
+
+  const response = await handle(patch('/api/projects/canvas-1', { provider: 'mock' }))
+  assert.equal(response.status, 409)
+  assert.match((await response.json()).error, /cannot be changed after nodes are added/)
+})
+
 test('a meshy run executes generate-model end to end, preview then refine', async (t) => {
   const { handle, state, background, calls } = createTestApi(t)
 
-  const created = await handle(post('/api/projects/canvas-1/executions', { entryNodeId: 'gen', provider: 'meshy' }))
+  const created = await handle(post('/api/projects/canvas-1/executions', { entryNodeId: 'gen' }))
   assert.equal(created.status, 202)
+  const responseBody = await created.json()
+  assert.deepEqual(Object.keys(responseBody).sort(), [
+    'canvasId', 'canvasRevision', 'completedAt', 'createdAt', 'durationMs', 'entryNodeId', 'entryNodeName',
+    'executedNodeCount', 'id', 'input', 'mode', 'nodeExecutions', 'parameters', 'status',
+  ])
   await Promise.all(background)
 
   // Preview create + poll, then refine create + poll.
@@ -113,16 +144,22 @@ test('a meshy run executes generate-model end to end, preview then refine', asyn
   assert.equal(nodeRun.output.preview, 'https://cdn/preview.png')
 })
 
-test('an unconfigured or unknown provider is rejected before any credit moves', async (t) => {
+test('the request body cannot override the canvas execution mode', async (t) => {
+  const { handle, background, calls } = createTestApi(t)
+
+  const created = await handle(post('/api/projects/canvas-1/executions', { entryNodeId: 'gen', provider: 'mock' }))
+  assert.equal(created.status, 202)
+  await Promise.all(background)
+
+  assert.equal(calls.length, 4)
+})
+
+test('an unconfigured canvas provider is rejected before any credit moves', async (t) => {
   const { handle, state } = createTestApi(t, { withMeshy: false })
 
-  const meshy = await handle(post('/api/projects/canvas-1/executions', { entryNodeId: 'gen', provider: 'meshy' }))
+  const meshy = await handle(post('/api/projects/canvas-1/executions', { entryNodeId: 'gen' }))
   assert.equal(meshy.status, 503)
   assert.match((await meshy.json()).error, /Meshy is not configured/)
-
-  const banana = await handle(post('/api/projects/canvas-1/executions', { entryNodeId: 'gen', provider: 'banana' }))
-  assert.equal(banana.status, 400)
-  assert.equal((await banana.json()).error, 'provider must be "mock", "tripo" or "meshy"')
 
   assert.equal(state.runs.length, 0)
   assert.equal(state.accounts[0].balance, 1000)

@@ -42,6 +42,29 @@ test('refuses a node with nothing feeding it', () => {
   })
 })
 
+test('returns the same execution shape for explicit mock mode', async () => {
+  const mockCanvas = { ...structuredClone(canvas), provider: 'mock' }
+  const runs = []
+  const pending = createExecution(runs, mockCanvas, mockCanvas.nodes[0], 'node')
+  const execution = await executeExecution(runs, pending.run, mockCanvas, pending.executionCanvas, pending.nodes, mockCanvas.nodes[0])
+
+  assert.equal(execution.status, 'succeeded')
+  assert.ok(execution.nodeExecutions.entry.output)
+  assert.equal(typeof execution.nodeExecutions.entry.output.message, 'string')
+})
+
+test('does not fall back to mock output for an unsupported real-provider node', async () => {
+  const runs = []
+  const pending = createExecution(runs, canvas, canvas.nodes[0], 'node')
+  const execution = await executeExecution(runs, pending.run, canvas, pending.executionCanvas, pending.nodes, canvas.nodes[0], async () => {}, {
+    createProvider: () => async () => null,
+  })
+
+  assert.equal(execution.status, 'failed')
+  assert.match(execution.nodeExecutions.entry.error, /not supported by the selected provider/)
+  assert.equal(execution.nodeExecutions.entry.output, null)
+})
+
 test('a half-built node elsewhere does not block a wired run', () => {
   // `other` has no inbound content and cannot run, but it is not in this plan.
   const runs = []

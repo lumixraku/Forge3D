@@ -61,6 +61,17 @@ test('migrates split nodes to segments once', () => {
   assert.deepEqual(migrated.nodes, [{ id: 'split', type: 'segments', name: 'Segments', config: { detailLevel: 'low' } }])
   assert.equal(migrated.revision, 2)
   assert.equal(migrated.updatedAt, 'after')
+  assert.equal(migrated.provider, 'tripo')
+  assert.equal(migrateCanvas(migrated), migrated)
+})
+
+test('migrates a legacy canvas to Tripo once', () => {
+  const canvas = { revision: 1, updatedAt: 'before', nodes: [], edges: [] }
+  const migrated = migrateCanvas(canvas, () => 'after')
+
+  assert.equal(migrated.provider, 'tripo')
+  assert.equal(migrated.revision, 2)
+  assert.equal(migrated.updatedAt, 'after')
   assert.equal(migrateCanvas(migrated), migrated)
 })
 

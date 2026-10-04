@@ -146,31 +146,22 @@ function sseResponse(canvasId, signal, channels, idleTimeoutMs = SSE_IDLE_TIMEOU
   })
 }
 
-/**
- * Resolves which provider factory a run executes with. `requestedProvider` is
- * the debug panel's override; without one the server prefers Tripo, then Meshy,
- * then the simulation (null). A request for an unconfigured provider fails up
- * front instead of halfway through a paid run.
- */
-function resolveProviderFactory(config, requestedProvider) {
+/** Resolves the canvas's persisted execution mode to its internal adapter. */
+function resolveProviderFactory(config, provider) {
   const fail = (message, statusCode) => {
     const error = new Error(message)
     error.statusCode = statusCode
     throw error
   }
-  if (requestedProvider && !['mock', 'tripo', 'meshy'].includes(requestedProvider)) {
-    fail('provider must be "mock", "tripo" or "meshy"', 400)
-  }
-  if (requestedProvider === 'tripo' && !config.createTripoProvider) {
+  if (!['mock', 'tripo', 'meshy'].includes(provider)) fail('Canvas provider must be "mock", "tripo", or "meshy"', 400)
+  if (provider === 'mock') return null
+  if (provider === 'tripo' && !config.createTripoProvider) {
     fail('Tripo is not configured. Set TRIPO_API_KEY and restart the API server.', 503)
   }
-  if (requestedProvider === 'meshy' && !config.createMeshyProvider) {
+  if (provider === 'meshy' && !config.createMeshyProvider) {
     fail('Meshy is not configured. Set MESHY_API_KEY and restart the API server.', 503)
   }
-  if (requestedProvider === 'mock') return null
-  if (requestedProvider === 'tripo') return config.createTripoProvider
-  if (requestedProvider === 'meshy') return config.createMeshyProvider
-  return config.createTripoProvider || config.createMeshyProvider || null
+  return provider === 'tripo' ? config.createTripoProvider : config.createMeshyProvider
 }
 
 export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_MS }) {
@@ -378,7 +369,7 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
       for (const executionRequest of executionRequests) {
         const requestedNode = executionCanvas.nodes.find((node) => node.id === executionRequest.nodeId)
         if (!requestedNode) throw new Error('Agent requested a node outside this canvas')
-        startedExecutions.push(executionDto(await startPaidExecution(context, executionCanvas, requestedNode, executionRequest.mode)))
+        startedExecutions.push(executionDto(await startPaidExecution(context, executionCanvas, requestedNode, executionRequest.mode, resolveProviderFactory(config, executionCanvas.provider))))
       }
       for (const executionId of plan.cancellationRequests || []) {
         const execution = executionById(state.runs, executionId)
@@ -548,8 +539,13 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
       if (index < 0) return json({ error: 'Project not found' }, 404)
       const input = await parseJson(request)
       if (typeof input.name === 'string' && !input.name.trim()) return json({ error: 'Project name is required' }, 400)
+      if (input.provider !== undefined && !['mock', 'tripo', 'meshy'].includes(input.provider)) return json({ error: 'Canvas provider must be "mock", "tripo", or "meshy"' }, 400)
+      if (input.provider !== undefined && input.provider !== state.canvases[index].provider && state.canvases[index].nodes.length) return json({ error: 'Canvas provider cannot be changed after nodes are added' }, 409)
+      const providerChanged = input.provider !== undefined && input.provider !== state.canvases[index].provider
       if (typeof input.name === 'string') state.canvases[index].name = input.name.trim()
       if (typeof input.description === 'string') state.canvases[index].description = input.description.trim()
+      if (input.provider !== undefined) state.canvases[index].provider = input.provider
+      if (providerChanged) state.canvases[index].revision += 1
       state.canvases[index].updatedAt = new Date().toISOString()
       await store.persist(['canvases'])
       return json(projectDto(state.canvases[index]))
@@ -594,6 +590,9 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
       if (input.baseRevision !== state.canvases[index].revision) {
         return json({ error: 'Canvas was updated elsewhere', canvas: state.canvases[index] }, 409)
       }
+      const nextProvider = input.canvas.provider ?? state.canvases[index].provider
+      if (!['mock', 'tripo', 'meshy'].includes(nextProvider)) return json({ error: 'Canvas provider must be "mock", "tripo", or "meshy"' }, 400)
+      if (nextProvider !== state.canvases[index].provider && (state.canvases[index].nodes.length || input.canvas.nodes?.length)) return json({ error: 'Canvas provider cannot be changed after nodes are added' }, 409)
       state.canvases[index] = replaceCanvasDocument(state.canvases[index], input.canvas, parts[2], new Date().toISOString())
       await store.persist(['canvases'])
       channels.broadcast(parts[2], channels.notification(parts[2], 'canvas-updated', {
@@ -865,19 +864,19 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
       if (!canvas) return json({ error: 'Canvas not found' }, 404)
       const node = canvas.nodes.find((candidate) => candidate.id === parts[4])
       if (!node) return json({ error: 'Node not found' }, 404)
-      const { mode = 'downstream', provider: requestedProvider } = await parseJson(request)
-      const execution = await startPaidExecution(context, canvas, node, mode, resolveProviderFactory(config, requestedProvider))
+      const { mode = 'downstream' } = await parseJson(request)
+      const execution = await startPaidExecution(context, canvas, node, mode, resolveProviderFactory(config, canvas.provider))
       return json(executionDto(execution), 202)
     }
 
     if (method === 'POST' && parts[1] === 'projects' && parts[2] && parts[3] === 'executions' && parts.length === 4) {
       const canvas = canvasById(parts[2])
       if (!canvas) return json({ error: 'Project not found' }, 404)
-      const { entryNodeId, nodeIds, mode = 'downstream', provider: requestedProvider, idempotencyKey, parameters } = await parseJson(request)
+      const { entryNodeId, nodeIds, mode = 'downstream', idempotencyKey, parameters } = await parseJson(request)
       const node = canvas.nodes.find((candidate) => candidate.id === entryNodeId)
       if (!node) return json({ error: 'Entry node not found' }, 404)
       const enforceActiveTaskLimit = request.headers.get('x-micro-method') === '/tripo.agent.api.run.v1.RunService/CreateRun'
-      const execution = await startPaidExecution(context, canvas, node, mode, resolveProviderFactory(config, requestedProvider), { nodeIds, idempotencyKey, parameters, enforceActiveTaskLimit })
+      const execution = await startPaidExecution(context, canvas, node, mode, resolveProviderFactory(config, canvas.provider), { nodeIds, idempotencyKey, parameters, enforceActiveTaskLimit })
       return json(executionDto(execution), 202)
     }
 

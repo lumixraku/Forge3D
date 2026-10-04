@@ -6,6 +6,7 @@ const project = {
   id: 'canvas-1',
   name: 'Project name',
   description: 'Project description',
+  provider: 'meshy',
   revision: 3,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-02T00:00:00.000Z',
@@ -19,6 +20,7 @@ test('projects expose metadata and graph counts without graph data', () => {
     id: 'canvas-1',
     name: 'Project name',
     description: 'Project description',
+    provider: 'meshy',
     revision: 3,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-02T00:00:00.000Z',
@@ -43,6 +45,7 @@ test('canvas replacement preserves project-owned metadata', () => {
   assert.equal(replacement.id, project.id)
   assert.equal(replacement.name, project.name)
   assert.equal(replacement.description, project.description)
+  assert.equal(replacement.provider, project.provider)
   assert.equal(replacement.createdAt, project.createdAt)
   assert.equal(replacement.updatedAt, '2026-01-03T00:00:00.000Z')
   assert.equal(replacement.revision, 4)
@@ -60,6 +63,7 @@ test('agent canvas updates preserve project-owned metadata', () => {
 
   assert.equal(replacement.name, project.name)
   assert.equal(replacement.description, project.description)
+  assert.equal(replacement.provider, project.provider)
   assert.equal(replacement.createdAt, project.createdAt)
   assert.deepEqual(replacement.nodes, [{ id: 'agent-node' }])
 })
