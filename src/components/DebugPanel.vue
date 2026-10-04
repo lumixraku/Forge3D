@@ -8,6 +8,7 @@ const props = defineProps<{
   activeProvider: RunProvider
   tripoAvailable: boolean
   meshyAvailable: boolean
+  providerLocked: boolean
   tripoNodeTypes: string[]
   meshyNodeTypes: string[]
   error: string
@@ -16,7 +17,10 @@ const props = defineProps<{
   // wasted work.
   readCanvasJson: () => string | null
 }>()
-const emit = defineEmits<{ 'update:open': [boolean] }>()
+const emit = defineEmits<{
+  'update:open': [boolean]
+  'set-provider': [RunProvider]
+}>()
 
 const PROVIDER_LABELS: Record<RunProvider, string> = { mock: 'Mock', tripo: 'Tripo API', meshy: 'Meshy API' }
 const activeProviderName = computed(() => PROVIDER_LABELS[props.activeProvider])
@@ -27,6 +31,12 @@ const activeNodeTypes = computed(() => props.activeProvider === 'mock'
 const providerDescription = computed(() => props.activeProvider === 'mock'
   ? 'Bound to Mock: executions return simulated data in the standard run format.'
   : `Bound to ${activeProviderName.value}: ${activeNodeTypes.value.join(', ')}. A missing API key fails the run; it never returns simulated data.`)
+
+const providers = computed(() => [
+  { value: 'tripo' as const, label: 'Tripo API', available: props.tripoAvailable },
+  { value: 'mock' as const, label: 'Mock API', available: true },
+  { value: 'meshy' as const, label: 'Meshy API', available: props.meshyAvailable },
+])
 
 type Corner = 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right'
 
@@ -172,6 +182,25 @@ async function copyCanvasJson() {
           {{ providerDescription }}
         </p>
         <p v-if="props.error" class="forge:mb-0 forge:mt-[7px] forge:text-[10px] forge:leading-[1.45] forge:text-status-failed">{{ props.error }}</p>
+      </section>
+
+      <section class="forge:border-t forge:border-line-subtle forge:p-3 forge:[&_h3]:mb-2 forge:[&_h3]:mt-0 forge:[&_h3]:font-mono forge:[&_h3]:text-[9px] forge:[&_h3]:font-semibold forge:[&_h3]:uppercase forge:[&_h3]:tracking-[.07em] forge:[&_h3]:text-text-muted">
+        <h3>Provider</h3>
+        <div class="forge:grid forge:grid-cols-3 forge:gap-1.5">
+          <button
+            v-for="provider in providers"
+            :key="provider.value"
+            class="forge:min-w-0 forge:rounded-md forge:border forge:border-line forge:bg-bg-input forge:px-1.5 forge:py-2 forge:text-[9px] forge:font-medium forge:text-text-secondary forge:transition-colors forge:hover:bg-bg-input-hover forge:disabled:cursor-not-allowed forge:disabled:opacity-40 forge:[&.forge3d-selected]:border-acid forge:[&.forge3d-selected]:bg-[color-mix(in_srgb,var(--acid)_10%,var(--bg-input))] forge:[&.forge3d-selected]:text-acid"
+            :class="{ 'forge3d-selected': provider.value === props.activeProvider }"
+            :disabled="props.providerLocked || !provider.available || provider.value === props.activeProvider"
+            type="button"
+            @click="emit('set-provider', provider.value)"
+          >
+            {{ provider.label }}
+          </button>
+        </div>
+        <small v-if="props.providerLocked" class="forge:mt-1.5 forge:block forge:text-[9px] forge:text-text-muted">Provider is locked after the first node is added.</small>
+        <small v-else class="forge:mt-1.5 forge:block forge:text-[9px] forge:text-text-muted">Unavailable providers need their API key configured.</small>
       </section>
 
       <section class="forge:border-t forge:border-line-subtle forge:p-3 forge:[&_h3]:mb-2 forge:[&_h3]:mt-0 forge:[&_h3]:font-mono forge:[&_h3]:text-[9px] forge:[&_h3]:font-semibold forge:[&_h3]:uppercase forge:[&_h3]:tracking-[.07em] forge:[&_h3]:text-text-muted">

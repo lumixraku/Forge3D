@@ -55,6 +55,7 @@ const savedState = ref('Saved')
 const agentToken = ref(0)
 const canvasRunToken = ref(0)
 const account = ref(null)
+let restoreSuccessfulResults = async () => {}
 
 async function loadAccount() {
   account.value = await request('/api/account')
@@ -202,6 +203,7 @@ const {
   releasePresence,
   acquireEditLease,
   markEditActivity,
+  onCanvasHydrated: (canvasId) => restoreSuccessfulResults(canvasId),
 })
 
 const {
@@ -236,7 +238,7 @@ configureIdleRelease({
 
 const { capabilitiesError, debugPanelOpen, tripoAvailable, meshyAvailable, tripoNodeTypes, meshyNodeTypes } = useDebugSettings()
 
-const { isRunning, runDetails, runSummary, runCanvas, cancelRun, executions, executionsLoading, loadExecutions, activeExecutions } = useCanvasRun({
+const { isRunning, runDetails, runSummary, runCanvas, cancelRun, executions, executionsLoading, loadExecutions, restoreSuccessfulResults: restoreResults, activeExecutions } = useCanvasRun({
   activeCanvas,
   nodes,
   edges,
@@ -247,9 +249,10 @@ const { isRunning, runDetails, runSummary, runCanvas, cancelRun, executions, exe
   runToken: canvasRunToken,
   // A run cannot wait out the debounce: creating it reads the saved canvas.
   saveCanvas: () => saveCanvas({ immediate: true }),
-  materializeResults: (sourceId, runId, output) => materializeResults(sourceId, runId, output),
+  materializeResults: (sourceId, runId, output, status) => materializeResults(sourceId, runId, output, status),
   onAccountChanged: loadAccount,
 })
+restoreSuccessfulResults = restoreResults
 
 watch([() => run.value?.id, () => run.value?.status], ([runId]) => {
   if (runId) taskQueueOpen.value = true
@@ -676,12 +679,12 @@ function downstreamIds(sourceId) {
   return ids
 }
 
-function materializeResults(sourceId, runId, output) {
+async function materializeResults(sourceId, runId, output, status) {
   const source = nodes.value.find((node) => node.id === sourceId)
-  if (!source || !output) return
+  if (!source || !runId || status !== 'succeeded') return
   // Idempotent: polling delivers the same succeeded output repeatedly.
   if (nodes.value.some((node) => node.data?.generatedAssets?.resultOf?.runId === runId && node.data?.generatedAssets?.resultOf?.sourceId === sourceId)) return
-  const artifacts = resultArtifacts(source.data.canvasType, output, { runId, sourceId })
+  const artifacts = resultArtifacts(source.data.canvasType, output, { runId, sourceId }, { allowEmpty: status === 'succeeded' })
   if (!artifacts.length) return
 
   const previous = nodes.value.filter((node) => node.data?.generatedAssets?.resultOf?.sourceId === sourceId)
@@ -717,10 +720,22 @@ function materializeResults(sourceId, runId, output) {
 
   nodes.value = [...nodes.value.filter((node) => !previousIds.has(node.id)), ...created]
   edges.value = edges.value.filter((edge) => !previousIds.has(edge.source) && !previousIds.has(edge.target) && !replacedEdgeIds.has(edge.id))
-  nextTick(() => {
-    for (const node of created) {
-      addConnection({ source: sourceId, sourceHandle: 'output', target: node.id, targetHandle: 'input' })
-    }
+  await nextTick()
+  {
+    // These edges are created by the run system, not by a user drag. Add them
+    // as one graph update so a transient handle/render state cannot discard the
+    // result row after the run has already succeeded.
+    const resultEdges = created
+      .filter((node) => canConnectNodeTypes(source.data.canvasType, node.data.canvasType))
+      .map((node) => ({
+        id: `edge-${sourceId}-${node.id}-${Date.now().toString(36)}`,
+        source: sourceId,
+        target: node.id,
+        sourceHandle: 'output',
+        targetHandle: 'input',
+        ...edgeDefaults,
+      }))
+    edges.value = [...edges.value, ...resultEdges]
     // Each downstream target is fed by the result nodes: a multi-view result lands
     // on its namesake port, and a `multiple` target port collects them all.
     for (const targetId of targets) {
@@ -736,11 +751,20 @@ function materializeResults(sourceId, runId, output) {
           || targetPorts.find((candidate) => canConnectPorts(node.data.canvasType, outputPort.id, target.data.canvasType, candidate.id) && (candidate.multiple || !usedPorts.has(candidate.id)))
         if (!port || (!port.multiple && usedPorts.has(port.id))) continue
         usedPorts.add(port.id)
-        addConnection({ source: node.id, sourceHandle: 'output', target: targetId, targetHandle: 'input', logicalConnections: [{ sourcePort: outputPort.id, targetPort: port.id }] })
+        if (edges.value.some((edge) => edge.source === node.id && edge.target === targetId)) continue
+        edges.value = [...edges.value, {
+          id: `edge-${node.id}-${targetId}-${Date.now().toString(36)}`,
+          source: node.id,
+          target: targetId,
+          sourceHandle: 'output',
+          targetHandle: 'input',
+          data: { logicalConnections: [{ sourcePort: outputPort.id, targetPort: port.id }] },
+          ...edgeDefaults,
+        }]
       }
     }
     saveCanvas()
-  })
+  }
 }
 
 function catalogForMenu() {
@@ -1085,7 +1109,7 @@ onUnmounted(() => {
         />
         <VueFlow v-show="canvasView === 'canvas'" v-model:nodes="nodes" :edges="executionEdges" @update:edges="edges = $event" :class="['forge3d-flow-canvas forge:bg-bg-primary forge:touch-none forge:transition-colors forge:duration-200', `forge3d-canvas-mode-${canvasMode}`]" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="canvasMode === 'select' ? true : null" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @viewport-change-start="dismissCanvasPopups" :nodes-draggable="canvasInteractive" :elements-selectable="canvasInteractive" @pointerdown.capture="onCanvasPointerDown($event); onFrameDrawPointerDown($event)" @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-click="dismissCanvasPopups" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
           <template #node-frame="props"><FrameNode v-bind="props" :zoom="viewport.zoom" :running="sectionIsRunning(props.id)" @update-name="updateNodeName(props.id, $event)" @resize-end="onFrameResizeEnd" @run="runSection(props.id)" @stop-run="cancelRun" /></template>
-          <template #node-canvas="props"><CanvasNode v-bind="props" :node-run="nodeRuns[props.id] || null" :run-id="run?.id || null" :run-entry-node-id="run?.entryNodeId || null" :run-mode="run?.mode || null" :run-status="run?.status || null" :inbound-type="inboundExportTarget(props.id)" :inbound-image="inboundImage(props.id)" :missing-parameters="missingParameters[props.id] || []" :node-catalog="compatibleNodeTypes(props.data.canvasType)" :upstream-node-catalog="compatibleUpstreamNodeTypes(props.data.canvasType)" :viewport-dismiss-version="viewportDismissVersion" :connection-invalid="Boolean(connectionSourceId && connectionSourceId !== props.id && !canConnectNodeTypes(nodes.find((node) => node.id === connectionSourceId)?.data.canvasType, props.data.canvasType))" @update-config="updateNodeConfig(props.id, $event)" @update-uploads="updateNodeUploads(props.id, $event)" @update-output="updateNodeOutput(props.id, $event)" @update-name="updateNodeName(props.id, $event)" @open-model-editor="openModelEditor(props.id)" @preview-image="openImagePreview" @add-next="addNode($event, props.id)" @add-previous="addUpstreamNode($event, props.id)" @run-canvas="runCanvas($event, 'node')" @run-downstream="runCanvas($event, 'downstream')" @stop-run="cancelRun" /></template>
+          <template #node-canvas="props"><CanvasNode v-bind="props" :data="{ ...props.data, provider: activeCanvas?.provider || 'tripo' }" :node-run="nodeRuns[props.id] || null" :run-id="run?.id || null" :run-entry-node-id="run?.entryNodeId || null" :run-mode="run?.mode || null" :run-status="run?.status || null" :inbound-type="inboundExportTarget(props.id)" :inbound-image="inboundImage(props.id)" :missing-parameters="missingParameters[props.id] || []" :node-catalog="compatibleNodeTypes(props.data.canvasType)" :upstream-node-catalog="compatibleUpstreamNodeTypes(props.data.canvasType)" :viewport-dismiss-version="viewportDismissVersion" :connection-invalid="Boolean(connectionSourceId && connectionSourceId !== props.id && !canConnectNodeTypes(nodes.find((node) => node.id === connectionSourceId)?.data.canvasType, props.data.canvasType))" @update-config="updateNodeConfig(props.id, $event)" @update-uploads="updateNodeUploads(props.id, $event)" @update-output="updateNodeOutput(props.id, $event)" @update-name="updateNodeName(props.id, $event)" @open-model-editor="openModelEditor(props.id)" @preview-image="openImagePreview" @add-next="addNode($event, props.id)" @add-previous="addUpstreamNode($event, props.id)" @run-canvas="runCanvas($event, 'node')" @run-downstream="runCanvas($event, 'downstream')" @stop-run="cancelRun" /></template>
           <template #edge-execution="props"><ExecutionEdge v-bind="props" /></template>
           <div v-if="frameDrawRect" class="forge3d-frame-draw-layer" :style="frameDrawLayerStyle"><div class="forge3d-frame-draw-rect" :style="frameDrawRectStyle"><span class="forge3d-frame-draw-size" :style="frameDrawLabelStyle">{{ frameDrawSize }}</span></div></div>
           <Background :gap="24" :size="1.2" :pattern-color="resolvedTheme === 'dark' ? '#252b2c' : '#cdd2cf'" />
@@ -1109,10 +1133,12 @@ onUnmounted(() => {
       :active-provider="activeCanvas?.provider || 'tripo'"
       :tripo-available="tripoAvailable"
       :meshy-available="meshyAvailable"
+      :provider-locked="Boolean(activeCanvas?.nodes?.length)"
       :tripo-node-types="tripoNodeTypes"
       :meshy-node-types="meshyNodeTypes"
       :error="capabilitiesError"
       :read-canvas-json="canvasJson"
+      @set-provider="setCanvasProvider"
     />
   </main>
 </template>

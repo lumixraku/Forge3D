@@ -62,6 +62,13 @@ test('generate-model maps the schema defaults onto Meshy field names', () => {
   assert.equal(body.should_remesh, undefined)
 })
 
+test('generate-model honors Meshy-specific model selection', () => {
+  const { body } = meshyRequest(node('generate-model', { aiModel: 'meshy-7.1' }), { input: 'https://cdn/in.png' })
+  assert.equal(body.ai_model, 'meshy-7.1')
+  assert.equal(body.modelVersion, undefined)
+  assert.equal(body.faceLimit, undefined)
+})
+
 test('generate-model turns quad topology into a quad remesh', () => {
   const { body } = meshyRequest(node('generate-model', { topology: 'quad' }), { input: 'https://cdn/in.png' })
   assert.equal(body.should_remesh, true)

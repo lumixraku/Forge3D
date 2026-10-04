@@ -1,5 +1,6 @@
 export type PortType = 'image' | 'text' | 'model' | 'any'
 export type ParameterValue = string | number | boolean
+export type CanvasProvider = 'mock' | 'tripo' | 'meshy'
 
 /**
  * What part a node plays in the canvas. Every node is exactly one of these:
@@ -138,6 +139,15 @@ const modelParameters: NodeParameter[] = [
   { key: 'privacy', label: 'Privacy', control: 'select', advanced: true, options: options([['sharing-only', 'Sharing Only'], ['private', 'Private']]) },
 ]
 const modelEffects: NodeEffect[] = [{ when: { field: 'generateParts', equals: true }, set: { topology: 'triangle', texture: false, pbr: false } }]
+const meshyModelDefaults = { aiModel: 'latest', texture: true, textureQuality: 'standard', pbr: true, topology: 'triangle', faceCount: 0 }
+const meshyModelParameters: NodeParameter[] = [
+  { key: 'aiModel', label: 'Meshy Model', control: 'select', options: options([['latest', 'Latest'], ['meshy-7.1', 'Meshy 7.1'], ['meshy-7', 'Meshy 7'], ['meshy-6', 'Meshy 6'], ['meshy-6-lite', 'Meshy 6 Lite'], ['meshy-4', 'Meshy 4'], ['meshy-t2', 'Meshy T2']]) },
+  { key: 'texture', label: 'Texture', control: 'toggle' },
+  { key: 'textureQuality', label: 'Texture Resolution', control: 'segmented', options: options([['standard', '2K'], ['detailed', '4K'], ['extreme', '8K']]), visibleWhen: [{ field: 'texture', equals: true }] },
+  { key: 'pbr', label: 'PBR', control: 'toggle', advanced: true, visibleWhen: [{ field: 'texture', equals: true }] },
+  { key: 'topology', label: 'Topology', control: 'segmented', advanced: true, options: topology },
+  { key: 'faceCount', label: 'Target Polycount', control: 'slider', advanced: true, range: { min: 100, max: 300000, step: 100 } },
+]
 
 const canvasNodeDefinitions: Array<Omit<CanvasNodeSchema, 'role'>> = [
   { type: 'frame', category: 'Annotate', label: 'Section', description: 'Group related canvas steps', presentation: { kind: 'SECTION', detail: 'Canvas group', tone: 'slate' }, inputs: {}, outputs: {}, defaults: {}, parameters: [] },
@@ -146,9 +156,9 @@ const canvasNodeDefinitions: Array<Omit<CanvasNodeSchema, 'role'>> = [
   { type: 'reference-image', category: 'Input', label: 'Asset Upload', description: 'Add an image or 3D model input', presentation: { kind: 'INPUT', detail: 'Reference asset', tone: 'cyan' }, inputs: {}, outputs: { image: { type: 'any', label: 'Asset' } }, modelEditor: true, defaults: {}, parameters: [] },
   // Result nodes present what a run produced. They are hidden from Add node:
   // a run creates them, and they carry the artifact in generatedAssets.
-  { type: 'generated-image', category: 'Output', label: 'Image', description: 'An image created by a canvas step', presentation: { kind: 'OUTPUT', detail: 'Generated view', tone: 'amber' }, inputs: { image: { type: 'image' } }, outputs: { image: { type: 'image' } }, hidden: true, defaults: {}, parameters: [] },
-  { type: 'generated-model', category: 'Output', label: 'Model', description: 'A 3D model created by a canvas step', presentation: { kind: 'OUTPUT', detail: 'Generated model', tone: 'green' }, inputs: { model: { type: 'model' } }, outputs: { model: { type: 'model' } }, hidden: true, modelEditor: true, defaults: {}, parameters: [] },
-  { type: 'generated-export', category: 'Output', label: 'Exported File', description: 'A file exported by a canvas step', presentation: { kind: 'OUTPUT', detail: 'Exported file', tone: 'amber' }, inputs: {}, outputs: {}, hidden: true, defaults: {}, parameters: [] },
+  { type: 'generated-image', category: 'Output', label: 'Asset Preview', description: 'Preview an image created by a canvas step', presentation: { kind: 'OUTPUT', detail: 'Generated asset', tone: 'amber' }, inputs: { image: { type: 'image' } }, outputs: { image: { type: 'image' } }, hidden: true, defaults: {}, parameters: [] },
+  { type: 'generated-model', category: 'Output', label: 'Asset Preview', description: 'Preview a 3D model created by a canvas step', presentation: { kind: 'OUTPUT', detail: 'Generated asset', tone: 'green' }, inputs: { model: { type: 'model' } }, outputs: { model: { type: 'model' } }, hidden: true, modelEditor: true, defaults: {}, parameters: [] },
+  { type: 'generated-export', category: 'Output', label: 'Asset Preview', description: 'Preview an exported asset from a canvas step', presentation: { kind: 'OUTPUT', detail: 'Generated asset', tone: 'amber' }, inputs: {}, outputs: {}, hidden: true, defaults: {}, parameters: [] },
   { type: 'prompt', category: 'Input', label: 'Text Prompt', description: 'Set creative direction', presentation: { kind: 'PROMPT', detail: 'Creative direction', tone: 'violet' }, inputs: {}, outputs: { text: { type: 'text' } }, defaults: { prompt: 'Production-ready stylized 3D asset' }, parameters: [{ key: 'prompt', label: 'Prompt', control: 'textarea' }] },
   { type: 'generate-image', category: '2D', label: 'Gen Image', description: 'Create concept images', presentation: { kind: 'IMAGE', detail: 'Concept generation', tone: 'amber' }, inputs: { image: { type: 'image' }, text: promptText }, outputs: { image: { type: 'image' } }, requires: [['image', 'text']], executable: true, defaults: { modelVersion: 'gemini_2.5_flash_image_preview', amount: 4, scale: '1:1', tPose: false }, parameters: [{ key: 'modelVersion', label: 'Image Model', control: 'select', options: imageModels }, { key: 'amount', label: 'Images', control: 'select', options: imageAmounts }, { key: 'scale', label: 'Aspect Ratio', control: 'select', options: scales }, { key: 'tPose', label: 'T-Pose', control: 'toggle' }] },
   { type: 'image-decomposition', category: '2D', label: 'Image Decomposition', description: 'Break an image into editable visual parts', presentation: { kind: 'DECOMPOSE', detail: 'Image parts', tone: 'cyan' }, inputs: { image: { type: 'image' } }, outputs: { image: { type: 'image' } }, requires: ['image'], executable: true, defaults: { modelVersion: 'gemini_2.5_flash_image_preview', prompt: '', amount: 4, scale: '1:1', resolution: '1K', templateKey: 'asset_extraction' }, parameters: [{ key: 'modelVersion', label: 'Image Model', control: 'select', options: imageModels }, { key: 'prompt', label: 'Prompt', control: 'textarea', placeholder: 'Optional extraction instructions' }, { key: 'amount', label: 'Outputs', control: 'select', options: imageAmounts }, { key: 'scale', label: 'Aspect Ratio', control: 'select', options: scales }, { key: 'resolution', label: 'Resolution', control: 'select', options: options([['1K', '1K'], ['2K', '2K'], ['4K', '4K']]) }] },
@@ -162,7 +172,7 @@ const canvasNodeDefinitions: Array<Omit<CanvasNodeSchema, 'role'>> = [
   { type: 'texture', category: '3D', label: 'UV Texture', description: 'Create UV textures from a model, image, or text', presentation: { kind: 'MATERIAL', detail: 'UV texture generation', tone: 'violet' }, inputs: { model: { type: 'model' }, image: { type: 'image' }, text: promptText }, outputs: { model: { type: 'model' } }, requires: ['model'], executable: true, modelEditor: true, defaults: { inputMode: 'imageGenerate', prompt: '', textureQuality: 'extreme', textureStyle: 'None' }, parameters: [{ key: 'inputMode', label: 'Input', control: 'segmented', options: options([['imageGenerate', 'Image'], ['multiViewGenerate', 'Model'], ['textGenerate', 'Text']]) }, { key: 'prompt', label: 'Prompt', control: 'textarea', visibleWhen: [{ field: 'inputMode', equals: 'textGenerate' }] }, { key: 'textureStyle', label: 'Create Your Own Texture Style', control: 'select', options: options(['None', 'Mecha Pop', 'Heritage', 'Mecha', 'Wood', 'Custom'].map((value) => [value, value])) }, { key: 'textureQuality', label: 'Texture Resolution', control: 'segmented', options: textureQualities }] },
   { type: 'rigging', category: '3D', label: 'Rigging', description: 'Add a skeleton to a model', presentation: { kind: 'RIG', detail: 'Auto rigging', tone: 'violet' }, inputs: { model: { type: 'model' } }, outputs: { model: { type: 'model' } }, requires: ['model'], executable: true, modelEditor: true, defaults: { modelVersion: 'v2.5-20260210' }, parameters: [{ key: 'modelVersion', label: 'AI Model', control: 'select', options: options([['v2.5-20260210', 'v2.5 · Good for Animals'], ['v1.0-20240301', 'v1.0 · Good for Humanoid']]) }] },
   { type: 'segments', category: '3D', label: 'Segments', description: 'Segment a model into parts', presentation: { kind: 'SEGMENTS', detail: 'Part segmentation', tone: 'cyan' }, inputs: { model: { type: 'model' } }, outputs: { model: { type: 'model' } }, requires: ['model'], executable: true, modelEditor: true, defaults: { detailLevel: 'low' }, parameters: [{ key: 'detailLevel', label: 'Detail Level', control: 'segmented', options: detailLevels }] },
-  { type: 'model-preview', category: '3D', label: 'Model Preview', description: 'Review the 3D result', presentation: { kind: 'REVIEW', detail: 'Interactive preview', tone: 'cyan' }, inputs: { model: { type: 'model' } }, outputs: { model: { type: 'model' } }, requires: ['model'], executable: true, modelEditor: true, defaults: { materialMode: 'standard', shading: 'smooth', pbrPreview: false, metallic: 0, roughness: 1, wireframe: false }, parameters: [{ key: 'materialMode', label: 'View Mode', control: 'select', options: options([['matcap', 'Solid View'], ['standard', 'Textured View'], ['normal', 'Normal'], ['unlit', 'Unlit'], ['cartoon', 'Cartoon Style'], ['sketch', 'Sketch Style'], ['hologram', 'Hologram Style']]) }, { key: 'shading', label: 'Shading', control: 'select', options: options([['flat', 'Flat'], ['smooth', 'Smooth']]) }, { key: 'pbrPreview', label: 'PBR', control: 'toggle', visibleWhen: [{ field: 'materialMode', equals: 'standard' }] }, { key: 'metallic', label: 'Metallic', control: 'slider', range: { min: 0, max: 1, step: 0.01 }, visibleWhen: [{ field: 'materialMode', equals: 'standard' }, { field: 'pbrPreview', equals: true }] }, { key: 'roughness', label: 'Roughness', control: 'slider', range: { min: 0, max: 1, step: 0.01 }, visibleWhen: [{ field: 'materialMode', equals: 'standard' }, { field: 'pbrPreview', equals: true }] }, { key: 'wireframe', label: 'Wireframe', control: 'toggle' }] },
+  { type: 'model-preview', category: '3D', label: 'Asset Preview', description: 'Review a 3D asset', presentation: { kind: 'REVIEW', detail: 'Interactive preview', tone: 'cyan' }, inputs: { model: { type: 'model' } }, outputs: { model: { type: 'model' } }, requires: ['model'], executable: true, modelEditor: true, defaults: { materialMode: 'standard', shading: 'smooth', pbrPreview: false, metallic: 0, roughness: 1, wireframe: false }, parameters: [{ key: 'materialMode', label: 'View Mode', control: 'select', options: options([['matcap', 'Solid View'], ['standard', 'Textured View'], ['normal', 'Normal'], ['unlit', 'Unlit'], ['cartoon', 'Cartoon Style'], ['sketch', 'Sketch Style'], ['hologram', 'Hologram Style']]) }, { key: 'shading', label: 'Shading', control: 'select', options: options([['flat', 'Flat'], ['smooth', 'Smooth']]) }, { key: 'pbrPreview', label: 'PBR', control: 'toggle', visibleWhen: [{ field: 'materialMode', equals: 'standard' }] }, { key: 'metallic', label: 'Metallic', control: 'slider', range: { min: 0, max: 1, step: 0.01 }, visibleWhen: [{ field: 'materialMode', equals: 'standard' }, { field: 'pbrPreview', equals: true }] }, { key: 'roughness', label: 'Roughness', control: 'slider', range: { min: 0, max: 1, step: 0.01 }, visibleWhen: [{ field: 'materialMode', equals: 'standard' }, { field: 'pbrPreview', equals: true }] }, { key: 'wireframe', label: 'Wireframe', control: 'toggle' }] },
   { type: 'export-model', category: 'Output', label: 'Export', description: 'Export an image or 3D model', presentation: { kind: 'EXPORT', detail: 'Export image or 3D model', tone: 'amber' }, inputs: { image: { type: 'image' }, model: { type: 'model' } }, outputs: {}, requires: [['image', 'model']], executable: true, modelEditor: true, defaults: { fileName: 'shark-gardener', modelFormat: 'gltf', fbxPreset: 'blender', textureSize: 2048, withAnimation: false, packUV: false, animateInPlace: false, exportVertexColors: false }, parameters: [{ key: 'fileName', label: 'File Name', control: 'text' }, { key: 'modelFormat', label: 'Format', control: 'select', options: options([['usdz', 'USD'], ['fbx', 'FBX'], ['obj', 'OBJ'], ['stl', 'STL'], ['gltf', 'GLB'], ['3mf', '3MF']]) }, { key: 'fbxPreset', label: 'FBX Preset', control: 'select', options: options([['blender', 'Blender'], ['mixamo', 'Mixamo'], ['3dsmax', '3ds Max']]), visibleWhen: [{ field: 'modelFormat', equals: 'fbx' }] }, { key: 'textureSize', label: 'Texture Resolution', control: 'select', options: options([[512, '512'], [1024, '1K'], [2048, '2K'], [4096, '4K'], [8192, '8K']]) }, { key: 'withAnimation', label: 'Export Skeleton', control: 'toggle' }, { key: 'packUV', label: 'Pack UV', control: 'toggle' }, { key: 'animateInPlace', label: 'Animation Stay in Place', control: 'toggle', visibleWhen: [{ field: 'withAnimation', equals: true }] }, { key: 'exportVertexColors', label: 'Export Vertex Colors', control: 'toggle', visibleWhen: [{ field: 'modelFormat', equals: 'obj' }] }] },
 ]
 
@@ -182,12 +192,14 @@ export const canvasNodeSchema: CanvasNodeSchema[] = canvasNodeDefinitions.map((n
 
 export const canvasNodeSchemas = Object.fromEntries(canvasNodeSchema.map((node) => [node.type, node])) as Record<string, CanvasNodeSchema>
 
-export function nodeSchema(type: string) {
-  return canvasNodeSchemas[type]
+export function nodeSchema(type: string, provider: CanvasProvider = 'tripo') {
+  const schema = canvasNodeSchemas[type]
+  if (!schema || provider !== 'meshy' || type !== 'generate-model') return schema
+  return { ...schema, defaults: meshyModelDefaults, parameters: meshyModelParameters, effects: undefined }
 }
 
-export function nodeDefaults(type: string) {
-  return structuredClone(nodeSchema(type)?.defaults || {})
+export function nodeDefaults(type: string, provider: CanvasProvider = 'tripo') {
+  return structuredClone(nodeSchema(type, provider)?.defaults || {})
 }
 
 /**
@@ -283,16 +295,16 @@ export function normalizeGeneratedAssets(type: string, generatedAssets: Record<s
   return normalized
 }
 
-export function normalizeNodeConfig(type: string, config: Record<string, unknown> = {}) {
-  const normalized = { ...nodeDefaults(type), ...config }
-  const schema = nodeSchema(type)
+export function normalizeNodeConfig(type: string, config: Record<string, unknown> = {}, provider: CanvasProvider = 'tripo') {
+  const normalized = { ...nodeDefaults(type, provider), ...config }
+  const schema = nodeSchema(type, provider)
 
   for (const parameter of schema?.parameters || []) {
     if (parameter.control !== 'select' || !parameter.options?.length) continue
     if (!parameter.options.some((option) => option.value === normalized[parameter.key])) normalized[parameter.key] = schema.defaults[parameter.key] ?? parameter.options[0].value
   }
 
-  if (['generate-model', 'multiview-to-3d', 'text-to-3d'].includes(type)) {
+  if (provider !== 'meshy' && ['generate-model', 'multiview-to-3d', 'text-to-3d'].includes(type)) {
     if (config.quality && !config.modelVersion) normalized.modelVersion = config.quality === 'standard' ? 'v3.0-20250812' : config.quality
     if (config.modelVersion === 'Smart Mesh') normalized.modelVersion = modelDefaults.modelVersion
     if (typeof config.geometryQuality === 'string') normalized.geometryQuality = config.geometryQuality === 'detailed'
@@ -331,9 +343,9 @@ export function parameterRange(parameter: NodeParameter, config: Record<string, 
   return range
 }
 
-export function applyNodeParameter(type: string, config: Record<string, unknown>, key: string, value: unknown) {
+export function applyNodeParameter(type: string, config: Record<string, unknown>, key: string, value: unknown, provider: CanvasProvider = 'tripo') {
   const next = { ...config, [key]: value }
-  for (const effect of nodeSchema(type)?.effects || []) {
+  for (const effect of nodeSchema(type, provider)?.effects || []) {
     if (effect.when.field === key && value === effect.when.equals) Object.assign(next, effect.set)
   }
   return next

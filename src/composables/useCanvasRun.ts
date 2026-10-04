@@ -101,12 +101,33 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
     }
     executionsLoading.value = true
     try {
-      executions.value = await request(`/api/canvases/${canvasId}/executions`)
+      executions.value = (await request(`/api/canvases/${canvasId}/executions`)).map(toCanvasRun)
     } catch (caught) {
       error.value = caught.message
     } finally {
       executionsLoading.value = false
     }
+  }
+
+  async function restoreSuccessfulResults(canvasId = activeCanvas.value?.id) {
+    if (!canvasId) return
+    await loadExecutions(canvasId)
+    const latestByNode = new Map<string, { execution: CanvasRun; nodeRun: NodeExecution }>()
+    // The API returns newest first. Keep only the latest successful run per node,
+    // so reopening a canvas does not replay every historical result in sequence.
+    for (const execution of executions.value as CanvasRun[]) {
+      for (const [nodeId, nodeRun] of Object.entries(execution.nodeRuns || {})) {
+        if (nodeRun.status === 'succeeded' && !latestByNode.has(nodeId)) latestByNode.set(nodeId, { execution, nodeRun })
+      }
+    }
+    let restored = false
+    for (const [nodeId, { execution, nodeRun }] of latestByNode) {
+      if (!nodes.value.some((node) => node.id === nodeId)) continue
+      const hadResult = nodes.value.some((node) => node.data?.generatedAssets?.resultOf?.runId === execution.id && node.data?.generatedAssets?.resultOf?.sourceId === nodeId)
+      await materializeResults(nodeId, execution.id, nodeRun.output, nodeRun.status)
+      restored = restored || !hadResult
+    }
+    if (restored) await saveCanvas({ immediate: true })
   }
 
   async function runCanvas(targetNodeId?: string, scope: ExecutionMode = 'node') {
@@ -182,7 +203,7 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
         if (!nodeRun) continue
         // Result nodes are materialized from the stage's raw output; the export
         // node additionally downloads its file once as the run finishes.
-        materializeResults(node.id, current.id, nodeRun.output)
+        if (nodeRun.status === 'succeeded') await materializeResults(node.id, current.id, nodeRun.output, nodeRun.status)
         if (node.data?.canvasType === 'export-model') downloadExport(nodeRun)
       }
       await loadExecutions(canvasId)
@@ -211,5 +232,5 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
     }
   }
 
-  return { isRunning, runDetails, runSummary, runCanvas, cancelRun, executions, executionsLoading, loadExecutions, activeExecutions }
+  return { isRunning, runDetails, runSummary, runCanvas, cancelRun, executions, executionsLoading, loadExecutions, restoreSuccessfulResults, activeExecutions }
 }

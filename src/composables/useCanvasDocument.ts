@@ -38,6 +38,7 @@ export function useCanvasDocument({
   releasePresence,
   acquireEditLease,
   markEditActivity,
+  onCanvasHydrated = async () => {},
 }) {
   const hydrating = ref(false)
   const workflowDirty = ref(false)
@@ -140,6 +141,7 @@ export function useCanvasDocument({
     run.value = null
     nodeRuns.value = data.nodeRuns || {}
     await toCanvas(activeCanvas.value)
+    await onCanvasHydrated(id)
     if (workflowDirty.value) {
       acquireEditLease()
       await saveCanvas({ immediate: true })

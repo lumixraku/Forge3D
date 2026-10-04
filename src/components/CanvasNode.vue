@@ -9,13 +9,14 @@ import NodeSlider from './NodeSlider.vue'
 import type { NodeRun } from '../node-runs'
 import { applyNodeParameter, conditionsMatch, nodeSchema, parameterRange } from '../canvas-nodes'
 import type { NodeDefinition, NodeParameter, NodePort } from '../canvas-nodes'
+import type { CanvasProvider } from '../canvas-schema'
 
 // Three sibling trees, one each for what the user typed, what the user uploaded,
 // and what a run produced. Copying a node keeps the first two and drops the third.
 type NodeConfig = Record<string, unknown> & { exportTargets?: string[]; modelFormat?: string }
 type NodeUploadAssets = Record<string, unknown> & { assetType?: string; assetUrl?: string; modelUrl?: string; reference?: string; thumbnailUrl?: string }
 type NodeGeneratedAssets = Record<string, unknown> & { approved?: boolean; preview?: string; previews?: string[]; selectedPreview?: string; viewPreviews?: Record<string, string> }
-interface CanvasNodeData { label: string; status?: string; canvasType: string; config: NodeConfig; uploadAssets?: NodeUploadAssets; generatedAssets?: NodeGeneratedAssets; initialAsset?: File; inputPorts?: NodePort[]; outputPorts?: NodePort[] }
+interface CanvasNodeData { label: string; status?: string; canvasType: string; provider?: CanvasProvider; config: NodeConfig; uploadAssets?: NodeUploadAssets; generatedAssets?: NodeGeneratedAssets; initialAsset?: File; inputPorts?: NodePort[]; outputPorts?: NodePort[] }
 const EXECUTION_CREDIT_COST = 10
 
 const props = withDefaults(defineProps<{ id: string; data: CanvasNodeData; selected?: boolean; nodeRun?: NodeRun | null; runId?: string | null; runEntryNodeId?: string | null; runMode?: string | null; runStatus?: string | null; inboundType?: string | null; inboundImage?: string | null; missingParameters?: string[]; nodeCatalog?: NodeDefinition[]; upstreamNodeCatalog?: NodeDefinition[]; viewportDismissVersion?: number; connectionInvalid?: boolean }>(), { selected: false, nodeRun: null, runId: null, runEntryNodeId: null, runMode: null, runStatus: null, inboundType: null, inboundImage: null, missingParameters: () => [], nodeCatalog: () => [], upstreamNodeCatalog: () => [], viewportDismissVersion: 0, connectionInvalid: false })
@@ -79,7 +80,7 @@ function anchoredMenuPosition(button: HTMLElement | null, side: 'left' | 'right'
   }
 }
 const runtimeStatus = computed(() => props.nodeRun?.status || props.data.status)
-const schema = computed(() => nodeSchema(props.data.canvasType))
+const schema = computed(() => nodeSchema(props.data.canvasType, props.data.provider || 'tripo'))
 const isExecutableNode = computed(() => Boolean(schema.value?.executable))
 // The forced part this node plays. Result nodes present a run's artifact and show
 // no parameters; execution nodes are configuration only and never show a result.
@@ -171,7 +172,7 @@ function toggleApprove() {
 }
 
 function update(key: string, value: unknown) {
-  emit('update-config', applyNodeParameter(props.data.canvasType, props.data.config, key, value))
+  emit('update-config', applyNodeParameter(props.data.canvasType, props.data.config, key, value, props.data.provider || 'tripo'))
 }
 
 // Edits a result field. Not through applyNodeParameter: that is for parameter
@@ -347,11 +348,11 @@ watch(() => props.data.initialAsset, (file) => {
       <button v-else-if="isModelResult" type="button" class="forge3d-node-output forge3d-model-output nodrag nopan forge:relative forge:block forge:aspect-[4/3] forge:w-full forge:overflow-hidden forge:rounded-lg forge:border forge:border-line-subtle forge:bg-[radial-gradient(circle_at_50%_45%,#edf1ed,#dfe5e0_72%)] forge:p-0 forge:text-left forge:transition-[border-color,box-shadow] forge:hover:border-[var(--node-accent)] forge:focus-visible:outline forge:focus-visible:outline-2 forge:focus-visible:outline-offset-2 forge:focus-visible:outline-[var(--node-accent)] forge:dark:bg-[radial-gradient(circle_at_50%_45%,#30352f,#111412_72%)] forge:[&>img]:relative forge:[&>img]:z-[1] forge:[&>img]:size-full forge:[&>img]:object-contain forge:[&>img]:drop-shadow-[0_12px_12px_rgba(0,0,0,.45)]" :aria-label="`Open ${data.label} in Model Editor`" @click.stop="emit('open-model-editor')">
         <img v-if="visibleRuntimePreview" :src="visibleRuntimePreview" :alt="`${data.label} result`" @error="markImageFailed(visibleRuntimePreview)" />
         <span v-else class="forge:grid forge:size-full forge:place-content-center forge:text-[var(--node-accent)]"><svg class="forge:size-11 forge:drop-shadow-[0_0_14px_color-mix(in_srgb,var(--node-accent)_50%,transparent)]" viewBox="0 0 48 48" fill="none" aria-hidden="true"><path d="m24 5 15 8.5v17L24 39l-15-8.5v-17L24 5Z" stroke="currentColor" stroke-width="1.5"/><path d="m9 13.5 15 8.5 15-8.5M24 22v17" stroke="currentColor" stroke-width="1.5"/></svg></span>
-        <span class="forge:pointer-events-none forge:absolute forge:bottom-[7px] forge:right-[7px] forge:z-[3] forge:rounded forge:border forge:border-white/15 forge:bg-[rgba(12,15,13,.76)] forge:px-1.5 forge:py-1 forge:font-mono forge:text-[7px] forge:font-medium forge:uppercase forge:text-[#dce2dd] forge:backdrop-blur-[5px]">3D model · Open editor</span>
+         <span class="forge:pointer-events-none forge:absolute forge:bottom-[7px] forge:right-[7px] forge:z-[3] forge:rounded forge:border forge:border-white/15 forge:bg-[rgba(12,15,13,.76)] forge:px-1.5 forge:py-1 forge:font-mono forge:text-[7px] forge:font-medium forge:uppercase forge:text-[#dce2dd] forge:backdrop-blur-[5px]">Asset preview · Open editor</span>
       </button>
       <button v-else type="button" class="forge3d-node-output nodrag nopan forge:relative forge:block forge:aspect-[4/3] forge:w-full forge:overflow-hidden forge:rounded-lg forge:border forge:border-line-subtle forge:bg-[radial-gradient(circle_at_50%_45%,#edf1ed,#dfe5e0_72%)] forge:p-0 forge:text-left forge:transition-[border-color,box-shadow] forge:hover:border-[var(--node-accent)] forge:focus-visible:outline forge:focus-visible:outline-2 forge:focus-visible:outline-offset-2 forge:focus-visible:outline-[var(--node-accent)] forge:dark:bg-[radial-gradient(circle_at_50%_45%,#30352f,#111412_72%)] forge:[&>img]:size-full forge:[&>img]:object-cover" :aria-label="`Preview ${data.label} image`" @click.stop="emit('preview-image', { src: visibleRuntimePreview, alt: `${data.label} result` })">
         <img v-if="visibleRuntimePreview" :src="visibleRuntimePreview" :alt="`${data.label} result`" @error="markImageFailed(visibleRuntimePreview)" />
-        <span class="forge:pointer-events-none forge:absolute forge:bottom-[7px] forge:right-[7px] forge:z-[3] forge:rounded forge:border forge:border-white/15 forge:bg-[rgba(12,15,13,.76)] forge:px-1.5 forge:py-1 forge:font-mono forge:text-[7px] forge:font-medium forge:uppercase forge:text-[#dce2dd] forge:backdrop-blur-[5px]">Generated view</span>
+         <span class="forge:pointer-events-none forge:absolute forge:bottom-[7px] forge:right-[7px] forge:z-[3] forge:rounded forge:border forge:border-white/15 forge:bg-[rgba(12,15,13,.76)] forge:px-1.5 forge:py-1 forge:font-mono forge:text-[7px] forge:font-medium forge:uppercase forge:text-[#dce2dd] forge:backdrop-blur-[5px]">Asset preview</span>
       </button>
     </div>
     <div v-if="data.canvasType === 'review'" class="forge:mb-[11px] forge:flex forge:flex-col forge:rounded-lg forge:border forge:border-dashed forge:border-line-strong forge:bg-bg-input forge:p-3 forge:[&>strong]:text-[10px] forge:[&>strong]:font-medium forge:[&>strong]:text-text-secondary forge:[&>small]:mt-1 forge:[&>small]:font-mono forge:[&>small]:text-[8px] forge:[&>small]:text-text-muted" :class="bizClass(runtimeStatus)">

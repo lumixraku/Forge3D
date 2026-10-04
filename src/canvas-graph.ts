@@ -31,6 +31,7 @@ export function toCanvasGraph(canvas) {
     // it), so an older canvas that still keeps its uploads and results inside
     // config migrates exactly once, here.
     const split = splitNodeTrees(node.config, node.uploadAssets, node.generatedAssets, node.outputResult)
+    const provider = canvas.provider || 'tripo'
     return {
       id: node.id,
       type: 'canvas',
@@ -45,7 +46,8 @@ export function toCanvasGraph(canvas) {
         tone,
         status: 'ready',
         canvasType: type,
-        config: normalizeNodeConfig(type, split.config),
+        provider,
+        config: normalizeNodeConfig(type, split.config, provider),
         uploadAssets: split.uploadAssets,
         generatedAssets: normalizeGeneratedAssets(type, split.generatedAssets),
         inputPorts: nodeInputPorts(type),

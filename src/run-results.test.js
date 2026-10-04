@@ -38,4 +38,5 @@ test('input, review, and empty outputs produce no result nodes', () => {
   assert.deepEqual(resultArtifacts('review', { preview: '/x.png' }, of), [])
   assert.deepEqual(resultArtifacts('generate-image', null, of), [])
   assert.deepEqual(resultArtifacts('generate-image', {}, of), [])
+  assert.equal(resultArtifacts('generate-image', {}, of, { allowEmpty: true }).length, 1)
 })

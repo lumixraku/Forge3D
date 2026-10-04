@@ -71,7 +71,7 @@ export function describeCanvasParameters(canvas, requestedType) {
 export function updateNodeParameters(canvas, nodeId, parameters) {
   const node = canvas.nodes.find((candidate) => candidate.id === nodeId)
   if (!node) throw new Error(`Node "${nodeId}" was not found.`)
-  const schema = nodeSchema(node.type)
+  const schema = nodeSchema(node.type, canvas.provider || 'tripo')
   if (!schema?.parameters.length) throw new Error(`${node.name} has no adjustable parameters.`)
   if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) throw new Error('Parameters must be an object.')
 
@@ -102,7 +102,7 @@ export function updateNodeParameters(canvas, nodeId, parameters) {
     }
     if (node.config[parameter.key] === value) continue
     changes.push({ nodeId, nodeLabel: schema.label, fieldLabel: parameter.label, previousValue: node.config[parameter.key], value })
-    node.config = applyNodeParameter(node.type, node.config, parameter.key, value)
+    node.config = applyNodeParameter(node.type, node.config, parameter.key, value, canvas.provider || 'tripo')
   }
   return changes
 }

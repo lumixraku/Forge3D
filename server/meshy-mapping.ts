@@ -24,7 +24,7 @@ const MAX_IMAGES = 4
 function sharedBody(config) {
   // `latest` tracks Meshy's newest model, matching how the Tripo mapping pins
   // the node's own default version.
-  const body: Record<string, unknown> = { ai_model: 'latest', target_formats: ['glb'] }
+  const body: Record<string, unknown> = { ai_model: config.aiModel || 'latest', target_formats: ['glb'] }
   body.should_texture = config.texture !== false
   // PBR maps only exist when texturing runs.
   if (body.should_texture) {

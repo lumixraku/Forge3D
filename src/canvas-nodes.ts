@@ -2,7 +2,7 @@ import { canvasNodeSchema, isExecutableNodeType, nodeSchema } from './canvas-sch
 import type { NodePort, NodePorts, PortType, CanvasNodeSchema } from './canvas-schema'
 
 export { applyNodeParameter, conditionsMatch, hasModelEditor, isExecutableNodeType, isInputNodeType, isResultNodeType, nodeDefaults, nodeRole, nodeSchema, parameterRange, canvasNodeSchema, canvasNodeSchemas } from './canvas-schema'
-export type { NodeParameter, NodeRequirement, NodeRole, ParameterCondition, ParameterOption, ParameterRange, CanvasNodeSchema } from './canvas-schema'
+export type { NodeParameter, NodeRequirement, NodeRole, ParameterCondition, ParameterOption, ParameterRange, CanvasNodeSchema, CanvasProvider } from './canvas-schema'
 
 export type { NodePort, NodePorts, NodePortSpec, PortType } from './canvas-schema'
 export type NodeDefinition = CanvasNodeSchema

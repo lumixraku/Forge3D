@@ -201,6 +201,15 @@ test('matches the Tripo Studio parameters without changing node types', () => {
   assert.deepEqual(texture.parameters.find(({ key }) => key === 'textureQuality').options.map(({ label }) => label), ['2K', '4K', '8K'])
 })
 
+test('uses Meshy parameters without exposing Tripo-only fields', () => {
+  const schema = nodeSchema('generate-model', 'meshy')
+  const keys = schema.parameters.map(({ key }) => key)
+  assert.deepEqual(keys, ['aiModel', 'texture', 'textureQuality', 'pbr', 'topology', 'faceCount'])
+  assert.equal(keys.includes('modelVersion'), false)
+  assert.equal(keys.includes('generateParts'), false)
+  assert.equal(nodeDefaults('generate-model', 'meshy').aiModel, 'latest')
+})
+
 test('gives every select a valid default and normalizes legacy values', () => {
   for (const schema of canvasNodeSchema) {
     for (const parameter of schema.parameters.filter(({ control }) => control === 'select')) {

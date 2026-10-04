@@ -34,8 +34,12 @@ export function resultArtifacts(
   sourceType: string,
   output: NodeRunOutput | null | undefined,
   resultOf: { runId: string; sourceId: string },
+  { allowEmpty = false } = {},
 ): ResultArtifact[] {
-  if (!output) return []
+  if (!output) {
+    if (!allowEmpty) return []
+    output = {}
+  }
   // A review node passes an image through; the image is already the upstream
   // result, so materializing another would only duplicate it.
   if (sourceType === 'review') return []
@@ -78,6 +82,11 @@ export function resultArtifacts(
 
   if (typeof output.preview === 'string' && output.preview) {
     return [{ type: 'generated-image', generatedAssets: { preview: output.preview, resultOf: origin } }]
+  }
+  if (allowEmpty) {
+    // A successful provider may omit a preview URL. The successful run still
+    // needs a visible result node so the result can be inspected or re-run.
+    return [{ type: 'generated-image', generatedAssets: { resultOf: origin } }]
   }
   return []
 }
