@@ -145,6 +145,7 @@ export function useCanvasSelection({ nodes, edges, activeCanvas, error, saveCanv
     dissolveSelectedFrames,
     selectAll,
     selectCanvasEdge,
+    onEdgeClick,
     copySelected,
     pasteFragment,
     duplicateSelected,

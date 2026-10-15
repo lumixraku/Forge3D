@@ -1,22 +1,15 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { SelectionMode, VueFlow, addEdge, useVueFlow } from '@vue-flow/core'
-import { Background } from '@vue-flow/background'
-import { Controls } from '@vue-flow/controls'
-import { MiniMap } from '@vue-flow/minimap'
-import '@vue-flow/node-resizer/dist/style.css'
 import AssetLibraryView from './components/AssetLibraryView.vue'
 import CanvasContextMenu from './components/CanvasContextMenu.vue'
 import CanvasToolbar from './components/CanvasToolbar.vue'
 import ChatPanel from './components/ChatPanel.vue'
-import FrameNode from './components/FrameNode.vue'
 import ImagePreviewOverlay from './components/ImagePreviewOverlay.vue'
 import DebugPanel from './components/DebugPanel.vue'
 import ExecutionOutputPanel from './components/ExecutionOutputPanel.vue'
 import RunLogPanel from './components/RunLogPanel.vue'
 import TopBar from './components/TopBar.vue'
-import CanvasNode from './components/CanvasNode.vue'
-import ExecutionEdge from './components/ExecutionEdge.vue'
+import LiteGraphCanvas from './components/LiteGraphCanvas.vue'
 import { useAgentChat } from './composables/useAgentChat'
 import { useAssetLibrary } from './composables/useAssetLibrary'
 import { useCanvasFrames } from './composables/useCanvasFrames'
@@ -31,6 +24,7 @@ import { useCanvasRun } from './composables/useCanvasRun'
 import { useDebugSettings } from './composables/useDebugSettings'
 import { request } from './api'
 import { edgeDefaults, nodePresentation } from './canvas-graph'
+import { applyNodeParameter } from './canvas-schema'
 import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, compatibleUpstreamNodeTypes, hasModelEditor, isExecutableNodeType, missingParametersByNode, nodeCatalog, nodeCategories, nodeDefaults, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
 import { resultArtifacts } from './run-results'
 
@@ -81,13 +75,12 @@ let pendingConnection = null
 const connectionSourceId = ref(null)
 let editLockedNoticeTimer
 
-const executionEdges = computed(() => edges.value.map((edge) => ({
-  ...edge,
-  type: 'execution',
-  data: { ...edge.data, running: nodeRuns.value[edge.target]?.status === 'running' },
-})))
-
-const { findNode, fitView, screenToFlowCoordinate, updateNodeInternals, viewport } = useVueFlow()
+const graphCanvas = ref(null)
+const viewport = ref({ x: 0, y: 0, zoom: 1 })
+function fitView(options) { graphCanvas.value?.fitView(options) }
+function screenToFlowCoordinate(point) { return graphCanvas.value?.screenToFlowCoordinate(point) || { x: point.x, y: point.y } }
+function updateNodeInternals() {}
+function findNode(id) { return graphCanvas.value?.findNode(id) || null }
 const { theme, resolvedTheme, setTheme } = useTheme()
 const {
   clientId, canEdit, editorName, acquireEditLease, markEditActivity, configureIdleRelease,
@@ -120,7 +113,7 @@ watch(editorName, (name) => {
 const {
   selectedNodes, frameableSelectedNodes, canFrameSelection, canDissolveSelection,
   selectedCount, hasSelection, deleteSelected, dissolveSelectedFrames, selectAll,
-  selectCanvasEdge, copySelected, pasteFragment, duplicateSelected, createCanvasFromSelection,
+  selectCanvasEdge, onEdgeClick, copySelected, pasteFragment, duplicateSelected, createCanvasFromSelection,
 } = useCanvasSelection({
   nodes,
   edges,
@@ -291,33 +284,6 @@ function sectionIsRunning(frameId) {
 
 const { rails: assetRails, library: assetLibrary, loading: assetsLoading, loadAssets } = useAssetLibrary({ activeCanvas, error })
 
-const panOnDrag = computed(() => canvasMode.value === 'move')
-// While the section tool is armed the canvas must not drag or select anything:
-// with both off Vue Flow drops pointer events on its nodes, so the whole pane
-// answers the draw gesture uniformly.
-const canvasInteractive = computed(() => canvasMode.value !== 'frame')
-// The preview sits outside Vue Flow's transformation pane, so it carries the
-// viewport transform itself and draws in plain flow coordinates.
-const frameDrawLayerStyle = computed(() => ({
-  transform: `translate(${viewport.value.x}px, ${viewport.value.y}px) scale(${viewport.value.zoom})`,
-}))
-const frameDrawRectStyle = computed(() => frameDrawRect.value ? {
-  left: `${frameDrawRect.value.left}px`,
-  top: `${frameDrawRect.value.top}px`,
-  width: `${frameDrawRect.value.right - frameDrawRect.value.left}px`,
-  height: `${frameDrawRect.value.bottom - frameDrawRect.value.top}px`,
-  // The layer is scaled by the viewport, so undo that for the hairline border.
-  borderWidth: `${1 / viewport.value.zoom}px`,
-  borderRadius: `${15 / viewport.value.zoom}px`,
-} : {})
-// The readout rides outside the rectangle at a screen-constant size, like the
-// section title in FrameNode.
-const frameDrawLabelStyle = computed(() => ({
-  transform: `translateY(${-6 / viewport.value.zoom}px) scale(${1 / viewport.value.zoom})`,
-}))
-const frameDrawSize = computed(() => frameDrawRect.value
-  ? `${Math.round(frameDrawRect.value.right - frameDrawRect.value.left)} × ${Math.round(frameDrawRect.value.bottom - frameDrawRect.value.top)}`
-  : '')
 const toolbarMenuOpen = computed(() => nodeMenuOpen.value && !nodeMenuContext.value)
 // Assets outlive their nodes, so the model editor is only offered for the ones
 // whose node is still on the canvas.
@@ -379,14 +345,9 @@ function canvasJson() {
   return canvas ? JSON.stringify(canvas, null, 2) : null
 }
 
-function onConnect(connection) {
-  addConnection(connection)
-  pendingConnection = null
-}
-
-function onConnectStart(connection) {
-  pendingConnection = connection.handleType === 'source' ? { nodeId: connection.nodeId, sourceHandle: connection.handleId } : null
-  connectionSourceId.value = pendingConnection?.nodeId || null
+function onGraphConnectStart(nodeId) {
+  pendingConnection = { nodeId, sourceHandle: 'output' }
+  connectionSourceId.value = nodeId
 }
 
 function isValidConnection(connection) {
@@ -406,7 +367,7 @@ function addConnection(connection) {
   // connections leave this to the save-time inference; a reroute that knows the
   // pairs (a view result re-homed onto a multi-view port) passes them explicitly.
   const logicalConnections = connection.logicalConnections?.length ? { logicalConnections: connection.logicalConnections } : null
-  edges.value = addEdge({
+  edges.value = [...edges.value, {
     id: `edge-${source.id}-${target.id}-${Date.now().toString(36)}`,
     source: source.id,
     target: target.id,
@@ -414,31 +375,22 @@ function addConnection(connection) {
     targetHandle: 'input',
     ...(logicalConnections ? { data: logicalConnections } : {}),
     ...edgeDefaults,
-  }, edges.value)
+  }]
   saveCanvas()
   return true
 }
 
-function onConnectEnd(event) {
-  if (!pendingConnection) {
-    pendingConnection = null
-    return
-  }
-  const pointerEvent = event?.event || event
-  const point = pointerEvent?.changedTouches?.[0] || pointerEvent
-  const targetElement = point ? document.elementFromPoint(point.clientX, point.clientY)?.closest('.vue-flow__node') : null
-  const target = targetElement?.dataset.id
-  if (target) {
-    addConnection({ source: pendingConnection.nodeId, sourceHandle: 'output', target, targetHandle: 'input' })
-  }
-  else if (point) openNodeMenuAt(point.clientX, point.clientY, pendingConnection.nodeId)
+function onGraphConnectEnd(payload) {
+  if (payload?.sourceId) openNodeMenuAt(payload.clientX, payload.clientY, payload.sourceId)
   pendingConnection = null
   connectionSourceId.value = null
 }
 
-function onConnectCancel() {
-  pendingConnection = null
-  connectionSourceId.value = null
+function updateNodeParameter({ id, key, value }) {
+  const node = nodes.value.find((candidate) => candidate.id === id)
+  if (!node) return
+  const provider = activeCanvas.value?.provider || node.data.provider || 'tripo'
+  updateNodeConfig(id, applyNodeParameter(node.data.canvasType, node.data.config, key, value, provider))
 }
 
 function updateNodeConfig(id, config) {
@@ -842,19 +794,9 @@ function openSelectionMenuAt(clientX, clientY) {
 
 function onPaneContextMenu(event) {
   event.preventDefault()
-  const selectedElements = [...document.querySelectorAll('.vue-flow__node.selected')]
-  if (selectedElements.length) {
-    const rects = selectedElements.map((element) => element.getBoundingClientRect())
-    const bounds = {
-      left: Math.min(...rects.map((rect) => rect.left)),
-      top: Math.min(...rects.map((rect) => rect.top)),
-      right: Math.max(...rects.map((rect) => rect.right)),
-      bottom: Math.max(...rects.map((rect) => rect.bottom)),
-    }
-    if (event.clientX >= bounds.left && event.clientX <= bounds.right && event.clientY >= bounds.top && event.clientY <= bounds.bottom) {
-      openSelectionMenuAt(event.clientX, event.clientY)
-      return
-    }
+  if (selectedNodes.value.length > 1) {
+    openSelectionMenuAt(event.clientX, event.clientY)
+    return
   }
   openNodeMenuAt(event.clientX, event.clientY)
 }
@@ -1107,18 +1049,46 @@ onUnmounted(() => {
           @select-node-type="selectNodeType"
           @drag-node-type="startNodeDrag($event.event, $event.type)"
         />
-        <VueFlow v-show="canvasView === 'canvas'" v-model:nodes="nodes" :edges="executionEdges" @update:edges="edges = $event" :class="['forge3d-flow-canvas forge:bg-bg-primary forge:touch-none forge:transition-colors forge:duration-200', `forge3d-canvas-mode-${canvasMode}`]" :default-edge-options="edgeDefaults" :delete-key-code="null" :is-valid-connection="isValidConnection" :min-zoom=".08" :max-zoom="3.5" :snap-to-grid="false" :pan-on-scroll="true" :zoom-on-scroll="false" :zoom-activation-key-code="null" :pan-on-drag="panOnDrag" :selection-key-code="canvasMode === 'select' ? true : null" :selection-mode="SelectionMode.Partial" :multi-selection-key-code="'Shift'" fit-view-on-init @viewport-change-start="dismissCanvasPopups" :nodes-draggable="canvasInteractive" :elements-selectable="canvasInteractive" @pointerdown.capture="onCanvasPointerDown($event); onFrameDrawPointerDown($event)" @dragover="onCanvasDragOver" @drop="onCanvasDrop" @pane-click="dismissCanvasPopups" @pane-context-menu="onPaneContextMenu" @node-context-menu="onNodeContextMenu" @selection-context-menu="onSelectionContextMenu" @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @connect-cancel="onConnectCancel" @node-drag-start="onNodeDragStart" @node-drag-stop="onNodeDragStop" @selection-start="onSelectionStart" @selection-end="onSelectionEnd" @nodes-change="onElementsChange" @edges-change="onElementsChange">
-          <template #node-frame="props"><FrameNode v-bind="props" :zoom="viewport.zoom" :running="sectionIsRunning(props.id)" @update-name="updateNodeName(props.id, $event)" @resize-end="onFrameResizeEnd" @run="runSection(props.id)" @stop-run="cancelRun" /></template>
-          <template #node-canvas="props"><CanvasNode v-bind="props" :data="{ ...props.data, provider: activeCanvas?.provider || 'tripo' }" :node-run="nodeRuns[props.id] || null" :run-id="run?.id || null" :run-entry-node-id="run?.entryNodeId || null" :run-mode="run?.mode || null" :run-status="run?.status || null" :inbound-type="inboundExportTarget(props.id)" :inbound-image="inboundImage(props.id)" :missing-parameters="missingParameters[props.id] || []" :node-catalog="compatibleNodeTypes(props.data.canvasType)" :upstream-node-catalog="compatibleUpstreamNodeTypes(props.data.canvasType)" :viewport-dismiss-version="viewportDismissVersion" :connection-invalid="Boolean(connectionSourceId && connectionSourceId !== props.id && !canConnectNodeTypes(nodes.find((node) => node.id === connectionSourceId)?.data.canvasType, props.data.canvasType))" @update-config="updateNodeConfig(props.id, $event)" @update-uploads="updateNodeUploads(props.id, $event)" @update-output="updateNodeOutput(props.id, $event)" @update-name="updateNodeName(props.id, $event)" @open-model-editor="openModelEditor(props.id)" @preview-image="openImagePreview" @add-next="addNode($event, props.id)" @add-previous="addUpstreamNode($event, props.id)" @run-canvas="runCanvas($event, 'node')" @run-downstream="runCanvas($event, 'downstream')" @stop-run="cancelRun" /></template>
-          <template #edge-execution="props"><ExecutionEdge v-bind="props" /></template>
-          <div v-if="frameDrawRect" class="forge3d-frame-draw-layer" :style="frameDrawLayerStyle"><div class="forge3d-frame-draw-rect" :style="frameDrawRectStyle"><span class="forge3d-frame-draw-size" :style="frameDrawLabelStyle">{{ frameDrawSize }}</span></div></div>
-          <Background :gap="24" :size="1.2" :pattern-color="resolvedTheme === 'dark' ? '#252b2c' : '#cdd2cf'" />
-          <MiniMap position="bottom-right" :width="160" :height="100" :pannable="true" :zoomable="true" :mask-color="resolvedTheme === 'dark' ? 'rgba(10, 12, 12, .7)' : 'rgba(238, 241, 238, .72)'" :node-color="resolvedTheme === 'dark' ? '#606a63' : '#a6afa9'" :node-stroke-color="resolvedTheme === 'dark' ? '#929a94' : '#737d76'" :node-stroke-width="1" :node-border-radius="4" />
-          <Controls position="bottom-right" />
-        </VueFlow>
+        <LiteGraphCanvas
+          v-show="canvasView === 'canvas'"
+          ref="graphCanvas"
+          :nodes="nodes"
+          :edges="edges"
+          :node-runs="nodeRuns"
+          :missing-parameters="missingParameters"
+          :theme="resolvedTheme"
+          :canvas-mode="canvasMode"
+          :frame-draw-rect="frameDrawRect"
+          :section-running="sectionIsRunning"
+          @update:nodes="nodes = $event"
+          @update:edges="edges = $event"
+          @update-parameter="updateNodeParameter"
+          @update-uploads="updateNodeUploads($event.id, $event.uploadAssets)"
+          @update-name="updateNodeName($event.id, $event.name)"
+          @pointerdown.capture="onCanvasPointerDown($event); onFrameDrawPointerDown($event)"
+          @dragover="onCanvasDragOver"
+          @drop="onCanvasDrop"
+          @pane-click="dismissCanvasPopups"
+          @pane-context-menu="onPaneContextMenu"
+          @node-context-menu="onNodeContextMenu"
+          @connect-start="onGraphConnectStart"
+          @connect-end="onGraphConnectEnd"
+          @drag-start="onNodeDragStart"
+          @drag-stop="onNodeDragStop"
+          @selection-start="onSelectionStart"
+          @selection-end="onSelectionEnd"
+          @edge-click="onEdgeClick"
+          @preview-image="openImagePreview"
+          @run-node="runCanvas($event, 'node')"
+          @run-downstream="runCanvas($event, 'downstream')"
+          @stop-run="cancelRun"
+          @open-model-editor="openModelEditor"
+          @run-section="runSection"
+          @viewport="viewport = $event"
+        />
         <AssetLibraryView v-if="canvasView === 'assets'" :rails="assetRails" :total="assetLibrary.total" :loading="assetsLoading" :canvas-node-ids="canvasNodeIds" @preview="openImagePreview" @open-model-editor="openModelEditor" />
         <RunLogPanel v-if="runDetails && runSummaryOpen" :details="runDetails" @close="runSummaryOpen = false" />
-        <footer class="forge:row-start-4 forge:flex forge:min-h-0 forge:items-center forge:justify-between forge:border-t forge:border-line forge:px-[13px] forge:font-mono forge:text-[8px] forge:font-medium forge:leading-none forge:text-text-muted"><div class="forge:flex forge:h-full forge:items-center forge:gap-[9px] forge:whitespace-nowrap"><span class="forge:flex forge:h-full forge:items-center forge:gap-[7px] forge:uppercase"><i class="forge:size-[7px] forge:rounded-full forge:bg-acid forge:shadow-[0_0_9px_color-mix(in_srgb,var(--acid)_60%,transparent)]" />{{ runSummary }}</span><button v-if="runDetails" class="forge:flex forge:h-[19px] forge:items-center forge:gap-[5px] forge:rounded forge:border forge:border-line-strong forge:bg-bg-input forge:px-[7px] forge:font-mono forge:text-[7px] forge:font-semibold forge:uppercase forge:tracking-[.06em] forge:text-acid forge:transition-colors forge:hover:bg-bg-input-hover" type="button" :aria-expanded="runSummaryOpen" @click="runSummaryOpen = !runSummaryOpen">{{ runSummaryOpen ? 'Hide logs' : 'Logs' }} <b class="forge:text-[9px] forge:font-medium">{{ runSummaryOpen ? '↓' : '↑' }}</b></button></div><span class="forge:overflow-hidden forge:text-ellipsis forge:whitespace-nowrap forge:max-[760px]:hidden">Click or drag a node from Add node · Drop a connection on empty canvas to create a compatible node · Press / to add</span></footer>
+        <footer class="forge:row-start-4 forge:flex forge:min-h-0 forge:items-center forge:justify-between forge:border-t forge:border-line forge:px-[13px] forge:font-mono forge:text-[8px] forge:font-medium forge:leading-none forge:text-text-muted"><div class="forge:flex forge:h-full forge:items-center forge:gap-[9px] forge:whitespace-nowrap"><span class="forge:flex forge:h-full forge:items-center forge:gap-[7px] forge:uppercase"><i class="forge:size-[7px] forge:rounded-full forge:bg-acid forge:shadow-[0_0_9px_color-mix(in_srgb,var(--acid)_60%,transparent)]" />{{ runSummary }}</span><button v-if="runDetails" class="forge:flex forge:h-[19px] forge:items-center forge:gap-[5px] forge:rounded forge:border forge:border-line-strong forge:bg-bg-input forge:px-[7px] forge:font-mono forge:text-[7px] forge:font-semibold forge:uppercase forge:tracking-[.06em] forge:text-acid forge:transition-colors forge:hover:bg-bg-input-hover" type="button" :aria-expanded="runSummaryOpen" @click="runSummaryOpen = !runSummaryOpen">{{ runSummaryOpen ? 'Hide logs' : 'Logs' }} <b class="forge:text-[9px] forge:font-medium">{{ runSummaryOpen ? '↓' : '↑' }}</b></button></div><span class="forge:overflow-hidden forge:text-ellipsis forge:whitespace-nowrap forge:max-[760px]:hidden">Move mode drags to pan · Select mode drags empty space to box-select · Two-finger drag pans · Pinch to zoom · Drop a link on empty canvas to add a node</span></footer>
       </section>
       <button class="forge:absolute forge:right-0 forge:top-[76px] forge:z-[21] forge:flex forge:h-[42px] forge:w-9 forge:items-center forge:justify-center forge:gap-[3px] forge:rounded-l-lg forge:border forge:border-r-0 forge:border-line forge:bg-bg-card forge:font-mono forge:text-[11px] forge:font-semibold forge:text-acid forge:shadow-[-5px_4px_14px_rgba(20,26,22,.1)] forge:transition-[right] forge:duration-200 forge:has-[+_.is-open]:right-[300px] forge:max-[1200px]:has-[+_.is-open]:right-[270px] forge:max-[760px]:has-[+_.is-open]:right-[min(300px,90vw)]" type="button" :aria-expanded="taskQueueOpen" aria-controls="task-queue-panel" @click="taskQueueOpen = !taskQueueOpen">
         <span aria-hidden="true">{{ taskQueueOpen ? '→' : '←' }}</span>
@@ -1144,32 +1114,6 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-:deep(.forge3d-flow-canvas .vue-flow__pane), :deep(.forge3d-flow-canvas .vue-flow__node.draggable), :deep(.forge3d-flow-canvas .vue-flow__nodesselection-rect) { cursor: default; }
-:deep(.forge3d-flow-canvas.forge3d-canvas-mode-select .vue-flow__pane.selection) { cursor: default; }
-:deep(.forge3d-flow-canvas.forge3d-canvas-mode-move .vue-flow__pane) { cursor: default; }
-:deep(.forge3d-flow-canvas.forge3d-canvas-mode-frame .vue-flow__pane) { cursor: crosshair; }
-.forge3d-frame-draw-layer { position: absolute; inset: 0; z-index: 5; pointer-events: none; transform-origin: 0 0; }
-.forge3d-frame-draw-rect { position: absolute; border-style: dashed; border-color: var(--acid); background: color-mix(in srgb, var(--acid) 5%, transparent); }
-.forge3d-frame-draw-size { position: absolute; bottom: 100%; left: 0; transform-origin: bottom left; border-radius: 5px; background: color-mix(in srgb, var(--acid) 16%, var(--bg-input)); padding: 3px 6px; font-family: var(--font-mono, monospace); font-size: 10px; font-weight: 600; line-height: 1; color: var(--text-primary); white-space: nowrap; }
-:deep(.forge3d-flow-canvas.forge3d-canvas-mode-move .vue-flow__pane.dragging) { cursor: grabbing; }
-:deep(.forge3d-flow-canvas .vue-flow__node.draggable.dragging), :deep(.forge3d-flow-canvas .vue-flow__nodesselection-rect.dragging) { cursor: grabbing; }
-:deep(.vue-flow__node-frame) { z-index: 2 !important; }
-:deep(.vue-flow__node-canvas) { z-index: 1 !important; }
-:deep(.vue-flow__node-canvas:focus), :deep(.vue-flow__node-canvas:focus-visible) { outline: none; }
-:deep(.vue-flow__background > rect) { stroke: none; }
-:deep(.vue-flow__edge-path) { stroke: #535a56; stroke-width: 1.6; transition: stroke .15s ease, stroke-width .15s ease; }
-:deep(.vue-flow__edge) { cursor: pointer; }
-:deep(.vue-flow__edge:hover .vue-flow__edge-path) { stroke: color-mix(in srgb, var(--acid) 70%, #535a56); stroke-width: 2.6; }
-:deep(.vue-flow__edge.selected .vue-flow__edge-path) { stroke: var(--acid); stroke-width: 3; }
-:deep(.vue-flow__edge-interaction) { stroke: transparent; stroke-width: 36; pointer-events: stroke; cursor: pointer; }
-:deep(.vue-flow__connection) { z-index: 1000; pointer-events: none; overflow: visible; }
-:deep(.vue-flow__connection path), :deep(.vue-flow__connection-path) { stroke: var(--acid) !important; stroke-width: 5 !important; stroke-linecap: round; fill: none; filter: drop-shadow(0 0 4px color-mix(in srgb, var(--acid) 65%, transparent)); }
-:deep(.vue-flow__minimap) { right: 16px; bottom: 16px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-card); overflow: hidden; }
-:deep(.vue-flow__controls) { right: 186px; bottom: 16px; border: 1px solid var(--line-strong); border-radius: 7px; box-shadow: none; overflow: hidden; }
-:deep(.vue-flow__controls-button) { width: 28px; height: 28px; border-bottom-color: var(--line-strong); background: var(--bg-card); fill: #929994; transition: background .15s ease, fill .15s ease; }
-:deep(.vue-flow__controls-button:hover) { background: var(--bg-input-hover); fill: var(--acid); }
-:global(:root[data-theme='light']) :deep(.vue-flow__edge-path) { stroke: #909993; }
-:global(:root[data-theme='light']) :deep(.vue-flow__edge:hover .vue-flow__edge-path) { stroke: color-mix(in srgb, var(--acid) 75%, #6c756f); }
-:global(:root[data-theme='light']) :deep(.vue-flow__edge.selected .vue-flow__edge-path) { stroke: var(--acid); }
-:global(:root[data-theme='light']) :deep(.vue-flow__controls-button) { fill: #616a64; }
+.forge3d-canvas-panel :deep(.forge3d-litegraph) { grid-row: 2; height: 100%; min-height: 0; }
 </style>
+

@@ -56,6 +56,9 @@ importers:
       elkjs:
         specifier: ^0.11.1
         version: 0.11.1
+      litegraph.js:
+        specifier: ^0.7.18
+        version: 0.7.18
       marked:
         specifier: ^18.0.7
         version: 18.0.7
@@ -1390,6 +1393,9 @@ packages:
 
   lit@3.3.3:
     resolution: {integrity: sha512-fycuvZg/hkpozL00lm1pEJH5nN/lr9ZXd6mJI2HSN4+Bzc+LDNdEApJ6HFbPkdFNHLvOplIIuJvxkS4XUxqirw==}
+
+  litegraph.js@0.7.18:
+    resolution: {integrity: sha512-1WEwjOO58j4FcLX8DvsuMXM371MEq4Y+8pBr3q2pBhJ9nDkwBtBd9Gj6bxArBKhW6i42bSOyv9ybeuez6NAxoQ==}
 
   long@5.3.2:
     resolution: {integrity: sha512-mNAgZ1GmyNhD7AuqnTG3/VQ26o760+ZYBPKjPvugO8+nLbYfX6TVpJPseBvopbdY+qpZ/lKUnmEc1LeZYS3QAA==}
@@ -3132,6 +3138,8 @@ snapshots:
       '@lit/reactive-element': 2.1.2
       lit-element: 4.2.2
       lit-html: 3.3.3
+
+  litegraph.js@0.7.18: {}
 
   long@5.3.2: {}
 

@@ -20,7 +20,7 @@ export function useFrameDraw({ nodes, edges, canvasMode, activeCanvas, screenToF
     if (!(target instanceof Element)) return false
     // The MiniMap and Controls are siblings of the viewport, so this one test
     // keeps them clickable while the draw tool is armed.
-    if (!target.closest('.vue-flow__viewport')) return false
+    if (!target.closest('.vue-flow__viewport, .forge3d-litegraph-surface')) return false
     // Resize handles run their own drag; let them keep resizing their frame.
     if (target.closest('.vue-flow__resize-control')) return false
     if (target.closest('input, textarea, [contenteditable="true"]')) return false
