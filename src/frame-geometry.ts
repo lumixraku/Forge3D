@@ -308,6 +308,24 @@ export function applyLayoutPositions(nodes: GeometryNode[], positions: Map<strin
     bounds.bottom = Math.max(bounds.bottom, position.y + size.height)
     frameBounds.set(node.parentNode, bounds)
   }
+  // A node that is not a child can still sit on top of a section after the
+  // whole graph is placed in one space. Grow the section so it does not cut
+  // that node off.
+  for (const node of nodes) {
+    if (node.type === 'frame' || node.parentNode) continue
+    const position = positions.get(node.id)
+    if (!position) continue
+    const size = nodeSize(node)
+    const box = { left: position.x, top: position.y, right: position.x + size.width, bottom: position.y + size.height }
+    for (const bounds of frameBounds.values()) {
+      const hits = box.left < bounds.right && box.right > bounds.left && box.top < bounds.bottom && box.bottom > bounds.top
+      if (!hits) continue
+      bounds.left = Math.min(bounds.left, box.left)
+      bounds.top = Math.min(bounds.top, box.top)
+      bounds.right = Math.max(bounds.right, box.right)
+      bounds.bottom = Math.max(bounds.bottom, box.bottom)
+    }
+  }
   const frameOrigins = new Map<string, Point>()
   for (const [frameId, bounds] of frameBounds) {
     frameOrigins.set(frameId, { x: bounds.left - insets.left, y: bounds.top - insets.top })

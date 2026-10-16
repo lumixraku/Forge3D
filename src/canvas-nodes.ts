@@ -39,13 +39,37 @@ export function nodeOutputPorts(type: string): NodePort[] {
   return toPortList(nodeDefinition(type)?.outputs)
 }
 
+/** Image or model, from the file the user uploaded. Anything else is not a port. */
+export function referenceAssetKind(uploadAssets?: Record<string, unknown> | null): 'image' | 'model' | null {
+  if (!uploadAssets) return null
+  if (uploadAssets.assetType === 'model') return 'model'
+  if (uploadAssets.assetType === 'image') return 'image'
+  if (typeof uploadAssets.modelUrl === 'string' && uploadAssets.modelUrl) return 'model'
+  if (typeof uploadAssets.assetUrl === 'string' && uploadAssets.assetUrl) return 'image'
+  return null
+}
+
+/**
+ * Ports actually drawn for a node. An upload exposes one output, Image or Model,
+ * matching the file. The schema lists both so either connection stays valid.
+ */
+export function outputPortsOf(type: string, uploadAssets?: Record<string, unknown> | null): NodePort[] {
+  if (type !== 'reference-image') return nodeOutputPorts(type)
+  const kind = referenceAssetKind(uploadAssets)
+  return nodeOutputPorts(type).filter((port) => port.id === kind)
+}
+
 export function canConnectPorts(sourceType: string, sourcePortId: string, targetType: string, targetPortId: string) {
   const sourcePort = nodeOutputPorts(sourceType).find((port) => port.id === sourcePortId)
   const targetPort = nodeInputPorts(targetType).find((port) => port.id === targetPortId)
   return Boolean(sourcePort && targetPort && (sourcePort.type === 'any' || targetPort.type === 'any' || sourcePort.type === targetPort.type))
 }
 
-export function compatibleNodeTypes(sourceType: string) {
+export function compatibleNodeTypes(sourceType: string, uploadAssets?: Record<string, unknown> | null) {
+  if (sourceType === 'reference-image' && arguments.length > 1) {
+    const outputs = outputPortsOf(sourceType, uploadAssets)
+    return nodeCatalog.filter((item) => !item.hidden && outputs.some((sourcePort) => nodeInputPorts(item.type).some((targetPort) => sourcePort.type === targetPort.type || targetPort.type === 'any')))
+  }
   return nodeCatalog.filter((item) => !item.hidden && canConnectNodeTypes(sourceType, item.type))
 }
 
@@ -114,15 +138,19 @@ export function resolveEdgePortPairs(sourceType: string | undefined, targetType:
  * mapped onto declared ports so a node that has not been migrated still resolves.
  */
 export function nodeOutputPortValues(node: CanvasGraphNode, produced?: Record<string, unknown> | null): Record<string, unknown> {
+  const uploads = node.uploadAssets || {}
+  const output = node.generatedAssets || {}
+  if (node.type === 'reference-image') {
+    const kind = referenceAssetKind(uploads)
+    const raw = kind === 'model' ? uploads.modelUrl ?? uploads.assetUrl : kind === 'image' ? uploads.assetUrl ?? output.preview : null
+    const value = typeof raw === 'string' ? raw.trim() : raw
+    return kind && value ? { [kind]: value } : {}
+  }
   const ports = nodeOutputPorts(node.type)
   if (!ports.length) return {}
   const fromPorts = (produced?.ports || null) as Record<string, unknown> | null
   const values: Record<string, unknown> = {}
   const config = node.config || {}
-  // Three trees, three readers: parameters from config, what the user uploaded
-  // from uploadAssets, what a run produced from generatedAssets.
-  const uploads = node.uploadAssets || {}
-  const output = node.generatedAssets || {}
   const viewPreviews = (output.viewPreviews || {}) as Record<string, unknown>
   const previews = (Array.isArray(output.previews) ? output.previews : []) as unknown[]
 
@@ -134,9 +162,7 @@ export function nodeOutputPortValues(node: CanvasGraphNode, produced?: Record<st
     // A port named after a view reads that view; an image port otherwise takes
     // the node's single result, and `previews` being a candidate list means its
     // selected entry wins.
-    const fallback = node.type === 'reference-image'
-      ? uploads.assetType === 'model' ? uploads.modelUrl ?? uploads.assetUrl : output.preview ?? uploads.assetUrl
-      : port.type === 'model'
+    const fallback = port.type === 'model'
       // modelUrl is not a generated key: its only writer used to be the asset
       // upload. A generated-model result node also carries one, so it is read
       // from the result tree too.

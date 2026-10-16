@@ -1,7 +1,13 @@
+import { absoluteNodePosition, applyLayoutPositions } from './frame-geometry'
+
 const DEFAULT_WIDTH = 290
 const DEFAULT_HEIGHT = 430
 export const FRAME_PADDING = 64
 export const FRAME_TITLE_SCREEN_HEIGHT = 42
+// LiteGraph draws the title above the node origin, so the box that must not
+// overlap is taller than the body stored in `size`.
+const NODE_TITLE_BAND = 30
+const LAYOUT_GAP = 48
 let elkPromise
 
 interface LayoutNode {
@@ -24,7 +30,7 @@ interface LayoutEdge {
   targetHandle?: string | null
 }
 
-interface LayoutOptions { originX?: number; originY?: number; columnGap?: number; rowGap?: number; componentGap?: number }
+interface LayoutOptions { originX?: number; originY?: number; columnGap?: number; rowGap?: number; componentGap?: number; entire?: boolean }
 
 function layoutEntity(nodeId: string, parentId: string | undefined, nodeMap: Map<string, LayoutNode>) {
   let node = nodeMap.get(nodeId)
@@ -35,8 +41,8 @@ function layoutEntity(nodeId: string, parentId: string | undefined, nodeMap: Map
   return node
 }
 
-export function selectedLayoutGroups(nodes: LayoutNode[], edges: LayoutEdge[]) {
-  const selected = nodes.filter((node) => node.selected)
+export function selectedLayoutGroups(nodes: LayoutNode[], edges: LayoutEdge[], { entire = false } = {}) {
+  const selected = entire ? [] : nodes.filter((node) => node.selected)
   const nodeMap = new Map(nodes.map((node) => [node.id, node]))
   const selectedIds = new Set(selected.map((node) => node.id))
   const selectedRoots = selected.filter((node) => {
@@ -48,9 +54,28 @@ export function selectedLayoutGroups(nodes: LayoutNode[], edges: LayoutEdge[]) {
     return true
   })
   const singleFrame = selectedRoots.length === 1 && selectedRoots[0].type === 'frame' ? selectedRoots[0] : null
+  // Nothing selected: arrange the nodes inside every section. The section box
+  // itself is not a graph node, so laying out only parentless nodes leaves the
+  // real graph where it was.
+  if (!selected.length) {
+    const content = nodes.filter((node) => node.type !== 'frame').map((node) => ({
+      ...node,
+      position: absoluteNodePosition(node, nodeMap),
+    }))
+    const ids = new Set(content.map((node) => node.id))
+    return {
+      fitFrameIds: new Set<string>(),
+      absolute: true,
+      groups: [{
+        parentId: undefined,
+        nodes: content,
+        edges: edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target)),
+      }],
+    }
+  }
   const candidates = singleFrame
     ? nodes.filter((node) => node.parentNode === singleFrame.id)
-    : (selectedRoots.length ? selectedRoots : nodes.filter((node) => !node.parentNode))
+    : selectedRoots
   const candidateIds = new Set(candidates.map((node) => node.id))
   const groups = new Map<string | undefined, LayoutNode[]>()
 
@@ -62,21 +87,26 @@ export function selectedLayoutGroups(nodes: LayoutNode[], edges: LayoutEdge[]) {
 
   return {
     fitFrameIds: new Set(singleFrame ? [singleFrame.id] : []),
-    groups: [...groups].map(([parentId, groupNodes]) => {
-      const groupIds = new Set(groupNodes.map((node) => node.id))
-      const groupEdges = edges.flatMap((edge) => {
-        const source = layoutEntity(edge.source, parentId, nodeMap)
-        const target = layoutEntity(edge.target, parentId, nodeMap)
-        if (!source || !target || source.id === target.id || !groupIds.has(source.id) || !groupIds.has(target.id)) return []
-        return [{ ...edge, source: source.id, target: target.id }]
-      })
-      return { parentId, nodes: groupNodes, edges: groupEdges }
-    }),
+    absolute: false,
+    groups: packGroups(groups, edges, nodeMap),
   }
 }
 
+function packGroups(groups: Map<string | undefined, LayoutNode[]>, edges: LayoutEdge[], nodeMap: Map<string, LayoutNode>) {
+  return [...groups].map(([parentId, groupNodes]) => {
+    const groupIds = new Set(groupNodes.map((node) => node.id))
+    const groupEdges = edges.flatMap((edge) => {
+      const source = layoutEntity(edge.source, parentId, nodeMap)
+      const target = layoutEntity(edge.target, parentId, nodeMap)
+      if (!source || !target || source.id === target.id || !groupIds.has(source.id) || !groupIds.has(target.id)) return []
+      return [{ ...edge, source: source.id, target: target.id }]
+    })
+    return { parentId, nodes: groupNodes, edges: groupEdges }
+  })
+}
+
 export async function layoutSelection(nodes: LayoutNode[], edges: LayoutEdge[], options: LayoutOptions = {}) {
-  const plan = selectedLayoutGroups(nodes, edges)
+  const plan = selectedLayoutGroups(nodes, edges, { entire: options.entire })
   const positions = new Map<string, { x: number; y: number }>()
   for (const group of plan.groups) {
     if (!group.nodes.length) continue
@@ -85,7 +115,7 @@ export async function layoutSelection(nodes: LayoutNode[], edges: LayoutEdge[], 
     const groupPositions = await layoutCanvas(group.nodes, group.edges, { ...options, originX, originY })
     for (const [id, position] of groupPositions) positions.set(id, position)
   }
-  return { positions, fitFrameIds: plan.fitFrameIds }
+  return { positions, fitFrameIds: plan.fitFrameIds, absolute: plan.absolute }
 }
 
 function getElk() {
@@ -189,7 +219,8 @@ export async function layoutCanvas(nodes: LayoutNode[], edges: LayoutEdge[], { o
   // connect, with no crossing lines.
   const portIds = new Set()
   const children = nodes.map((node) => {
-    const child = { id: node.id, ...sizeOf(node) }
+    const size = sizeOf(node)
+    const child = { id: node.id, width: size.width, height: size.height + NODE_TITLE_BAND }
     const inputs = node.data?.inputPorts || []
     const outputs = node.data?.outputPorts || []
     if (!inputs.length && !outputs.length) return child
@@ -241,7 +272,7 @@ export async function layoutCanvas(nodes: LayoutNode[], edges: LayoutEdge[], { o
 
   const elk = await getElk()
   const result = await elk.layout(graph)
-  const positions = new Map(result.children.map((node) => [node.id, { x: originX + node.x, y: originY + node.y }]))
+  const positions = new Map(result.children.map((node) => [node.id, { x: originX + node.x, y: originY + node.y + NODE_TITLE_BAND }]))
   for (const component of linearComponents(nodes, edges)) {
     const tallest = component.reduce((current, node) => sizeOf(node).height > sizeOf(current).height ? node : current)
     const rowY = positions.get(tallest.id)!.y
@@ -252,5 +283,45 @@ export async function layoutCanvas(nodes: LayoutNode[], edges: LayoutEdge[], { o
     const rowY = positions.get(tallest.id)!.y
     for (const node of chain) positions.get(node.id)!.y = rowY
   }
+  separateBoxes(nodes, positions)
   return positions
+}
+
+// ELK can still leave two boxes crossing when a later alignment pass slides a
+// node onto its neighbour. Push the lower or right-hand node until every pair
+// has a gap, counting the title band as part of the box.
+function separateBoxes(nodes: LayoutNode[], positions: Map<string, { x: number; y: number }>) {
+  const boxes = nodes.flatMap((node) => {
+    const pos = positions.get(node.id)
+    if (!pos) return []
+    const size = sizeOf(node)
+    return [{ id: node.id, x: pos.x, y: pos.y - NODE_TITLE_BAND, w: size.width, h: size.height + NODE_TITLE_BAND }]
+  })
+  for (let pass = 0; pass < 16; pass += 1) {
+    let moved = false
+    boxes.sort((a, b) => a.y - b.y || a.x - b.x)
+    for (let i = 0; i < boxes.length; i += 1) {
+      for (let j = i + 1; j < boxes.length; j += 1) {
+        const a = boxes[i]
+        const b = boxes[j]
+        const overlapX = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)
+        const overlapY = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)
+        const gapX = Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w)
+        const gapY = Math.max(a.y, b.y) - Math.min(a.y + a.h, b.y + b.h)
+        if (overlapX > 0 && overlapY > 0) {
+          if (overlapX < overlapY) b.x = a.x + a.w + LAYOUT_GAP
+          else b.y = a.y + a.h + LAYOUT_GAP
+          moved = true
+        } else if (overlapX > 0 && gapY >= 0 && gapY < LAYOUT_GAP) {
+          b.y = a.y + a.h + LAYOUT_GAP
+          moved = true
+        } else if (overlapY > 0 && gapX >= 0 && gapX < LAYOUT_GAP) {
+          b.x = a.x + a.w + LAYOUT_GAP
+          moved = true
+        }
+      }
+    }
+    if (!moved) break
+  }
+  for (const box of boxes) positions.set(box.id, { x: box.x, y: box.y + NODE_TITLE_BAND })
 }

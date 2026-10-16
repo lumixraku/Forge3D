@@ -1,6 +1,7 @@
 import { nextTick } from 'vue'
 import { adoptNodesCoveredByDraggedFrames, buildSelectionFrame, fitFrameNodes, pointInAnyFrame, reparentDraggedNodes } from '../frame-geometry'
 import { frameComponentGap, frameInsets, layoutSelection } from '../canvas-layout'
+import { applyLayoutPositions } from '../frame-geometry'
 
 // Frames (sections) are plain Vue Flow parent nodes, so their size and their
 // children's parentage are maintained here in response to canvas interaction.
@@ -117,11 +118,14 @@ export function useCanvasFrames({ nodes, edges, screenToFlowCoordinate, updateNo
   }
 
   async function autoLayout({ persist = true } = {}) {
-    const { positions, fitFrameIds } = await layoutSelection(nodes.value, edges.value, {
+    const { positions, fitFrameIds, absolute } = await layoutSelection(nodes.value, edges.value, {
       componentGap: frameComponentGap(),
+      entire: true,
     })
-    nodes.value = nodes.value.map((node) => positions.has(node.id) ? { ...node, position: positions.get(node.id) } : node)
-    if (fitFrameIds.size) {
+    nodes.value = absolute
+      ? applyLayoutPositions(nodes.value, positions, frameInsets())
+      : nodes.value.map((node) => positions.has(node.id) ? { ...node, position: positions.get(node.id) } : node)
+    if (!absolute && fitFrameIds.size) {
       const fitted = fitFrameNodes(nodes.value, frameInsets(), fitFrameIds)
       if (fitted.changed) nodes.value = fitted.nodes
     }

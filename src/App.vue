@@ -25,7 +25,7 @@ import { useDebugSettings } from './composables/useDebugSettings'
 import { request } from './api'
 import { edgeDefaults, nodePresentation } from './canvas-graph'
 import { applyNodeParameter } from './canvas-schema'
-import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, compatibleUpstreamNodeTypes, hasModelEditor, isExecutableNodeType, missingParametersByNode, nodeCatalog, nodeCategories, nodeDefaults, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
+import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, compatibleUpstreamNodeTypes, hasModelEditor, isExecutableNodeType, missingParametersByNode, nodeCatalog, nodeCategories, nodeDefaults, nodeInputPorts, nodeOutputPorts, outputPortsOf } from './canvas-nodes'
 import { resultArtifacts } from './run-results'
 
 const ModelEditor = defineAsyncComponent(() => import('./components/ModelEditor.vue'))
@@ -310,14 +310,14 @@ function inboundSourceNodes(nodeId) {
 
 function inboundExportTarget(nodeId) {
   const sources = inboundSourceNodes(nodeId)
-  if (sources.some((node) => nodeOutputPorts(node.data?.canvasType)[0]?.type === 'model')) return '3D Model'
-  if (sources.some((node) => nodeOutputPorts(node.data?.canvasType)[0]?.type === 'image')) return 'Image'
+  if (sources.some((node) => outputPortsOf(node.data?.canvasType, node.data?.uploadAssets)[0]?.type === 'model')) return '3D Model'
+  if (sources.some((node) => outputPortsOf(node.data?.canvasType, node.data?.uploadAssets)[0]?.type === 'image')) return 'Image'
   return null
 }
 
 function inboundImage(nodeId) {
   for (const source of inboundSourceNodes(nodeId)) {
-    if (nodeOutputPorts(source.data?.canvasType)[0]?.type !== 'image') continue
+    if (outputPortsOf(source.data?.canvasType, source.data?.uploadAssets)[0]?.type !== 'image') continue
     const output = source.data?.generatedAssets
     const image = output?.selectedPreview || output?.preview || output?.previews?.[0]
     if (image) return image
@@ -407,11 +407,32 @@ function updateNodeConfig(id, config) {
 function updateNodeUploads(id, uploadAssets) {
   const node = nodes.value.find((candidate) => candidate.id === id)
   if (!node) return
-  node.data = { ...node.data, uploadAssets }
+  const outputPorts = outputPortsOf(node.data.canvasType, uploadAssets)
+  node.data = { ...node.data, uploadAssets, outputPorts }
+  const portId = outputPorts[0]?.id
+  edges.value = edges.value.flatMap((edge) => {
+    if (edge.source !== node.id) return [edge]
+    if (!portId) return []
+    const pairs = edge.data?.logicalConnections
+    if (!pairs?.length) return [edge]
+    const next = pairs.filter((pair) => pair.sourcePort === portId)
+    return next.length ? [{ ...edge, data: { ...edge.data, logicalConnections: next } }] : []
+  })
   saveCanvas({ immediate: true })
 }
 
 // Edits the result tree, the third sibling. Copying a node drops it.
+function clearNodeUpload(id) {
+  const node = nodes.value.find((candidate) => candidate.id === id)
+  if (!node) return
+  const { assetType, assetUrl, modelUrl, reference, thumbnailUrl, ...rest } = node.data.uploadAssets || {}
+  updateNodeUploads(id, rest)
+  if (node.data.generatedAssets?.preview) {
+    const { preview, ...remaining } = node.data.generatedAssets
+    updateNodeOutput(id, remaining)
+  }
+}
+
 function updateNodeOutput(id, generatedAssets) {
   const node = nodes.value.find((candidate) => candidate.id === id)
   if (!node) return
@@ -529,6 +550,18 @@ function fitCanvasView() {
   fitView({ ...(selectedIds.length ? { nodes: selectedIds } : {}), padding: 0.18, duration: 400 })
 }
 
+async function arrangeCanvas() {
+  nodes.value = nodes.value.map((node) => {
+    const live = findNode(node.id)
+    const width = live?.dimensions?.width
+    const height = live?.dimensions?.height
+    if (!width || !height) return node
+    return { ...node, width, height, dimensions: { width, height } }
+  })
+  await autoLayout()
+  fitCanvasView()
+}
+
 function buildCanvasNode(type, { id, position, selected = false, config, uploadAssets, generatedAssets, parentNode, initialAsset } = {}) {
   const [kind, detail, tone] = nodePresentation[type]
   const data = {
@@ -542,7 +575,7 @@ function buildCanvasNode(type, { id, position, selected = false, config, uploadA
     uploadAssets: { ...uploadAssets },
     generatedAssets: { ...generatedAssets },
     inputPorts: nodeInputPorts(type),
-    outputPorts: nodeOutputPorts(type),
+    outputPorts: outputPortsOf(type, uploadAssets),
   }
   // File objects are only a hand-off from the canvas drop to the mounted node.
   // Keep the property out of enumerable snapshots so history/serialization can
@@ -722,7 +755,7 @@ async function materializeResults(sourceId, runId, output, status) {
 function catalogForMenu() {
   if (!nodeMenuContext.value?.sourceId) return nodeCatalog.filter((item) => !item.hidden)
   const source = nodes.value.find((node) => node.id === nodeMenuContext.value.sourceId)
-  return source ? compatibleNodeTypes(source.data.canvasType) : []
+  return source ? compatibleNodeTypes(source.data.canvasType, source.data.canvasType === 'reference-image' ? source.data.uploadAssets : undefined) : []
 }
 
 function openNodeMenuAt(clientX, clientY, sourceId = null) {
@@ -1028,7 +1061,7 @@ onUnmounted(() => {
           @drag-node-type="startNodeDrag($event.event, $event.type)"
           @toggle-frame-mode="toggleFrameMode"
           @fit-view="fitCanvasView"
-          @auto-layout="autoLayout().then(fitCanvasView)"
+          @auto-layout="arrangeCanvas"
         />
         <CanvasContextMenu
           v-if="nodeMenuOpen && nodeMenuContext"
@@ -1064,6 +1097,8 @@ onUnmounted(() => {
           @update:edges="edges = $event"
           @update-parameter="updateNodeParameter"
           @update-uploads="updateNodeUploads($event.id, $event.uploadAssets)"
+          @update-output="updateNodeOutput($event.id, $event.generatedAssets)"
+          @clear-upload="clearNodeUpload"
           @update-name="updateNodeName($event.id, $event.name)"
           @pointerdown.capture="onCanvasPointerDown($event); onFrameDrawPointerDown($event)"
           @dragover="onCanvasDragOver"

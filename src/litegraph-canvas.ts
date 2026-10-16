@@ -18,6 +18,10 @@ const TONE_COLOR: Record<string, string> = {
   slate: '#3c4a52',
 }
 const PREVIEW_HEIGHT = 148
+// Section fill and title. The selected state used to swap this for acid
+// yellow; the section stays this sage green either way.
+const FRAME_COLOR = '#6d8f78'
+const FRAME_TITLE_BAND = 36
 
 let nodeTypeReady = false
 
@@ -41,20 +45,38 @@ function ensureNodeType() {
     this.graph?._forgeHost?.scheduleEdges()
   }
   ForgeNode.prototype.onDrawBackground = function(this: any, ctx: CanvasRenderingContext2D) {
-    const image = this.previewImage as HTMLImageElement | undefined
-    if (!image || this.flags?.collapsed) return
+    if (!this.previewSlot || this.flags?.collapsed) return
     const width = this.size[0] - 16
     const height = PREVIEW_HEIGHT - 12
+    const x = 8
     const y = this.size[1] - PREVIEW_HEIGHT + 4
+    const light = this.bgcolor === '#f4f7f4'
     ctx.save()
     ctx.beginPath()
-    if (ctx.roundRect) ctx.roundRect(8, y, width, height, 6)
-    else ctx.rect(8, y, width, height)
-    ctx.clip()
-    const scale = Math.max(width / image.width, height / image.height)
-    const drawWidth = image.width * scale
-    const drawHeight = image.height * scale
-    ctx.drawImage(image, 8 + (width - drawWidth) / 2, y + (height - drawHeight) / 2, drawWidth, drawHeight)
+    if (ctx.roundRect) ctx.roundRect(x, y, width, height, 6)
+    else ctx.rect(x, y, width, height)
+    ctx.fillStyle = light ? '#e7eeea' : '#1a201e'
+    ctx.fill()
+    ctx.lineWidth = 1
+    ctx.strokeStyle = light ? '#c5d0c8' : '#3a4440'
+    ctx.stroke()
+    const image = this.previewImage as HTMLImageElement | undefined
+    if (image?.complete && image.naturalWidth > 0) {
+      ctx.clip()
+      const contain = this.properties.canvasType === 'generated-model'
+      const scale = contain
+        ? Math.min(width / image.naturalWidth, height / image.naturalHeight)
+        : Math.max(width / image.naturalWidth, height / image.naturalHeight)
+      const drawWidth = image.naturalWidth * scale
+      const drawHeight = image.naturalHeight * scale
+      ctx.drawImage(image, x + (width - drawWidth) / 2, y + (height - drawHeight) / 2, drawWidth, drawHeight)
+    } else {
+      ctx.font = '12px sans-serif'
+      ctx.fillStyle = light ? '#8a968e' : '#8d9892'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText('Preview', x + width / 2, y + height / 2)
+    }
     ctx.restore()
   }
   ForgeNode.prototype.onDrawForeground = function(this: any, ctx: CanvasRenderingContext2D) {
@@ -94,6 +116,10 @@ function previewSource(node: any) {
     || ''
 }
 
+function previewSlot(node: any) {
+  return Boolean(previewSource(node)) || node.data?.canvasType === 'generated-image' || node.data?.canvasType === 'generated-model'
+}
+
 function pairsOf(edge: any, source: any, target: any) {
   const saved = edge.data?.logicalConnections
   if (saved?.length) return saved
@@ -125,7 +151,7 @@ function structureKey(nodes: any[], edges: any[]) {
       outputs: (node.data?.outputPorts || []).map((port: any) => port.id),
       widgets: widgetPlan(node).map((parameter: any) => parameter.key),
       actions: actionPlan(node).map((action: any) => action.id),
-      preview: Boolean(previewSource(node)),
+      preview: previewSlot(node),
       missing: Boolean(node._missing),
     })),
     edges: edges.map((edge) => ({
@@ -162,6 +188,14 @@ function actionPlan(node: any) {
   const type = node.data?.canvasType
   const run = node._run
   if (type === 'reference-image') actions.push({ id: 'upload', label: node.data?.uploadAssets?.reference ? 'Replace asset' : 'Upload asset' })
+  if (type === 'reference-image' && node.data?.uploadAssets?.assetUrl) actions.push({ id: 'clear', label: 'Remove asset' })
+  if (type === 'review') actions.push({ id: 'approve', label: node.data?.generatedAssets?.approved ? 'Approved — continue' : 'Approve & continue' })
+  const downloads = type === 'generated-export' ? node.data?.generatedAssets?.outputs : null
+  if (Array.isArray(downloads)) {
+    downloads.forEach((item: any, index: number) => {
+      if (item?.downloadUrl) actions.push({ id: `download:${index}`, label: `Download ${item.filename || 'file'}` })
+    })
+  }
   if (isExecutableNodeType(type) && !['queued', 'running', 'cancelling'].includes(run?.status)) {
     actions.push({ id: 'run', label: 'Run' })
     actions.push({ id: 'downstream', label: 'Run downstream' })
@@ -185,6 +219,8 @@ export interface GraphHostHandlers {
   onParameter: (id: string, key: string, value: unknown) => void
   onName: (id: string, name: string) => void
   onUpload: (id: string) => void
+  onClearUpload: (id: string) => void
+  onOutput: (id: string, generatedAssets: Record<string, unknown>) => void
   onRun: (id: string) => void
   onRunDownstream: (id: string) => void
   onStop: () => void
@@ -207,10 +243,15 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   ensureNodeType()
   LiteGraph.alt_drag_do_clone_nodes = false
   const graph = new LGraph()
+  // Links are otherwise painted on the back canvas, so the node body covers the
+  // last stretch and the wire never meets the port.
+  graph.config.links_ontop = true
   const view = new LGraphCanvas(canvas, graph)
   view.background_image = LGraphCanvas.DEFAULT_BACKGROUND_IMAGE
   view.clear_background_color = '#121614'
   view.show_info = false
+  view.connections_width = 2
+  view.render_connections_border = false
   view.allow_searchbox = false
   view.ds.min_scale = 0.6
   view.ds.max_scale = 3.5
@@ -232,6 +273,134 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   let flowNodes: any[] = []
   let flowEdges: any[] = []
   const images = new Map<string, HTMLImageElement>()
+  // LiteGraph only notices the midpoint of a wire, and it does not restyle the
+  // stroke. Hit-test the curve ourselves and paint that one link brighter.
+  let hoverLinkId: number | null = null
+  let selectedLinkId: number | null = null
+  view.render_link_tooltip = false
+  const renderLink = view.renderLink.bind(view)
+  view.renderLink = (ctx: CanvasRenderingContext2D, ...args: any[]) => {
+    const link = args[2]
+    const hovered = Boolean(link) && (link.id === hoverLinkId || link.id === selectedLinkId)
+    if (link && args[4] == null && linkIsRunning(link)) args[4] = true
+    const width = view.connections_width
+    if (hovered) {
+      view.connections_width = width + 2
+      if (!args[5]) args[5] = theme === 'light' ? '#1c2416' : '#ffffff'
+      ctx.save()
+      ctx.shadowColor = theme === 'light' ? 'rgba(20, 28, 18, 0.45)' : 'rgba(255, 255, 255, 0.75)'
+      ctx.shadowBlur = 6
+    }
+    try {
+      return renderLink(ctx, ...args)
+    } finally {
+      view.connections_width = width
+      if (hovered) ctx.restore()
+    }
+  }
+
+  function distanceToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number) {
+    const dx = bx - ax
+    const dy = by - ay
+    const length2 = dx * dx + dy * dy
+    if (length2 === 0) return Math.hypot(px - ax, py - ay)
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / length2))
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+  }
+
+  function distanceToLink(x: number, y: number, link: any) {
+    const start = graph.getNodeById(link.origin_id)
+    const end = graph.getNodeById(link.target_id)
+    if (!start || !end) return Infinity
+    const from = start.getConnectionPos(false, link.origin_slot)
+    const to = end.getConnectionPos(true, link.target_slot)
+    let previous = view.computeConnectionPoint(from, to, 0)
+    let best = Infinity
+    for (let step = 1; step <= 16; step += 1) {
+      const next = view.computeConnectionPoint(from, to, step / 16)
+      best = Math.min(best, distanceToSegment(x, y, previous[0], previous[1], next[0], next[1]))
+      previous = next
+    }
+    return best
+  }
+
+  function linkIsRunning(link: any) {
+    const target = graph.getNodeById(link.target_id)
+    const flow = target ? byForgeId().get(target.properties.forgeId) : null
+    return ['queued', 'running', 'cancelling'].includes(flow?._run?.status)
+  }
+
+  function setHoverLink(id: number | null) {
+    if (id === hoverLinkId) return
+    hoverLinkId = id
+    view.setDirty(true, true)
+  }
+
+  function setSelectedLink(id: number | null) {
+    if (id === selectedLinkId) return
+    selectedLinkId = id
+    view.setDirty(true, true)
+    if (id == null) return
+    view.deselectAllNodes()
+    commitSelection()
+  }
+
+  function linkUnder(x: number, y: number) {
+    const limit = 8 / (view.ds.scale || 1)
+    let best: any = null
+    let bestDistance = limit
+    for (const link of Object.values(graph.links || {}) as any[]) {
+      if (!link) continue
+      const distance = distanceToLink(x, y, link)
+      if (distance < bestDistance) {
+        bestDistance = distance
+        best = link
+      }
+    }
+    return best
+  }
+
+  function trackLinkHover() {
+    const mouse = view.graph_mouse
+    if (!view.graph || !mouse || view.connecting_node || view.dragging_canvas) {
+      setHoverLink(null)
+      return
+    }
+    const x = mouse[0]
+    const y = mouse[1]
+    if (view.graph.getNodeOnPos(x, y)) {
+      setHoverLink(null)
+      return
+    }
+    const link = linkUnder(x, y)
+    setHoverLink(link ? link.id : null)
+    if (link && view.canvas) view.canvas.style.cursor = 'pointer'
+  }
+
+  function deleteSelectedLink() {
+    if (selectedLinkId == null || !graph.links?.[selectedLinkId]) return
+    graph.removeLink(selectedLinkId)
+    setSelectedLink(null)
+    view.setDirty(true, true)
+    scheduleEdges()
+  }
+
+  function onLinkKey(event: KeyboardEvent) {
+    if (selectedLinkId == null) return
+    const target = event.target
+    if (target instanceof Element && target.closest('input, textarea, [contenteditable="true"]')) return
+    if (event.key === 'Escape') {
+      setSelectedLink(null)
+      return
+    }
+    if (event.key !== 'Delete' && event.key !== 'Backspace') return
+    event.preventDefault()
+    event.stopPropagation()
+    deleteSelectedLink()
+  }
+  window.addEventListener('keydown', onLinkKey, true)
+  const clearLinkHover = () => setHoverLink(null)
+  canvas.addEventListener('pointerleave', clearLinkHover)
 
   function publishViewport() {
     const scale = view.ds.scale
@@ -375,7 +544,8 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     }
     const size = created.computeSize()
     size[0] = Math.max(250, size[0])
-    if (previewSource(node)) size[1] += PREVIEW_HEIGHT
+    created.previewSlot = previewSlot(node)
+    if (created.previewSlot) size[1] += PREVIEW_HEIGHT
     if (node._missing) size[1] += 16
     created.setSize(size)
     graph.add(created)
@@ -417,6 +587,17 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
 
   function runAction(id: string, action: string) {
     if (action === 'upload') handlers.onUpload(id)
+    if (action === 'clear') handlers.onClearUpload(id)
+    if (action === 'approve') {
+      const node = byForgeId().get(id)
+      const assets = { ...(node?.data?.generatedAssets || {}), approved: !node?.data?.generatedAssets?.approved }
+      handlers.onOutput(id, assets)
+    }
+    if (action.startsWith('download:')) {
+      const node = byForgeId().get(id)
+      const item = node?.data?.generatedAssets?.outputs?.[Number(action.slice(9))]
+      if (item?.downloadUrl) window.open(item.downloadUrl, '_blank', 'noopener')
+    }
     if (action === 'run') handlers.onRun(id)
     if (action === 'downstream') handlers.onRunDownstream(id)
     if (action === 'stop') handlers.onStop()
@@ -474,7 +655,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       const group = new LGraphGroup(node.data?.label || 'Section')
       group.pos = [node.position?.x || 0, node.position?.y || 0]
       group.size = [node.width || 900, node.height || 600]
-      group.color = node.selected ? '#d6ff55' : '#6d8f78'
+      group.color = FRAME_COLOR
       group.forgeId = node.id
       graph.add(group)
     }
@@ -502,7 +683,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     }
     for (const group of graph._groups) {
       const frame = nodes.find((node) => node.id === group.forgeId)
-      group.color = frame?.selected ? '#d6ff55' : '#6d8f78'
+      group.color = FRAME_COLOR
       group.title = frame?.data?.label || group.title
     }
   }
@@ -651,12 +832,33 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     handlers.onDragStop({ nodes: dragged })
   }
 
+  // The section body does not catch the pointer. Only its title strip and the
+  // resize corner do, so a drag on empty space inside the section is a marquee
+  // or a two-finger pan, not a drag of the whole section.
+  function frameChrome(x: number, y: number) {
+    const group = graph.getGroupOnPos(x, y)
+    if (!group) return null
+    const onTitle = y <= group.pos[1] + FRAME_TITLE_BAND
+    const corner = Math.hypot(x - (group.pos[0] + group.size[0]), y - (group.pos[1] + group.size[1])) * (view.ds.scale || 1) < 10
+    return onTitle || corner ? group : null
+  }
+
   function readPointer(event: MouseEvent) {
     view.adjustMouseEvent(event)
     return {
       node: graph.getNodeOnPos(event.canvasX, event.canvasY, view.visible_nodes, 5),
-      group: graph.getGroupOnPos(event.canvasX, event.canvasY),
+      group: frameChrome(event.canvasX, event.canvasY),
     }
+  }
+
+  // Left-drag pans only in Move mode. A click inside a section used to leave
+  // dragging_canvas set, so the next plain mouse move panned the view.
+  function releaseCanvasPan(event: MouseEvent) {
+    const left = (event.buttons & 1) !== 0
+    const middle = (event.buttons & 4) !== 0
+    const draggingSomething = view.node_dragged || view.dragging_rectangle || view.connecting_node || view.selected_group
+    if (middle || (left && mode === 'move' && !draggingSomething)) return
+    view.dragging_canvas = false
   }
 
   const originalDown = view.processMouseDown.bind(view)
@@ -677,6 +879,11 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     }
     const wasConnecting = Boolean(view.connecting_node)
     const result = originalDown(event)
+    if (event.button === 0 && view.selected_group && !frameChrome(event.canvasX, event.canvasY)) {
+      view.selected_group = null
+      view.selected_group_resizing = false
+    }
+    releaseCanvasPan(event)
     if (!wasConnecting && view.connecting_node?.properties?.forgeId) {
       handlers.onConnectStart(view.connecting_node.properties.forgeId)
     }
@@ -688,6 +895,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     return result
   }
   view.processMouseMove = (event: MouseEvent) => {
+    releaseCanvasPan(event)
     const result = originalMove(event)
     const origin = view.node_dragged?.pos || view.selected_group?.pos
     if (origin && dragOrigin && Math.hypot(origin[0] - dragOrigin.x, origin[1] - dragOrigin.y) > 3) {
@@ -708,6 +916,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     moved = false
     dragOrigin = null
     const result = originalUp(event)
+    view.dragging_canvas = false
     const linksAfter = Object.keys(graph.links || {}).length
     if (connecting && connectingOutput && linksAfter === linksBefore && !hit.node) {
       handlers.onConnectEnd({ clientX: event.clientX, clientY: event.clientY, sourceId: connecting.properties.forgeId })
@@ -722,6 +931,38 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     publishViewport()
     return result
   }
+  // bindEvents captured the prototype methods. Point the real listeners at the
+  // wrappers, or box-select, drag save, and drop-to-add never run.
+  canvas.removeEventListener('mousedown', view._mousedown_callback, true)
+  view._mousedown_callback = (event: MouseEvent) => {
+    if (event.button === 0 && view.graph) {
+      view.adjustMouseEvent(event)
+      const onNode = view.graph.getNodeOnPos(event.canvasX, event.canvasY, view.visible_nodes, 5)
+      const onGroup = frameChrome(event.canvasX, event.canvasY)
+      if (!onNode && !onGroup) {
+        const link = linkUnder(event.canvasX, event.canvasY)
+        if (link) {
+          setSelectedLink(link.id)
+          event.stopPropagation()
+          event.preventDefault()
+          return
+        }
+      }
+      setSelectedLink(null)
+    }
+    return view.processMouseDown(event)
+  }
+  canvas.addEventListener('mousedown', view._mousedown_callback, true)
+  canvas.removeEventListener('mousemove', view._mousemove_callback)
+  view._mousemove_callback = (event: MouseEvent) => {
+    const result = view.processMouseMove(event)
+    trackLinkHover()
+    return result
+  }
+  canvas.addEventListener('mousemove', view._mousemove_callback)
+  canvas.removeEventListener('mouseup', view._mouseup_callback, true)
+  view._mouseup_callback = (event: MouseEvent) => view.processMouseUp(event)
+  canvas.addEventListener('mouseup', view._mouseup_callback, true)
   view.processContextMenu = (node: any, event: MouseEvent) => {
     event.preventDefault()
     const flow = node?.properties?.forgeId ? flowNodes.find((item) => item.id === node.properties.forgeId) : null
@@ -766,6 +1007,17 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     view.prompt('Name', node.title, (value: string) => {
       if (value?.trim()) handlers.onName(node.properties.forgeId, value.trim())
     }, null, false)
+    const dialog = view.prompt_box as HTMLElement | null
+    if (!dialog) return
+    // The stock prompt centers itself with canvas.width, which is the bitmap
+    // size. Place the field on the title, in CSS pixels.
+    const rect = canvas.getBoundingClientRect()
+    const titleY = node.pos[1] - LiteGraph.NODE_TITLE_HEIGHT
+    const cssX = (node.pos[0] + view.ds.offset[0]) * view.ds.scale
+    const cssY = (titleY + view.ds.offset[1]) * view.ds.scale
+    dialog.style.transform = 'none'
+    dialog.style.left = `${Math.min(Math.max(8, cssX), Math.max(8, rect.width - 280))}px`
+    dialog.style.top = `${Math.min(Math.max(8, cssY), Math.max(8, rect.height - 48))}px`
   }
 
   function sync(nodes: any[], edges: any[], nodeRuns: Record<string, any> = {}, missing: Record<string, string[]> = {}) {
@@ -897,6 +1149,11 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     findNode,
     selectedFrameButton,
     destroy() {
+      window.removeEventListener('keydown', onLinkKey, true)
+      canvas.removeEventListener('mousedown', view._mousedown_callback, true)
+      canvas.removeEventListener('mousemove', view._mousemove_callback)
+      canvas.removeEventListener('mouseup', view._mouseup_callback, true)
+      canvas.removeEventListener('pointerleave', clearLinkHover)
       canvas.removeEventListener('wheel', view._mousewheel_callback)
       canvas.removeEventListener('gesturestart', onGestureStart)
       canvas.removeEventListener('gesturechange', onGestureChange)

@@ -15,7 +15,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits([
-  'update:nodes', 'update:edges', 'update-parameter', 'update-uploads', 'update-name',
+  'update:nodes', 'update:edges', 'update-parameter', 'update-uploads', 'update-output', 'clear-upload', 'update-name',
   'drag-start', 'drag-stop', 'selection-start', 'selection-end',
   'connect-start', 'connect-end', 'node-context-menu', 'pane-context-menu', 'pane-click',
   'edge-click', 'preview-image', 'run-node', 'run-downstream', 'stop-run', 'open-model-editor', 'run-section',
@@ -43,6 +43,8 @@ onMounted(() => {
     onParameter: (id, key, value) => emit('update-parameter', { id, key, value }),
     onName: (id, name) => emit('update-name', { id, name }),
     onUpload: (id) => { uploadNodeId = id; fileInput.value?.click() },
+    onClearUpload: (id) => emit('clear-upload', id),
+    onOutput: (id, generatedAssets) => emit('update-output', { id, generatedAssets }),
     onRun: (id) => emit('run-node', id),
     onRunDownstream: (id) => emit('run-downstream', id),
     onStop: () => emit('stop-run'),

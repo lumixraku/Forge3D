@@ -153,7 +153,7 @@ const canvasNodeDefinitions: Array<Omit<CanvasNodeSchema, 'role'>> = [
   { type: 'frame', category: 'Annotate', label: 'Section', description: 'Group related canvas steps', presentation: { kind: 'SECTION', detail: 'Canvas group', tone: 'slate' }, inputs: {}, outputs: {}, defaults: {}, parameters: [] },
   // No upload defaults: what the user uploaded lives in `uploadAssets`, not in
   // config (see UPLOAD_KEYS). An empty default would only migrate back into it.
-  { type: 'reference-image', category: 'Input', label: 'Asset Upload', description: 'Add an image or 3D model input', presentation: { kind: 'INPUT', detail: 'Reference asset', tone: 'cyan' }, inputs: {}, outputs: { image: { type: 'any', label: 'Asset' } }, modelEditor: true, defaults: {}, parameters: [] },
+  { type: 'reference-image', category: 'Input', label: 'Asset Upload', description: 'Add an image or 3D model input', presentation: { kind: 'INPUT', detail: 'Reference asset', tone: 'cyan' }, inputs: {}, outputs: { image: { type: 'image', label: 'Image' }, model: { type: 'model', label: 'Model' } }, modelEditor: true, defaults: {}, parameters: [] },
   // Result nodes present what a run produced. They are hidden from Add node:
   // a run creates them, and they carry the artifact in generatedAssets.
   { type: 'generated-image', category: 'Output', label: 'Asset Preview', description: 'Preview an image created by a canvas step', presentation: { kind: 'OUTPUT', detail: 'Generated asset', tone: 'amber' }, inputs: { image: { type: 'image' } }, outputs: { image: { type: 'image' } }, hidden: true, defaults: {}, parameters: [] },
