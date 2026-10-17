@@ -7,7 +7,7 @@ import NodeSelect from './NodeSelect.vue'
 import NodeSlider from './NodeSlider.vue'
 
 import type { NodeRun } from '../node-runs'
-import { applyNodeParameter, conditionsMatch, nodeSchema, parameterRange } from '../canvas-nodes'
+import { applyNodeParameter, nodeSchema, parameterRange, visibleParameters as visibleNodeParameters } from '../canvas-nodes'
 import type { NodeDefinition, NodeParameter, NodePort } from '../canvas-nodes'
 import type { CanvasProvider } from '../canvas-schema'
 
@@ -95,7 +95,7 @@ const resultDownloads = computed(() => {
   const outputs = props.data.generatedAssets?.outputs
   return Array.isArray(outputs) ? outputs.filter((item) => item && typeof item.downloadUrl === 'string') : []
 })
-const visibleParameters = computed(() => (schema.value?.parameters || []).filter((parameter) => conditionsMatch(parameter.visibleWhen, props.data.config)))
+const visibleParameters = computed(() => visibleNodeParameters(schema.value?.parameters, props.data.config))
 const renderParameters = computed(() => [
   ...visibleParameters.value.filter((parameter) => !parameter.advanced),
   ...visibleParameters.value.filter((parameter) => parameter.advanced),

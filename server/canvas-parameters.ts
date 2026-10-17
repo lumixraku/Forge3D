@@ -1,4 +1,4 @@
-import { applyNodeParameter, nodeSchema, parameterRange, canvasNodeSchema } from '../src/canvas-schema.js'
+import { allParameters, applyNodeParameter, nodeSchema, parameterRange, canvasNodeSchema } from '../src/canvas-schema.js'
 
 function parameterKind(parameter) {
   if (parameter.control === 'toggle') return 'boolean'
@@ -11,15 +11,15 @@ export const canvasParameters = Object.fromEntries(canvasNodeSchema
   .filter((node) => node.parameters.length)
   .map((node) => [node.type, {
     label: node.label,
-    fields: Object.fromEntries(node.parameters.map((parameter) => {
+    fields: Object.fromEntries(allParameters(node.parameters).flatMap((parameter) => {
       const range = parameterRange(parameter, node.defaults)
-      return [parameter.key, {
+      return [[parameter.key, {
         label: parameter.label,
         kind: parameterKind(parameter),
-        ...(parameter.options ? { values: parameter.options.map((option) => option.value) } : {}),
+        ...(parameter.options && parameter.control !== 'toggle' ? { values: parameter.options.map((option) => option.value) } : {}),
         ...(range ? range : {}),
-      }]
-    })),
+      }]]
+    }).filter(([key], index, entries) => entries.findIndex((entry) => entry[0] === key) === index)),
   }]))
 
 function fieldJsonSchema(field) {
@@ -78,7 +78,7 @@ export function updateNodeParameters(canvas, nodeId, parameters) {
   const changes = []
   for (const [inputField, input] of Object.entries(parameters)) {
     const normalizedField = inputField.toLowerCase().replaceAll(/[^a-z0-9]/g, '')
-    const parameter = schema.parameters.find((candidate) =>
+    const parameter = allParameters(schema.parameters).find((candidate) =>
       candidate.key.toLowerCase() === normalizedField
       || candidate.label.toLowerCase().replaceAll(/[^a-z0-9]/g, '') === normalizedField,
     )

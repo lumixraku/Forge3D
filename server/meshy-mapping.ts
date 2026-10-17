@@ -21,19 +21,39 @@ const MAX_TARGET_POLYCOUNT = 300000
 // A multi-image task takes 1 to 4 images; more are dropped rather than failing.
 const MAX_IMAGES = 4
 
+const STANDARD_MODELS = new Set(['latest', 'meshy-7.1', 'meshy-7', 'meshy-6', 'meshy-6-lite'])
+
 function sharedBody(config) {
-  // `latest` tracks Meshy's newest model, matching how the Tripo mapping pins
-  // the node's own default version.
-  const body: Record<string, unknown> = { ai_model: config.aiModel || 'latest', target_formats: ['glb'] }
+  const smart = config.modelType === 'smart-topology'
+  const aiModel = smart
+    ? (config.aiModel === 'meshy-t2' ? 'meshy-t2' : 'meshy-t2.5')
+    : (STANDARD_MODELS.has(config.aiModel) ? config.aiModel : 'latest')
+  const body: Record<string, unknown> = { ai_model: aiModel, target_formats: ['glb'] }
+  if (smart) body.model_type = 'smart-topology'
+  if (!smart && (aiModel === 'latest' || aiModel === 'meshy-7.1') && (config.geometryResolution === '2k' || config.geometryResolution === '4k')) {
+    body.geometry_resolution = config.geometryResolution
+  }
   body.should_texture = config.texture !== false
-  // PBR maps only exist when texturing runs.
+  // PBR and texture resolution exist only while texturing runs. 6 Lite cannot
+  // go above 2K.
   if (body.should_texture) {
     body.enable_pbr = config.pbr !== false
-    body.texture_resolution = TEXTURE_RESOLUTIONS[config.textureQuality] || '2k'
+    const resolution = TEXTURE_RESOLUTIONS[config.textureQuality] || '2k'
+    body.texture_resolution = aiModel === 'meshy-6-lite' && resolution !== '2k' ? '2k' : resolution
   }
-  // Meshy only honors topology and a polycount inside a remesh pass.
   const faceCount = Number(config.faceCount)
-  if (config.topology === 'quad' || (faceCount > 0 && faceCount <= MAX_TARGET_POLYCOUNT)) {
+  if (smart) {
+    const max = aiModel === 'meshy-t2' ? 15000 : 30000
+    if (faceCount >= 100) body.target_polycount = Math.min(faceCount, max)
+    return body
+  }
+  // Topology and polycount are honored only inside a remesh. Older nodes had
+  // no Remesh toggle: a quad mesh, or a polycount inside Meshy's range, asked
+  // for one.
+  const remesh = typeof config.shouldRemesh === 'boolean'
+    ? config.shouldRemesh
+    : config.topology === 'quad' || (faceCount >= 100 && faceCount <= MAX_TARGET_POLYCOUNT)
+  if (remesh) {
     body.should_remesh = true
     body.topology = config.topology === 'quad' ? 'quad' : 'triangle'
     if (faceCount >= 100 && faceCount <= MAX_TARGET_POLYCOUNT) body.target_polycount = faceCount

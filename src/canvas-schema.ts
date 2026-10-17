@@ -36,6 +36,8 @@ export interface NodePort extends NodePortSpec {
 export interface ParameterOption {
   value: string | number
   label: string
+  /** Controls that exist only while this option is selected. ComfyUI DynamicCombo stores the same relationship on the option. */
+  inputs?: NodeParameter[]
 }
 
 export interface ParameterCondition {
@@ -58,7 +60,6 @@ export interface NodeParameter {
   options?: ParameterOption[]
   range?: ParameterRange
   placeholder?: string
-  visibleWhen?: ParameterCondition[]
 }
 
 export interface NodeEffect {
@@ -126,27 +127,48 @@ const promptText: NodePortSpec = { type: 'text', fallbackConfig: 'prompt' }
 const multiImage: NodePortSpec = { type: 'image', multiple: true }
 const modelDefaults = { modelVersion: 'v3.1-20260211', geometryQuality: true, aiComplete: false, texture: true, textureQuality: 'extreme', pbr: true, topology: 'triangle', faceCount: 2000000, generateParts: false, texture8k: true, privacy: 'sharing-only' }
 const modelParameters: NodeParameter[] = [
-  { key: 'modelVersion', label: 'AI Model', control: 'select', options: modelVersions },
-  { key: 'geometryQuality', label: 'Ultra Mesh Quality', control: 'toggle', visibleWhen: [{ field: 'modelVersion', equals: 'v3.1-20260211' }] },
+  { key: 'modelVersion', label: 'AI Model', control: 'select', options: modelVersions.map((option) => option.value === 'v3.1-20260211' ? { ...option, inputs: [{ key: 'geometryQuality', label: 'Ultra Mesh Quality', control: 'toggle' }] } : option) },
   { key: 'aiComplete', label: 'AI Complete', control: 'toggle', advanced: true },
-  { key: 'texture', label: 'Texture', control: 'toggle' },
-  { key: 'textureQuality', label: 'Texture Quality', control: 'segmented', options: textureQualities, visibleWhen: [{ field: 'texture', equals: true }] },
-  { key: 'pbr', label: 'PBR', control: 'toggle', advanced: true, visibleWhen: [{ field: 'texture', equals: true }] },
+  { key: 'texture', label: 'Texture', control: 'toggle', options: [{ value: true, label: 'On', inputs: [
+    { key: 'textureQuality', label: 'Texture Quality', control: 'segmented', options: textureQualities },
+    { key: 'pbr', label: 'PBR', control: 'toggle', advanced: true },
+    { key: 'texture8k', label: '8K Texture', control: 'toggle', advanced: true },
+  ] }] },
   { key: 'topology', label: 'Topology', control: 'segmented', advanced: true, options: topology },
   { key: 'faceCount', label: 'Polycount', control: 'slider', advanced: true, range: { min: 500, max: 1000000, step: 500, rules: [{ when: [{ field: 'geometryQuality', equals: true }], max: 2000000 }, { when: [{ field: 'topology', equals: 'quad' }], max: 50000 }, { when: [{ field: 'generateParts', equals: true }], min: 10000 }] } },
   { key: 'generateParts', label: 'Generate in Parts', control: 'toggle', advanced: true },
-  { key: 'texture8k', label: '8K Texture', control: 'toggle', advanced: true, visibleWhen: [{ field: 'texture', equals: true }] },
   { key: 'privacy', label: 'Privacy', control: 'select', advanced: true, options: options([['sharing-only', 'Sharing Only'], ['private', 'Private']]) },
 ]
 const modelEffects: NodeEffect[] = [{ when: { field: 'generateParts', equals: true }, set: { topology: 'triangle', texture: false, pbr: false } }]
-const meshyModelDefaults = { aiModel: 'latest', texture: true, textureQuality: 'standard', pbr: true, topology: 'triangle', faceCount: 0 }
+const meshyPolycount = (max: number): NodeParameter => ({ key: 'faceCount', label: 'Target Polycount', control: 'slider', range: { min: 100, max, step: 100 } })
+const meshyGeometryResolution: NodeParameter = { key: 'geometryResolution', label: 'Geometry Resolution', control: 'segmented', options: options([['standard', 'Standard'], ['2k', '2K'], ['4k', '4K']]) }
+const meshyModelDefaults = { modelType: 'standard', aiModel: 'latest', geometryResolution: 'standard', texture: true, textureQuality: 'standard', pbr: true, topology: 'triangle', faceCount: 0 }
 const meshyModelParameters: NodeParameter[] = [
-  { key: 'aiModel', label: 'Meshy Model', control: 'select', options: options([['latest', 'Latest'], ['meshy-7.1', 'Meshy 7.1'], ['meshy-7', 'Meshy 7'], ['meshy-6', 'Meshy 6'], ['meshy-6-lite', 'Meshy 6 Lite'], ['meshy-4', 'Meshy 4'], ['meshy-t2', 'Meshy T2']]) },
-  { key: 'texture', label: 'Texture', control: 'toggle' },
-  { key: 'textureQuality', label: 'Texture Resolution', control: 'segmented', options: options([['standard', '2K'], ['detailed', '4K'], ['extreme', '8K']]), visibleWhen: [{ field: 'texture', equals: true }] },
-  { key: 'pbr', label: 'PBR', control: 'toggle', advanced: true, visibleWhen: [{ field: 'texture', equals: true }] },
-  { key: 'topology', label: 'Topology', control: 'segmented', advanced: true, options: topology },
-  { key: 'faceCount', label: 'Target Polycount', control: 'slider', advanced: true, range: { min: 100, max: 300000, step: 100 } },
+  { key: 'modelType', label: 'Mesh Type', control: 'select', options: [
+    { value: 'standard', label: 'Standard', inputs: [
+      { key: 'aiModel', label: 'Meshy Model', control: 'select', options: [
+        { value: 'latest', label: 'Latest', inputs: [meshyGeometryResolution] },
+        { value: 'meshy-7.1', label: 'Meshy 7.1', inputs: [meshyGeometryResolution] },
+        { value: 'meshy-7', label: 'Meshy 7' },
+        { value: 'meshy-6', label: 'Meshy 6' },
+        { value: 'meshy-6-lite', label: 'Meshy 6 Lite' },
+      ] },
+      { key: 'shouldRemesh', label: 'Remesh', control: 'toggle', options: [{ value: true, label: 'On', inputs: [
+        { key: 'topology', label: 'Topology', control: 'segmented', options: topology },
+        meshyPolycount(300000),
+      ] }] },
+    ] },
+    { value: 'smart-topology', label: 'Smart Topology', inputs: [
+      { key: 'aiModel', label: 'Meshy Model', control: 'select', options: [
+        { value: 'meshy-t2.5', label: 'Meshy T2.5', inputs: [meshyPolycount(30000)] },
+        { value: 'meshy-t2', label: 'Meshy T2', inputs: [meshyPolycount(15000)] },
+      ] },
+    ] },
+  ] },
+  { key: 'texture', label: 'Texture', control: 'toggle', options: [{ value: true, label: 'On', inputs: [
+    { key: 'textureQuality', label: 'Texture Resolution', control: 'segmented', options: options([['standard', '2K'], ['detailed', '4K'], ['extreme', '8K']]) },
+    { key: 'pbr', label: 'PBR', control: 'toggle', advanced: true },
+  ] }] },
 ]
 
 const canvasNodeDefinitions: Array<Omit<CanvasNodeSchema, 'role'>> = [
@@ -169,11 +191,11 @@ const canvasNodeDefinitions: Array<Omit<CanvasNodeSchema, 'role'>> = [
   ...['generate-model', 'multiview-to-3d', 'text-to-3d'].map((type): Omit<CanvasNodeSchema, 'role'> => ({ type, category: '3D', label: type === 'generate-model' ? 'Gen HD Model' : type === 'multiview-to-3d' ? 'Multi-view to 3D' : 'Text to 3D', description: type === 'generate-model' ? 'Turn an image or text prompt into a model' : type === 'multiview-to-3d' ? 'Turn four labeled image views into a 3D model' : 'Turn a text prompt into a model', presentation: { kind: '3D MODEL', detail: type === 'generate-model' ? 'Image or text to 3D' : type === 'multiview-to-3d' ? 'Four-view reconstruction' : 'Text to 3D', tone: 'green' }, inputs: type === 'text-to-3d' ? { text: promptText } : type === 'multiview-to-3d' ? multiViewImages : { image: multiImage, ...multiViewImages, text: promptText }, outputs: { model: { type: 'model' } }, requires: type === 'text-to-3d' ? ['text'] : type === 'multiview-to-3d' ? viewKeys : [['image', ...viewKeys, 'text']], hidden: type !== 'generate-model', executable: true, modelEditor: true, defaults: { ...modelDefaults }, parameters: modelParameters, effects: modelEffects })),
   { type: 'smart-mesh', category: '3D', label: 'Smart Mesh', description: 'Generate a mesh from an image or text prompt', presentation: { kind: '3D MODEL', detail: 'Smart mesh generation', tone: 'green' }, inputs: { image: multiImage, text: promptText }, outputs: { model: { type: 'model' } }, requires: [['image', 'text']], executable: true, modelEditor: true, defaults: { topology: 'triangle', faceCount: 5000 }, parameters: [{ key: 'faceCount', label: 'Polycount', control: 'slider', range: { min: 500, max: 20000, step: 500 } }] },
   { type: 'retopology', category: '3D', label: 'Retopology', description: 'Optimize model geometry', presentation: { kind: 'MESH', detail: 'Geometry optimization', tone: 'rose' }, inputs: { model: { type: 'model' } }, outputs: { model: { type: 'model' } }, requires: ['model'], executable: true, modelEditor: true, defaults: { topology: 'quad', smartPoly: false, faceLimit: 10000 }, parameters: [{ key: 'topology', label: 'Topology', control: 'segmented', options: retopologyTopology }, { key: 'smartPoly', label: 'Smart Low Poly v2', control: 'toggle' }, { key: 'faceLimit', label: 'Polygon Count', control: 'slider', range: { min: 500, max: 50000, step: 500 } }] },
-  { type: 'texture', category: '3D', label: 'UV Texture', description: 'Create UV textures from a model, image, or text', presentation: { kind: 'MATERIAL', detail: 'UV texture generation', tone: 'violet' }, inputs: { model: { type: 'model' }, image: { type: 'image' }, text: promptText }, outputs: { model: { type: 'model' } }, requires: ['model'], executable: true, modelEditor: true, defaults: { inputMode: 'imageGenerate', prompt: '', textureQuality: 'extreme', textureStyle: 'None' }, parameters: [{ key: 'inputMode', label: 'Input', control: 'segmented', options: options([['imageGenerate', 'Image'], ['multiViewGenerate', 'Model'], ['textGenerate', 'Text']]) }, { key: 'prompt', label: 'Prompt', control: 'textarea', visibleWhen: [{ field: 'inputMode', equals: 'textGenerate' }] }, { key: 'textureStyle', label: 'Create Your Own Texture Style', control: 'select', options: options(['None', 'Mecha Pop', 'Heritage', 'Mecha', 'Wood', 'Custom'].map((value) => [value, value])) }, { key: 'textureQuality', label: 'Texture Resolution', control: 'segmented', options: textureQualities }] },
+  { type: 'texture', category: '3D', label: 'UV Texture', description: 'Create UV textures from a model, image, or text', presentation: { kind: 'MATERIAL', detail: 'UV texture generation', tone: 'violet' }, inputs: { model: { type: 'model' }, image: { type: 'image' }, text: promptText }, outputs: { model: { type: 'model' } }, requires: ['model'], executable: true, modelEditor: true, defaults: { inputMode: 'imageGenerate', prompt: '', textureQuality: 'extreme', textureStyle: 'None' }, parameters: [{ key: 'inputMode', label: 'Input', control: 'segmented', options: [{ value: 'imageGenerate', label: 'Image' }, { value: 'multiViewGenerate', label: 'Model' }, { value: 'textGenerate', label: 'Text', inputs: [{ key: 'prompt', label: 'Prompt', control: 'textarea' }] }] }, { key: 'textureStyle', label: 'Create Your Own Texture Style', control: 'select', options: options(['None', 'Mecha Pop', 'Heritage', 'Mecha', 'Wood', 'Custom'].map((value) => [value, value])) }, { key: 'textureQuality', label: 'Texture Resolution', control: 'segmented', options: textureQualities }] },
   { type: 'rigging', category: '3D', label: 'Rigging', description: 'Add a skeleton to a model', presentation: { kind: 'RIG', detail: 'Auto rigging', tone: 'violet' }, inputs: { model: { type: 'model' } }, outputs: { model: { type: 'model' } }, requires: ['model'], executable: true, modelEditor: true, defaults: { modelVersion: 'v2.5-20260210' }, parameters: [{ key: 'modelVersion', label: 'AI Model', control: 'select', options: options([['v2.5-20260210', 'v2.5 · Good for Animals'], ['v1.0-20240301', 'v1.0 · Good for Humanoid']]) }] },
   { type: 'segments', category: '3D', label: 'Segments', description: 'Segment a model into parts', presentation: { kind: 'SEGMENTS', detail: 'Part segmentation', tone: 'cyan' }, inputs: { model: { type: 'model' } }, outputs: { model: { type: 'model' } }, requires: ['model'], executable: true, modelEditor: true, defaults: { detailLevel: 'low' }, parameters: [{ key: 'detailLevel', label: 'Detail Level', control: 'segmented', options: detailLevels }] },
-  { type: 'model-preview', category: '3D', label: 'Asset Preview', description: 'Review a 3D asset', presentation: { kind: 'REVIEW', detail: 'Interactive preview', tone: 'cyan' }, inputs: { model: { type: 'model' } }, outputs: { model: { type: 'model' } }, requires: ['model'], executable: true, modelEditor: true, defaults: { materialMode: 'standard', shading: 'smooth', pbrPreview: false, metallic: 0, roughness: 1, wireframe: false }, parameters: [{ key: 'materialMode', label: 'View Mode', control: 'select', options: options([['matcap', 'Solid View'], ['standard', 'Textured View'], ['normal', 'Normal'], ['unlit', 'Unlit'], ['cartoon', 'Cartoon Style'], ['sketch', 'Sketch Style'], ['hologram', 'Hologram Style']]) }, { key: 'shading', label: 'Shading', control: 'select', options: options([['flat', 'Flat'], ['smooth', 'Smooth']]) }, { key: 'pbrPreview', label: 'PBR', control: 'toggle', visibleWhen: [{ field: 'materialMode', equals: 'standard' }] }, { key: 'metallic', label: 'Metallic', control: 'slider', range: { min: 0, max: 1, step: 0.01 }, visibleWhen: [{ field: 'materialMode', equals: 'standard' }, { field: 'pbrPreview', equals: true }] }, { key: 'roughness', label: 'Roughness', control: 'slider', range: { min: 0, max: 1, step: 0.01 }, visibleWhen: [{ field: 'materialMode', equals: 'standard' }, { field: 'pbrPreview', equals: true }] }, { key: 'wireframe', label: 'Wireframe', control: 'toggle' }] },
-  { type: 'export-model', category: 'Output', label: 'Export', description: 'Export an image or 3D model', presentation: { kind: 'EXPORT', detail: 'Export image or 3D model', tone: 'amber' }, inputs: { image: { type: 'image' }, model: { type: 'model' } }, outputs: {}, requires: [['image', 'model']], executable: true, modelEditor: true, defaults: { fileName: 'shark-gardener', modelFormat: 'gltf', fbxPreset: 'blender', textureSize: 2048, withAnimation: false, packUV: false, animateInPlace: false, exportVertexColors: false }, parameters: [{ key: 'fileName', label: 'File Name', control: 'text' }, { key: 'modelFormat', label: 'Format', control: 'select', options: options([['usdz', 'USD'], ['fbx', 'FBX'], ['obj', 'OBJ'], ['stl', 'STL'], ['gltf', 'GLB'], ['3mf', '3MF']]) }, { key: 'fbxPreset', label: 'FBX Preset', control: 'select', options: options([['blender', 'Blender'], ['mixamo', 'Mixamo'], ['3dsmax', '3ds Max']]), visibleWhen: [{ field: 'modelFormat', equals: 'fbx' }] }, { key: 'textureSize', label: 'Texture Resolution', control: 'select', options: options([[512, '512'], [1024, '1K'], [2048, '2K'], [4096, '4K'], [8192, '8K']]) }, { key: 'withAnimation', label: 'Export Skeleton', control: 'toggle' }, { key: 'packUV', label: 'Pack UV', control: 'toggle' }, { key: 'animateInPlace', label: 'Animation Stay in Place', control: 'toggle', visibleWhen: [{ field: 'withAnimation', equals: true }] }, { key: 'exportVertexColors', label: 'Export Vertex Colors', control: 'toggle', visibleWhen: [{ field: 'modelFormat', equals: 'obj' }] }] },
+  { type: 'model-preview', category: '3D', label: 'Asset Preview', description: 'Review a 3D asset', presentation: { kind: 'REVIEW', detail: 'Interactive preview', tone: 'cyan' }, inputs: { model: { type: 'model' } }, outputs: { model: { type: 'model' } }, requires: ['model'], executable: true, modelEditor: true, defaults: { materialMode: 'standard', shading: 'smooth', pbrPreview: false, metallic: 0, roughness: 1, wireframe: false }, parameters: [{ key: 'materialMode', label: 'View Mode', control: 'select', options: [{ value: 'matcap', label: 'Solid View' }, { value: 'standard', label: 'Textured View', inputs: [{ key: 'pbrPreview', label: 'PBR', control: 'toggle', options: [{ value: true, label: 'On', inputs: [{ key: 'metallic', label: 'Metallic', control: 'slider', range: { min: 0, max: 1, step: 0.01 } }, { key: 'roughness', label: 'Roughness', control: 'slider', range: { min: 0, max: 1, step: 0.01 } }] }] }] }, { value: 'normal', label: 'Normal' }, { value: 'unlit', label: 'Unlit' }, { value: 'cartoon', label: 'Cartoon Style' }, { value: 'sketch', label: 'Sketch Style' }, { value: 'hologram', label: 'Hologram Style' }] }, { key: 'shading', label: 'Shading', control: 'select', options: options([['flat', 'Flat'], ['smooth', 'Smooth']]) }, { key: 'wireframe', label: 'Wireframe', control: 'toggle' }] },
+  { type: 'export-model', category: 'Output', label: 'Export', description: 'Export an image or 3D model', presentation: { kind: 'EXPORT', detail: 'Export image or 3D model', tone: 'amber' }, inputs: { image: { type: 'image' }, model: { type: 'model' } }, outputs: {}, requires: [['image', 'model']], executable: true, modelEditor: true, defaults: { fileName: 'shark-gardener', modelFormat: 'gltf', fbxPreset: 'blender', textureSize: 2048, withAnimation: false, packUV: false, animateInPlace: false, exportVertexColors: false }, parameters: [{ key: 'fileName', label: 'File Name', control: 'text' }, { key: 'modelFormat', label: 'Format', control: 'select', options: [{ value: 'usdz', label: 'USD' }, { value: 'fbx', label: 'FBX', inputs: [{ key: 'fbxPreset', label: 'FBX Preset', control: 'select', options: options([['blender', 'Blender'], ['mixamo', 'Mixamo'], ['3dsmax', '3ds Max']]) }] }, { value: 'obj', label: 'OBJ', inputs: [{ key: 'exportVertexColors', label: 'Export Vertex Colors', control: 'toggle' }] }, { value: 'stl', label: 'STL' }, { value: 'gltf', label: 'GLB' }, { value: '3mf', label: '3MF' }] }, { key: 'textureSize', label: 'Texture Resolution', control: 'select', options: options([[512, '512'], [1024, '1K'], [2048, '2K'], [4096, '4K'], [8192, '8K']]) }, { key: 'withAnimation', label: 'Export Skeleton', control: 'toggle', options: [{ value: true, label: 'On', inputs: [{ key: 'animateInPlace', label: 'Animation Stay in Place', control: 'toggle' }] }] }, { key: 'packUV', label: 'Pack UV', control: 'toggle' }] },
 ]
 
 // Result nodes are created by runs, never picked from Add node. Input nodes are
@@ -299,7 +321,16 @@ export function normalizeNodeConfig(type: string, config: Record<string, unknown
   const normalized = { ...nodeDefaults(type, provider), ...config }
   const schema = nodeSchema(type, provider)
 
-  for (const parameter of schema?.parameters || []) {
+  if (provider === 'meshy' && type === 'generate-model') {
+    if (!config.modelType) normalized.modelType = config.aiModel === 'meshy-t2' || config.aiModel === 'meshy-t2.5' ? 'smart-topology' : 'standard'
+    if (config.shouldRemesh === undefined && normalized.modelType === 'standard') {
+      const faceCount = Number(config.faceCount)
+      normalized.shouldRemesh = config.topology === 'quad' || (faceCount >= 100 && faceCount <= 300000)
+    }
+    if (normalized.modelType === 'smart-topology' && normalized.aiModel !== 'meshy-t2' && normalized.aiModel !== 'meshy-t2.5') normalized.aiModel = 'meshy-t2.5'
+  }
+
+  for (const parameter of visibleParameters(schema?.parameters, normalized)) {
     if (parameter.control !== 'select' || !parameter.options?.length) continue
     if (!parameter.options.some((option) => option.value === normalized[parameter.key])) normalized[parameter.key] = schema.defaults[parameter.key] ?? parameter.options[0].value
   }
@@ -330,6 +361,36 @@ export function normalizeNodeConfig(type: string, config: Record<string, unknown
 
 export function conditionsMatch(conditions: ParameterCondition[] | undefined, config: Record<string, unknown>) {
   return !conditions || conditions.every((condition) => config[condition.field] === condition.equals)
+}
+
+/** Every parameter, including inputs owned by a menu option. */
+export function allParameters(parameters: NodeParameter[] | undefined): NodeParameter[] {
+  const list: NodeParameter[] = []
+  const walk = (items: NodeParameter[]) => {
+    for (const parameter of items) {
+      list.push(parameter)
+      for (const option of parameter.options || []) if (option.inputs?.length) walk(option.inputs)
+    }
+  }
+  if (parameters) walk(parameters)
+  return list
+}
+
+/**
+ * Parameters to draw. Whichever option is selected contributes its inputs,
+ * directly under that control. A toggle uses the option whose value is true.
+ */
+export function visibleParameters(parameters: NodeParameter[] | undefined, config: Record<string, unknown>): NodeParameter[] {
+  const list: NodeParameter[] = []
+  const walk = (items: NodeParameter[]) => {
+    for (const parameter of items) {
+      list.push(parameter)
+      const selected = parameter.options?.find((option) => option.value === config[parameter.key])
+      if (selected?.inputs?.length) walk(selected.inputs)
+    }
+  }
+  if (parameters) walk(parameters)
+  return list
 }
 
 export function parameterRange(parameter: NodeParameter, config: Record<string, unknown>) {

@@ -1,7 +1,7 @@
-import { canvasNodeSchema, isExecutableNodeType, nodeSchema } from './canvas-schema'
+import { allParameters, canvasNodeSchema, isExecutableNodeType, nodeSchema } from './canvas-schema'
 import type { NodePort, NodePorts, PortType, CanvasNodeSchema } from './canvas-schema'
 
-export { applyNodeParameter, conditionsMatch, hasModelEditor, isExecutableNodeType, isInputNodeType, isResultNodeType, nodeDefaults, nodeRole, nodeSchema, parameterRange, canvasNodeSchema, canvasNodeSchemas } from './canvas-schema'
+export { allParameters, applyNodeParameter, conditionsMatch, hasModelEditor, isExecutableNodeType, isInputNodeType, isResultNodeType, nodeDefaults, nodeRole, nodeSchema, parameterRange, visibleParameters, canvasNodeSchema, canvasNodeSchemas } from './canvas-schema'
 export type { NodeParameter, NodeRequirement, NodeRole, ParameterCondition, ParameterOption, ParameterRange, CanvasNodeSchema, CanvasProvider } from './canvas-schema'
 
 export type { NodePort, NodePorts, NodePortSpec, PortType } from './canvas-schema'
@@ -260,7 +260,7 @@ export interface CanvasGraphIssue {
 function parameterLabel(type: string, key: string) {
   const port = nodeInputPorts(type).find((candidate) => candidate.id === key)
   if (port) return port.label
-  const parameter = nodeSchema(type)?.parameters.find((candidate) => candidate.key === key)
+  const parameter = allParameters(nodeSchema(type)?.parameters).find((candidate) => candidate.key === key)
   return parameter?.label || key[0].toUpperCase() + key.slice(1)
 }
 

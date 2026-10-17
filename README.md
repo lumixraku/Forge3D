@@ -18,6 +18,19 @@ Forge3D is a visual 3D canvas for AI generation workflows. Describe a goal in na
 - Persist canvases, sessions, executions, and Agent state so work can continue after reopening the application.
 - Receive execution progress and collaboration updates over SSE; multiple browser tabs can observe the same canvas.
 
+## Node parameters
+
+Each node type declares its controls in `src/canvas-schema.ts`. A parameter has a stable `key`, a display `label`, a `control` (`text`, `textarea`, `select`, `segmented`, `slider`, or `toggle`), and optional `options` or `range`. Stored config stays a flat map of those keys. Hiding a control does not delete its saved value.
+
+Cascades follow a ComfyUI DynamicCombo. The group lives on the option, in `inputs`. The selected option's inputs are drawn directly under that control, and choosing another option takes that group off the node. An input can itself be a menu or a toggle with its own options. `AI Model` → `v3.1 · Best Quality` owns Ultra Mesh Quality. `Format` → `FBX` owns FBX Preset. Meshy `Mesh Type` → `Standard` owns the standard model list, and that list's `Latest` option owns Geometry Resolution.
+
+A toggle is the same shape with one option, `{ value: true, inputs }`. While the toggle is on, that option's group is shown. Meshy Texture owns Texture Resolution and PBR. Remesh owns Topology and Target Polycount. Hidden values stay saved.
+
+Two related mechanisms do not hide a control:
+
+- `range.rules` keeps the control on screen and changes its minimum or maximum when a condition matches. Quad topology, for example, lowers the polycount maximum.
+- `effects` writes other config fields when a value is chosen. A write can select a different option, which swaps the group under that control.
+
 ## Ways to Run Forge3D
 
 ### Local Runtime

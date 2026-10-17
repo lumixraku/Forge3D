@@ -1,5 +1,5 @@
 import { LGraph, LGraphCanvas, LGraphGroup, LiteGraph } from 'litegraph.js'
-import { canConnectPorts, conditionsMatch, hasModelEditor, isExecutableNodeType, nodeSchema, parameterRange } from './canvas-nodes'
+import { canConnectPorts, hasModelEditor, isExecutableNodeType, nodeSchema, parameterRange, visibleParameters } from './canvas-nodes'
 import { meshyAssetHref } from './meshy-asset'
 import { applyNodeParameter } from './canvas-schema'
 
@@ -221,7 +221,7 @@ function inputPlan(node: any, edges: any[], byId: Map<string, any>) {
 function widgetPlan(node: any) {
   if (node.type === 'frame') return []
   const schema = nodeSchema(node.data?.canvasType, node.data?.provider || 'tripo')
-  return (schema?.parameters || []).filter((parameter: any) => conditionsMatch(parameter.visibleWhen, node.data?.config || {}))
+  return visibleParameters(schema?.parameters, node.data?.config || {})
 }
 
 function actionPlan(node: any) {
@@ -760,16 +760,12 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     }
     if (parameter.control === 'toggle') {
       created.addWidget('toggle', parameter.label, Boolean(config[parameter.key]), (value: boolean) => commit(value))
-      return
-    }
-    if (parameter.control === 'slider') {
+    } else if (parameter.control === 'slider') {
       const range = parameterRange(parameter, config) || { min: 0, max: 1, step: 0.01 }
       created.addWidget('number', parameter.label, Number(config[parameter.key] ?? range.min), (value: number) => commit(value), {
         min: range.min, max: range.max, step: range.step, precision: range.step < 1 ? 2 : 0,
       })
-      return
-    }
-    if (parameter.control === 'select' || parameter.control === 'segmented') {
+    } else if (parameter.control === 'select' || parameter.control === 'segmented') {
       const options = parameter.options || []
       const labels = options.map((option: any) => String(option.label))
       const current = options.find((option: any) => option.value === config[parameter.key])
@@ -777,11 +773,11 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
         const option = options.find((item: any) => String(item.label) === label)
         if (option) commit(option.value)
       }, { values: labels })
-      return
+    } else {
+      created.addWidget('text', parameter.label, config[parameter.key] == null ? '' : String(config[parameter.key]), (value: string) => commit(value), {
+        multiline: parameter.control === 'textarea',
+      })
     }
-    created.addWidget('text', parameter.label, config[parameter.key] == null ? '' : String(config[parameter.key]), (value: string) => commit(value), {
-      multiline: parameter.control === 'textarea',
-    })
   }
 
   function runAction(id: string, action: string) {
