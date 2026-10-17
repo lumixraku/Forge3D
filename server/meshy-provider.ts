@@ -29,7 +29,7 @@ const IMAGE_MIME_BY_EXTENSION = {
  *   inlined as a data URI
  * - a public http(s) URL -> passed through untouched
  */
-async function toMeshyInput(reference, { readAsset } = {}) {
+async function toMeshyInput(reference, { readAsset, binary = false } = {}) {
   if (!reference || typeof reference !== 'string') return null
   if (/^https?:\/\//.test(reference) || reference.startsWith('data:')) return reference
 
@@ -60,8 +60,27 @@ async function toMeshyInput(reference, { readAsset } = {}) {
   }
 
   const extension = filename.split('.').pop()?.toLowerCase() || ''
-  const mime = IMAGE_MIME_BY_EXTENSION[extension] || 'application/octet-stream'
+  const mime = binary ? 'application/octet-stream' : (IMAGE_MIME_BY_EXTENSION[extension] || 'application/octet-stream')
   return `data:${mime};base64,${bytes.toString('base64')}`
+}
+
+const IMAGE_TASK_TYPES = new Set(['text-to-image', 'image-to-image'])
+
+// The mesh this node should transform. A Meshy task id lets the next API skip
+// re-uploading the file. `portId` limits the search to one input, so Animation
+// can read its rig and its motion clip from different ports.
+async function resolveMesh(node, canvas, context, toInput, portId = null) {
+  const sources = resolveInputSources(node, canvas)
+  const ports = nodeInputPorts(node.type).filter((port) => (port.type === 'model' || port.type === 'any') && (!portId || port.id === portId))
+  for (const port of ports) {
+    const source = (sources[port.id] || [])[0]
+    if (!source) continue
+    const produced = context.get(source.node.id)
+    if (produced?.meshyTaskId) return { taskId: produced.meshyTaskId, modelUrl: produced.modelUrl || null, sourceType: source.node.type }
+    const value = nodeOutputPortValues(source.node, produced)[source.portId]
+    if (typeof value === 'string' && value) return { modelUrl: await toInput(value, { binary: true }), sourceType: source.node.type }
+  }
+  return null
 }
 
 /**
@@ -105,19 +124,33 @@ export async function executeMeshyNode(node, canvas, {
     }
   }
 
-  const toInput = (reference) => toMeshyInput(reference, { readAsset })
-  const resolved = await resolveGenerateModelImages(node, canvas, context, { toInput, labeledViews: false })
+  const toInput = (reference, options) => toMeshyInput(reference, { readAsset, ...options })
+  const imageNodes = node.type === 'generate-model' || node.type === 'multiview-to-3d' || node.type === 'image-to-image' || node.type === 'creative-lab' || node.type === 'retexture'
+  const resolved = imageNodes
+    ? await resolveGenerateModelImages(node, canvas, context, { toInput, labeledViews: false })
+    : {}
+  const mesh = await resolveMesh(node, canvas, context, toInput, node.type === 'animation' ? 'model' : null)
+  const motion = node.type === 'animation' ? await resolveMesh(node, canvas, context, toInput, 'motion') : null
+  const styleImage = node.type === 'retexture' && node.config?.styleMode === 'image'
+    ? await toInput(resolveStyleImage(node, canvas, context))
+    : null
   const request = meshyRequest(node, {
     input: resolved.input ?? null,
     prompt: resolvePrompt(node, canvas),
     multiview: resolved.multiview ?? null,
+    images: resolved.multiview ?? null,
+    mesh,
+    styleImage,
+    rigTaskId: mesh?.sourceType === 'rigging' ? mesh.taskId : null,
+    motionTaskId: motion?.sourceType === 'text-to-motion' ? motion.taskId : null,
+    imageTaskId: imageTaskFrom(node, canvas, context),
   })
   if (!request) return null
 
   const taskId = await client.createTask(request.endpoint, request.body)
-  // Text to 3D is two-step, so a single-task run owns the whole bar while a
-  // preview is mapped onto the first half and its refine onto the second, and
-  // the percentage never jumps backwards between the two.
+  // Text to 3D and Creative Lab are two-step, so a single-task run owns the
+  // whole bar while the first task is mapped onto the first half and its
+  // follow-up onto the second. The percentage never jumps backwards.
   const scale = request.refine ? (progress) => Math.round(progress / 2) : (progress) => progress
   await onProgress({ meshyTaskId: taskId, progress: 0 })
   let task = await client.awaitTask(request.endpoint, taskId, {
@@ -125,9 +158,11 @@ export async function executeMeshyNode(node, canvas, {
     onProgress: (current) => onProgress({ meshyTaskId: taskId, progress: scale(current.progress ?? 0) }),
   })
 
+  let endpoint = request.endpoint
   let creditsConsumed = task.consumed_credits ?? null
   if (request.refine) {
     const followup = request.refine(taskId)
+    endpoint = followup.endpoint
     const refineTaskId = await client.createTask(followup.endpoint, followup.body)
     await onProgress({ meshyTaskId: refineTaskId, progress: 50 })
     const previewCredits = task.consumed_credits ?? null
@@ -142,9 +177,26 @@ export async function executeMeshyNode(node, canvas, {
     status: 'succeeded',
     durationMs: Math.max(1, Date.now() - startedAt),
     meshyTaskId: task.id,
-    meshyTaskEndpoint: request.refine ? '/openapi/v2/text-to-3d' : request.endpoint,
+    meshyTaskEndpoint: endpoint,
     progress: 100,
     creditsConsumed,
     output: meshyNodeOutput(node, task, { fallbackPreview: resolveUpstreamPreview(node, canvas, context) }),
   }
+}
+
+function imageTaskFrom(node, canvas, context) {
+  const sources = resolveInputSources(node, canvas)
+  for (const source of sources.image || []) {
+    const produced = context.get(source.node.id)
+    if (produced?.meshyTaskId && IMAGE_TASK_TYPES.has(source.node.type)) return produced.meshyTaskId
+  }
+  return null
+}
+
+function resolveStyleImage(node, canvas, context) {
+  const sources = resolveInputSources(node, canvas)
+  const source = (sources.image || [])[0]
+  if (!source) return null
+  const value = nodeOutputPortValues(source.node, context.get(source.node.id))[source.portId]
+  return typeof value === 'string' ? value : null
 }

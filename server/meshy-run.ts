@@ -34,7 +34,18 @@ export function createMeshyRunner(env = process.env, { readAsset } = {}) {
 export function createMeshyTaskReader(env = process.env) {
   if (!isMeshyConfigured(env)) return null
   const client = createMeshyClient({ apiKey: env.MESHY_API_KEY, baseUrl: env.MESHY_BASE_URL })
-  const endpoints = ['/openapi/v2/text-to-3d', '/openapi/v1/image-to-3d', '/openapi/v1/multi-image-to-3d']
+  const endpoints = [
+    '/openapi/v2/text-to-3d', '/openapi/v1/image-to-3d', '/openapi/v1/multi-image-to-3d',
+    '/openapi/v1/text-to-image', '/openapi/v1/image-to-image', '/openapi/v1/text-to-motion',
+    '/openapi/v1/remesh', '/openapi/v1/retexture', '/openapi/v1/rigging', '/openapi/v1/animations',
+    '/openapi/v1/convert', '/openapi/v1/resize', '/openapi/v1/uv-unwrap',
+    '/openapi/v1/print/analyze', '/openapi/v1/print/repair', '/openapi/v1/print/multi-color', '/openapi/v1/print/split',
+    '/openapi/creative-lab/keychain/v1/build', '/openapi/creative-lab/fridge-magnet/v1/build',
+    '/openapi/creative-lab/figure/v1/build', '/openapi/creative-lab/vinyl-figure/v1/build',
+    '/openapi/creative-lab/brick-figure/v1/build', '/openapi/creative-lab/lamp/v1/build',
+    '/openapi/creative-lab/keycap/v1/build', '/openapi/creative-lab/fidget-pixel/v1/build',
+    '/openapi/creative-lab/fidget-collapsible/v1',
+  ]
 
   return async (taskId, endpoint = null) => {
     if (endpoint) return client.getTask(endpoint, taskId)

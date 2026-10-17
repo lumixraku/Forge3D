@@ -12,6 +12,21 @@ const nodeCatalogRows = [
   ['generate-model', 'Reconstruct a 3D model from text, one image, or multiple images. It automatically detects how many images the upstream stage outputs.', 'image(s), text', '3D model'],
   ['smart-mesh', 'Generate a mesh directly from a single image and/or text.', 'image, text', '3D model'],
   ['text-to-3d', 'Reconstruct a 3D model from text only.', 'text', '3D model'],
+  ['multiview-to-3d', 'Reconstruct a 3D model from labeled front, back, left, and right images.', 'front, back, left, right images', '3D model'],
+  ['text-to-image', 'Meshy text-to-image. Multi-view returns front, side, and back images.', 'text', 'image(s)'],
+  ['image-to-image', 'Edit a reference image with a Meshy prompt.', 'image, text', 'image(s)'],
+  ['remesh', 'Retopologize a model.', '3D model', '3D model'],
+  ['retexture', 'Paint a new texture from text or a style image.', '3D model, optional image or text', '3D model'],
+  ['animation', 'Apply a library animation, or a text-to-motion clip, to a Meshy rig.', 'rigged 3D model, optional motion', '3D model'],
+  ['text-to-motion', 'Generate a motion clip from a description.', 'text', 'motion'],
+  ['convert-model', 'Convert a model to GLB, FBX, OBJ, USDZ, BLEND, STL, or 3MF.', '3D model', '3D model'],
+  ['resize-model', 'Scale a model to a real-world size.', '3D model', '3D model'],
+  ['uv-unwrap', 'Build a clean UV layout for a GLB.', '3D model', '3D model'],
+  ['print-analyze', 'Check a model for FDM printability.', '3D model', '3D model'],
+  ['print-repair', 'Repair a mesh for FDM printing.', '3D model', '3D model'],
+  ['multi-color-print', 'Export a multi-color 3MF for a slicer.', '3D model', '3D model'],
+  ['auto-split', 'Split a Meshy 6 or 7 model into printable parts.', '3D model, optional text', '3D model'],
+  ['creative-lab', 'Turn a photo into a printable product such as a keychain, magnet, figure, lamp, keycap, or fidget.', 'image', '3D model'],
   ['review', 'Manual checkpoint to approve an image before continuing.', 'image', 'image'],
   ['retopology', 'Optimize / clean up model geometry.', '3D model', '3D model'],
   ['texture', 'Generate UV textures for a model (optionally guided by an image or text).', '3D model (+ optional image/text)', '3D model'],
@@ -31,7 +46,9 @@ Choose node types by matching outputs to inputs. generate-model is the unified 3
 
 1. Generate the missing views from ONE image: reference-image → generate-multiview-images → generate-model. Use generate-multiview-images only when the user has a single reference and wants you to CREATE front/back/left/right views from it.
 
-2. Use SEVERAL existing images directly: reference-image → generate-model. When the user already has multiple images of the subject (different angles already available), feed them straight into generate-model and do NOT add generate-multiview-images, because those views already exist.
+2. Use SEVERAL existing images directly: reference-image → generate-model. When the user already has multiple images of the subject (different angles already available), feed them straight into generate-model and do NOT add generate-multiview-images, because those views already exist. When those images are already labeled front, back, left, and right, use one reference-image per view wired into multiview-to-3d instead.
+
+Meshy canvases can also use text-to-image, image-to-image, remesh, retexture, rigging, animation, text-to-motion, convert-model, resize-model, uv-unwrap, print-analyze, print-repair, multi-color-print, auto-split, and creative-lab. Animation needs an upstream rigging node. text-to-motion feeds animation's motion input.
 
 When a multi-image request is ambiguous — you cannot tell whether the user has one image (and wants the views generated) or already has several images — do NOT guess. Call request_user_select with one option per path above, so the user confirms which one.
 

@@ -43,7 +43,7 @@ export function nodeOutput(node, canvas) {
   }
   // A previous run's images and its selection are results, so they read
   // generatedAssets; `amount` and the rest are parameters and read config.
-  if (node.type === 'generate-image') {
+  if (node.type === 'generate-image' || node.type === 'text-to-image' || node.type === 'image-to-image') {
     const all = node.generatedAssets?.previews?.length ? node.generatedAssets.previews : demoConceptImages
     const count = Number(node.config?.amount) > 0 ? Number(node.config.amount) : all.length
     const previews = all.slice(0, count)
@@ -65,7 +65,7 @@ export function nodeOutput(node, canvas) {
     const image = resolveInputImage(node, canvas) || null
     return { message: node.generatedAssets?.approved ? 'Image approved' : 'Awaiting image approval', image, preview: image }
   }
-  if (['generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'texture', 'rigging', 'segments', 'model-preview'].includes(node.type)) {
+  if (['generate-model', 'smart-mesh', 'multiview-to-3d', 'text-to-3d', 'retopology', 'texture', 'rigging', 'segments', 'model-preview', 'remesh', 'retexture', 'animation', 'text-to-motion', 'convert-model', 'resize-model', 'uv-unwrap', 'print-repair', 'multi-color-print', 'auto-split', 'creative-lab'].includes(node.type)) {
     if (node.type === 'generate-model') {
       const inputImages = resolveInputImages(node, canvas)
       return { message: `${node.name} generated from ${inputImages.length > 1 ? `${inputImages.length} images` : inputImages.length === 1 ? '1 image' : 'text'}`, preview: demoModelImage(node.type), modelUrl: demoModelUrl, inputMode: inputImages.length > 1 ? 'multi-image' : inputImages.length === 1 ? 'single-image' : 'text', inputImages }
@@ -74,6 +74,7 @@ export function nodeOutput(node, canvas) {
       ? { message: 'UV texture generated', preview: demoModelImage(node.type), modelUrl: demoModelUrl, textureQuality: node.config?.textureQuality || 'detailed' }
       : { message: `${node.name} generated`, preview: demoModelImage(node.type), modelUrl: demoModelUrl }
   }
+  if (node.type === 'print-analyze') return { message: `${node.name || 'Print Check'} finished`, preview: null }
   if (node.type === 'export-model') {
     const format = ['usdz', 'fbx', 'obj', 'stl', 'gltf', '3mf'].includes(node.config?.modelFormat) ? node.config.modelFormat : 'gltf'
     const fileName = node.config?.fileName || 'shark-gardener'
