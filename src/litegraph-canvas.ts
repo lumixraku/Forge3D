@@ -1,5 +1,6 @@
 import { LGraph, LGraphCanvas, LGraphGroup, LiteGraph } from 'litegraph.js'
 import { canConnectPorts, conditionsMatch, hasModelEditor, isExecutableNodeType, nodeSchema, parameterRange } from './canvas-nodes'
+import { meshyAssetHref } from './meshy-asset'
 import { applyNodeParameter } from './canvas-schema'
 
 const NODE_TYPE = 'forge/node'
@@ -22,6 +23,46 @@ const PREVIEW_HEIGHT = 148
 // yellow; the section stays this sage green either way.
 const FRAME_COLOR = '#6d8f78'
 const FRAME_TITLE_BAND = 36
+// Same greens as --acid. LiteGraph's #9A9 reads as white on the light canvas,
+// and a selected node repaints every attached link #FFF.
+const LINK_COLOR: Record<string, string> = {
+  light: '#789800',
+  dark: '#d7ff56',
+}
+const RUNNING_LINK_COLOR = '#d6ff55'
+// Drawn ourselves so every row shares one left edge, one right edge, and the
+// same corner. LiteGraph's own widgets are capsules with arrows that shove the
+// labels out of line.
+const WIDGET_PALETTE = {
+  light: {
+    field: '#ffffff',
+    button: '#f4f7f4',
+    text: '#1c2416',
+    label: '#3c4640',
+    outline: '#c9d1cb',
+    hover: '#d5e2d8',
+    hoverOutline: '#5f7368',
+    pressed: '#e3ebe4',
+    caret: '#5c675f',
+    trackOff: '#d5ddd6',
+    trackOn: '#789800',
+    knob: '#ffffff',
+  },
+  dark: {
+    field: '#2a312d',
+    button: '#323a35',
+    text: '#e7ece8',
+    label: '#b7c0ba',
+    outline: '#4a564f',
+    hover: '#3c4741',
+    hoverOutline: '#8b998f',
+    pressed: '#465048',
+    caret: '#c5cfc8',
+    trackOff: '#1a201e',
+    trackOn: '#8aaa2a',
+    knob: '#f4f7f4',
+  },
+}
 
 let nodeTypeReady = false
 
@@ -110,10 +151,11 @@ function absolutePosition(node: any, byId: Map<string, any>) {
 function previewSource(node: any) {
   const generated = node.data?.generatedAssets || {}
   const uploaded = node.data?.uploadAssets || {}
-  return generated.selectedPreview || generated.preview || generated.previews?.[0]
+  const raw = generated.selectedPreview || generated.preview || generated.previews?.[0]
     || uploaded.thumbnailUrl
     || (uploaded.assetType === 'image' ? uploaded.assetUrl : '')
     || ''
+  return meshyAssetHref(generated, 'preview', raw) || raw
 }
 
 function previewSlot(node: any) {
@@ -196,6 +238,7 @@ function actionPlan(node: any) {
       if (item?.downloadUrl) actions.push({ id: `download:${index}`, label: `Download ${item.filename || 'file'}` })
     })
   }
+  if (type === 'generated-model' && node.data?.generatedAssets?.modelUrl) actions.push({ id: 'download-model', label: 'Download model' })
   if (isExecutableNodeType(type) && !['queued', 'running', 'cancelling'].includes(run?.status)) {
     actions.push({ id: 'run', label: 'Run' })
     actions.push({ id: 'downstream', label: 'Run downstream' })
@@ -278,25 +321,178 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   let hoverLinkId: number | null = null
   let selectedLinkId: number | null = null
   view.render_link_tooltip = false
+  view.default_link_color = LINK_COLOR.dark
   const renderLink = view.renderLink.bind(view)
   view.renderLink = (ctx: CanvasRenderingContext2D, ...args: any[]) => {
     const link = args[2]
+    // Stock renderLink overwrites a highlighted link with white after it
+    // reads the color argument, so the flag has to be gone for this call.
+    const highlighted = Boolean(link) && view.highlighted_links?.[link.id]
+    if (highlighted) delete view.highlighted_links[link.id]
     const hovered = Boolean(link) && (link.id === hoverLinkId || link.id === selectedLinkId)
-    if (link && args[4] == null && linkIsRunning(link)) args[4] = true
+    const running = Boolean(link) && linkIsRunning(link)
+    if (link && args[4] == null && running) args[4] = true
+    if (!args[5]) args[5] = running ? RUNNING_LINK_COLOR : (LINK_COLOR[theme] || LINK_COLOR.dark)
     const width = view.connections_width
     if (hovered) {
       view.connections_width = width + 2
-      if (!args[5]) args[5] = theme === 'light' ? '#1c2416' : '#ffffff'
+      args[5] = theme === 'light' ? '#3f5c00' : '#ffffff'
       ctx.save()
-      ctx.shadowColor = theme === 'light' ? 'rgba(20, 28, 18, 0.45)' : 'rgba(255, 255, 255, 0.75)'
+      ctx.shadowColor = theme === 'light' ? 'rgba(63, 92, 0, 0.45)' : 'rgba(255, 255, 255, 0.75)'
       ctx.shadowBlur = 6
     }
     try {
       return renderLink(ctx, ...args)
     } finally {
+      if (highlighted) view.highlighted_links[link.id] = true
       view.connections_width = width
       if (hovered) ctx.restore()
     }
+  }
+
+  let hoverWidget: { node: any; widget: any } | null = null
+  let widgetCursor = false
+  function setHoverWidget(next: { node: any; widget: any } | null) {
+    if (hoverWidget?.widget === next?.widget) return
+    hoverWidget = next
+    view.setDirty(true, true)
+  }
+  function widgetUnder(x: number, y: number) {
+    const node = view.graph?.getNodeOnPos(x, y, view.visible_nodes, 5)
+    if (!node?.widgets) return null
+    const localX = x - node.pos[0]
+    const localY = y - node.pos[1]
+    const width = node.size[0]
+    for (const widget of node.widgets) {
+      if (!widget || widget.disabled || widget.last_y == null) continue
+      const widgetWidth = widget.width || width
+      const height = widget.computeSize ? widget.computeSize(width)[1] : LiteGraph.NODE_WIDGET_HEIGHT
+      if (localX < 6 || localX > widgetWidth - 12 || localY < widget.last_y || localY > widget.last_y + height) continue
+      return { node, widget }
+    }
+    return null
+  }
+  function trackWidgetHover() {
+    const mouse = view.graph_mouse
+    if (!view.graph || !mouse || view.dragging_canvas || view.node_dragged || view.connecting_node) {
+      setHoverWidget(null)
+      return
+    }
+    const hit = widgetUnder(mouse[0], mouse[1])
+    setHoverWidget(hit)
+    if (hit) {
+      canvas.style.cursor = 'pointer'
+      widgetCursor = true
+    } else if (widgetCursor) {
+      canvas.style.cursor = ''
+      widgetCursor = false
+    }
+  }
+  view.drawNodeWidgets = (node: any, posY: number, ctx: CanvasRenderingContext2D) => {
+    const widgets = node.widgets
+    if (!widgets?.length) return 0
+    const palette = theme === 'light' ? WIDGET_PALETTE.light : WIDGET_PALETTE.dark
+    const width = node.size[0]
+    const height = LiteGraph.NODE_WIDGET_HEIGHT
+    const inset = 10
+    const labelX = inset + 16
+    let y = posY + 2
+    ctx.save()
+    ctx.font = '12px sans-serif'
+    ctx.textBaseline = 'middle'
+    ctx.lineWidth = 1
+    ctx.lineJoin = 'round'
+    ctx.lineCap = 'round'
+    for (const widget of widgets) {
+      const rowHeight = widget.computeSize ? widget.computeSize(width)[1] : height
+      widget.last_y = y
+      const hot = hoverWidget?.node === node && hoverWidget.widget === widget
+      const pressed = widget.type === 'button' && widget.clicked
+      if (pressed) {
+        widget.clicked = false
+        view.dirty_canvas = true
+      }
+      ctx.globalAlpha = (view.editor_alpha ?? 1) * (widget.disabled ? 0.45 : 1)
+      const rowX = inset
+      const rowW = width - inset * 2
+      const right = rowX + rowW
+      ctx.beginPath()
+      if (ctx.roundRect) ctx.roundRect(rowX, y, rowW, height, 5)
+      else ctx.rect(rowX, y, rowW, height)
+      ctx.fillStyle = pressed ? palette.pressed : hot ? palette.hover : widget.type === 'button' ? palette.button : palette.field
+      ctx.fill()
+      ctx.strokeStyle = hot ? palette.hoverOutline : palette.outline
+      ctx.stroke()
+      const midY = y + height / 2
+      if (widget.type === 'button') {
+        ctx.fillStyle = palette.text
+        ctx.textAlign = 'center'
+        ctx.fillText(widget.label || widget.name, width / 2, midY)
+      } else {
+        const stepped = widget.type === 'number' || widget.type === 'combo' || widget.type === 'slider'
+        ctx.strokeStyle = palette.caret
+        ctx.fillStyle = palette.caret
+        if (stepped) {
+          caret(ctx, rowX + 7, midY, -1)
+          caret(ctx, right - 12, midY, 1)
+        }
+        const value = widget.type === 'toggle' ? '' : widgetValue(widget)
+        ctx.textAlign = 'right'
+        ctx.fillStyle = palette.text
+        const valueX = widget.type === 'toggle' ? right - 30 : stepped ? right - 16 : right - 8
+        if (value) ctx.fillText(value, valueX, midY)
+        if (widget.type === 'toggle') paintSwitch(ctx, right - 8, midY, Boolean(widget.value), palette)
+        ctx.save()
+        ctx.beginPath()
+        ctx.rect(labelX, y, Math.max(8, valueX - labelX - 8), height)
+        ctx.clip()
+        ctx.textAlign = 'left'
+        ctx.fillStyle = palette.label
+        ctx.fillText(widget.label || widget.name || '', labelX, midY)
+        ctx.restore()
+      }
+      y += rowHeight + 4
+    }
+    ctx.restore()
+    return 0
+  }
+
+  function caret(ctx: CanvasRenderingContext2D, x: number, y: number, direction: number) {
+    ctx.beginPath()
+    ctx.moveTo(x + (direction < 0 ? 4 : 0), y - 3.5)
+    ctx.lineTo(x + (direction < 0 ? 0 : 4), y)
+    ctx.lineTo(x + (direction < 0 ? 4 : 0), y + 3.5)
+    ctx.stroke()
+  }
+
+  function paintSwitch(ctx: CanvasRenderingContext2D, rightEdge: number, y: number, on: boolean, palette: typeof WIDGET_PALETTE.light) {
+    const trackW = 18
+    const trackH = 10
+    const x = rightEdge - trackW
+    ctx.beginPath()
+    if (ctx.roundRect) ctx.roundRect(x, y - trackH / 2, trackW, trackH, trackH / 2)
+    else ctx.rect(x, y - trackH / 2, trackW, trackH)
+    ctx.fillStyle = on ? palette.trackOn : palette.trackOff
+    ctx.fill()
+    ctx.beginPath()
+    ctx.arc(on ? x + trackW - 5 : x + 5, y, 3.5, 0, Math.PI * 2)
+    ctx.fillStyle = palette.knob
+    ctx.fill()
+  }
+
+  function widgetValue(widget: any) {
+    if (widget.type === 'toggle') return widget.value ? widget.options?.on || 'true' : widget.options?.off || 'false'
+    if (widget.type === 'number' || widget.type === 'slider') {
+      const precision = widget.options?.precision
+      return Number(widget.value).toFixed(precision !== undefined ? precision : widget.type === 'slider' ? 2 : 0)
+    }
+    if (widget.type === 'combo') {
+      const values = typeof widget.options?.values === 'function' ? widget.options.values() : widget.options?.values
+      if (values && !Array.isArray(values)) return String(values[widget.value] ?? widget.value ?? '')
+      return widget.value == null ? '' : String(widget.value)
+    }
+    if (widget.type === 'string' || widget.type === 'text') return widget.value == null ? '' : String(widget.value).slice(0, 30)
+    return ''
   }
 
   function distanceToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number) {
@@ -399,7 +595,10 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     deleteSelectedLink()
   }
   window.addEventListener('keydown', onLinkKey, true)
-  const clearLinkHover = () => setHoverLink(null)
+  const clearLinkHover = () => {
+    setHoverLink(null)
+    setHoverWidget(null)
+  }
   canvas.addEventListener('pointerleave', clearLinkHover)
 
   function publishViewport() {
@@ -595,8 +794,16 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     }
     if (action.startsWith('download:')) {
       const node = byForgeId().get(id)
-      const item = node?.data?.generatedAssets?.outputs?.[Number(action.slice(9))]
-      if (item?.downloadUrl) window.open(item.downloadUrl, '_blank', 'noopener')
+      const generated = node?.data?.generatedAssets
+      const item = generated?.outputs?.[Number(action.slice(9))]
+      const href = meshyAssetHref(generated, 'model', item?.downloadUrl)
+      if (href) window.open(href, '_blank', 'noopener')
+    }
+    if (action === 'download-model') {
+      const node = byForgeId().get(id)
+      const generated = node?.data?.generatedAssets
+      const href = meshyAssetHref(generated, 'model', generated?.modelUrl)
+      if (href) window.open(href, '_blank', 'noopener')
     }
     if (action === 'run') handlers.onRun(id)
     if (action === 'downstream') handlers.onRunDownstream(id)
@@ -717,7 +924,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       if (!link) continue
       const target = graph.getNodeById(link.target_id)
       const flow = target ? byId.get(target.properties.forgeId) : null
-      link.color = ['queued', 'running', 'cancelling'].includes(flow?._run?.status) ? '#d6ff55' : undefined
+      link.color = ['queued', 'running', 'cancelling'].includes(flow?._run?.status) ? RUNNING_LINK_COLOR : (LINK_COLOR[theme] || LINK_COLOR.dark)
     }
     view.setDirty(true, true)
   }
@@ -957,6 +1164,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   view._mousemove_callback = (event: MouseEvent) => {
     const result = view.processMouseMove(event)
     trackLinkHover()
+    trackWidgetHover()
     return result
   }
   canvas.addEventListener('mousemove', view._mousemove_callback)
@@ -1140,6 +1348,9 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     },
     setTheme(next: string) {
       theme = next
+      const color = LINK_COLOR[next] || LINK_COLOR.dark
+      view.default_link_color = color
+      LiteGraph.CONNECTING_LINK_COLOR = color
       view.clear_background_color = next === 'light' ? '#e7ece8' : '#121614'
       view.background_image = next === 'light' ? null : LGraphCanvas.DEFAULT_BACKGROUND_IMAGE
       view.setDirty(true, true)

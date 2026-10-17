@@ -88,8 +88,8 @@ export function usesMeshy(node) {
  * renders. `preview` keeps pointing at an image so the node thumbnail works;
  * `modelUrl` is what the model editor consumes.
  *
- * Meshy's URLs are signed and valid for days, so the download points at the GLB
- * directly rather than at a refreshing proxy like the Tripo one.
+ * `modelUrl` is the signed GLB from this response. It expires with the task.
+ * A later download uses `meshyTaskId` to ask Meshy for the file again.
  */
 export function meshyNodeOutput(node, task, { preview = null, modelUrl = null, fallbackPreview = null } = {}) {
   const resolvedPreview = preview || task?.thumbnail_url || fallbackPreview || null

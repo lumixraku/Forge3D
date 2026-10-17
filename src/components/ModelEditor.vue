@@ -2,23 +2,16 @@
 import { computed } from 'vue'
 import NodeSelect from './NodeSelect.vue'
 import Model3D from './Model3D.vue'
+import { meshyAssetHref } from '../meshy-asset'
 import type { NodeRun } from '../node-runs'
 
 type ModelConfig = Record<string, unknown> & { wireframe?: boolean; autoRotate?: boolean; preview?: string; environment?: string }
 type ModelUploadAssets = Record<string, unknown> & { assetType?: string; modelUrl?: string }
-type ModelGeneratedAssets = Record<string, unknown> & { modelUrl?: string; preview?: string; resultOf?: { sourceType?: string } }
+type ModelGeneratedAssets = Record<string, unknown> & { modelUrl?: string; preview?: string; resultOf?: { runId?: string; sourceId?: string; sourceType?: string } }
 interface ModelNode { data: { label: string; canvasType: string; config: ModelConfig; uploadAssets?: ModelUploadAssets; generatedAssets?: ModelGeneratedAssets } }
 
 const props = defineProps<{ node: ModelNode; nodeRun?: NodeRun | null }>()
 const emit = defineEmits<{ back: []; 'update-config': [config: ModelConfig] }>()
-const stableMeshyModelUrl = computed(() => {
-  const result = props.node.data.generatedAssets?.resultOf
-  const runId = result?.runId || props.nodeRun?.executionId
-  const nodeId = result?.sourceId || props.nodeRun?.nodeId
-  return props.nodeRun?.meshyTaskId && runId && nodeId
-    ? `/api/executions/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}/model`
-    : ''
-})
 const modelUrl = computed(() => {
   const output = props.nodeRun?.output
   if (typeof output?.modelUrl === 'string') return output.modelUrl
@@ -30,24 +23,15 @@ const modelUrl = computed(() => {
   const uploads = props.node.data.uploadAssets
   return props.node.data.canvasType === 'reference-image' && uploads?.assetType === 'model' && typeof uploads.modelUrl === 'string' ? uploads.modelUrl : ''
 })
-const previewModelUrl = computed(() => {
-  try {
-    const url = new URL(modelUrl.value)
-    return url.hostname === 'assets.meshy.ai' ? stableMeshyModelUrl.value || `/api/meshy/assets?url=${encodeURIComponent(url.href)}` : modelUrl.value
-  } catch {
-    return modelUrl.value
-  }
-})
+const previewModelUrl = computed(() => meshyAssetHref(props.node.data.generatedAssets, 'model', modelUrl.value) || modelUrl.value)
 const downloadName = computed(() => modelUrl.value.split('/').pop()?.split('?')[0] || 'model.glb')
-const downloadUrl = computed(() => {
-  try {
-    return new URL(modelUrl.value).hostname === 'assets.meshy.ai' ? stableMeshyModelUrl.value || modelUrl.value : modelUrl.value
-  } catch {
-    return modelUrl.value
-  }
-})
+const downloadUrl = computed(() => previewModelUrl.value)
 const canPreviewModel = computed(() => /\.(glb|gltf)(?:$|[?#])/i.test(modelUrl.value))
-const previewImage = computed(() => props.nodeRun?.output?.preview || props.node.data.generatedAssets?.preview || '')
+const previewImage = computed(() => {
+  const generated = props.node.data.generatedAssets
+  const raw = props.nodeRun?.output?.preview || generated?.preview || ''
+  return meshyAssetHref(generated, 'preview', raw) || raw
+})
 // Names the provider that actually produced the file, so a simulated result is
 // not passed off as a real one.
 const assetSummary = computed(() => {

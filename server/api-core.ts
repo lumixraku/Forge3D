@@ -39,6 +39,52 @@ async function parseJson(request) {
   return request.json().catch(() => ({}))
 }
 
+function meshyTaskRef(nodeRun) {
+  const taskId = nodeRun?.meshyTaskId || nodeRun?.output?.meshyTaskId
+  if (!taskId) return null
+  return { taskId, endpoint: nodeRun.meshyTaskEndpoint || nodeRun.output?.meshyTaskEndpoint || null }
+}
+
+function meshyUrls(nodeRun) {
+  const output = nodeRun?.output || {}
+  const downloads = Array.isArray(output.outputs) ? output.outputs.map((item) => item?.downloadUrl) : []
+  return [output.modelUrl, output.preview, ...downloads].filter((url) => typeof url === 'string' && url)
+}
+
+// Export copies the signed URL and does not get its own task id. The task still
+// lives on the node that produced that same URL, including an earlier run.
+function findMeshyTask(runs, execution, nodeId) {
+  const nodeRun = execution?.nodeRuns?.[nodeId]
+  const own = meshyTaskRef(nodeRun)
+  if (own) return own
+  const wanted = new Set(meshyUrls(nodeRun))
+  if (!wanted.size) return null
+  for (const run of runs) {
+    if (execution?.canvasId && run.canvasId && run.canvasId !== execution.canvasId) continue
+    for (const other of Object.values(run.nodeRuns || {})) {
+      const ref = meshyTaskRef(other)
+      if (ref && meshyUrls(other).some((url) => wanted.has(url))) return ref
+    }
+  }
+  return null
+}
+
+async function streamMeshyAsset(request, config, taskRef, kind) {
+  if (!config.getMeshyTask) return json({ error: 'Meshy is not configured.' }, 503)
+  if (!taskRef) return json({ error: 'Meshy model task not found' }, 404)
+  const task = await config.getMeshyTask(taskRef.taskId, taskRef.endpoint)
+  const remote = kind === 'preview' ? task?.thumbnail_url : task?.model_urls?.glb
+  if (!remote) return json({ error: kind === 'preview' ? 'Meshy task has no preview' : 'Meshy task has no GLB model' }, 404)
+  const asset = await fetch(remote, { signal: request.signal, redirect: 'error' })
+  if (!asset.ok || !asset.body) return json({ error: 'Meshy asset could not be loaded' }, 502)
+  const headers = {
+    'content-type': asset.headers.get('content-type') || (kind === 'preview' ? 'image/png' : 'model/gltf-binary'),
+    'cache-control': 'private, no-store',
+  }
+  if (kind === 'model') headers['content-disposition'] = 'inline; filename="model.glb"'
+  return new Response(asset.body, { headers })
+}
+
 // One SSE channel per canvas: a client subscribes when it opens the canvas and
 // every event the server pushes for that canvas is multiplexed onto it. Nothing
 // is buffered or replayed - a client that reconnects re-reads state over REST.
@@ -537,24 +583,9 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
       })
     }
 
-    if (method === 'GET' && parts[1] === 'executions' && parts[2] && parts[3] === 'nodes' && parts[4] && parts[5] === 'model' && parts.length === 6) {
-      if (!config.getMeshyTask) return json({ error: 'Meshy is not configured.' }, 503)
+    if (method === 'GET' && parts[1] === 'executions' && parts[2] && parts[3] === 'nodes' && parts[4] && (parts[5] === 'model' || parts[5] === 'preview') && parts.length === 6) {
       const execution = executionById(state.runs, parts[2])
-      const nodeRun = execution?.nodeRuns?.[parts[4]]
-      const taskId = nodeRun?.meshyTaskId || nodeRun?.output?.meshyTaskId
-      if (!taskId) return json({ error: 'Meshy model task not found' }, 404)
-      const task = await config.getMeshyTask(taskId, nodeRun.meshyTaskEndpoint)
-      const modelUrl = task?.model_urls?.glb
-      if (!modelUrl) return json({ error: 'Meshy task has no GLB model' }, 404)
-      const asset = await fetch(modelUrl, { signal: request.signal, redirect: 'error' })
-      if (!asset.ok || !asset.body) return json({ error: 'Meshy model could not be loaded' }, 502)
-      return new Response(asset.body, {
-        headers: {
-          'content-type': asset.headers.get('content-type') || 'model/gltf-binary',
-          'content-disposition': 'inline; filename="model.glb"',
-          'cache-control': 'private, no-store',
-        },
-      })
+      return streamMeshyAsset(request, config, execution && findMeshyTask(state.runs, execution, parts[4]), parts[5])
     }
 
     if (method === 'GET' && parts[1] === 'projects' && parts.length === 2) {
