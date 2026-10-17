@@ -293,6 +293,10 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   view.background_image = LGraphCanvas.DEFAULT_BACKGROUND_IMAGE
   view.clear_background_color = '#121614'
   view.show_info = false
+  // LiteGraph strokes a debug rectangle from graph (0, 0) out to the bitmap
+  // size. On the light canvas that is a stray dark frame, and a different
+  // window size on the next load moves its edges.
+  view.render_canvas_border = false
   view.connections_width = 2
   view.render_connections_border = false
   // Stock paints a filled disc at the middle of every wire. A wire is just a wire.

@@ -93,6 +93,7 @@ export function fitFrameNodes(nodes: GeometryNode[], insets: Insets, frameIds?: 
       ...frame,
       width,
       height,
+      dimensions: { width, height },
       style: { ...frame.style, width: `${width}px`, height: `${height}px` },
     }
     for (const child of children) {
@@ -334,10 +335,15 @@ export function applyLayoutPositions(nodes: GeometryNode[], positions: Map<strin
   return nodes.map((node) => {
     if (node.type === 'frame') {
       const bounds = frameBounds.get(node.id)
-      if (!bounds) return node
+      if (!bounds) {
+        const placed = positions.get(node.id)
+        return placed ? { ...node, position: placed } : node
+      }
       const origin = frameOrigins.get(node.id)
       const { width, height } = framedSize(bounds, insets)
-      return { ...node, position: origin, width, height, style: { ...node.style, width: `${width}px`, height: `${height}px` } }
+      // dimensions wins over width when the canvas is saved. Leaving the previous
+      // measured box here writes the old section size back on top of the new one.
+      return { ...node, position: origin, width, height, dimensions: { width, height }, style: { ...node.style, width: `${width}px`, height: `${height}px` } }
     }
     const position = positions.get(node.id)
     if (!position) return node

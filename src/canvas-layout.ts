@@ -1,4 +1,4 @@
-import { absoluteNodePosition, applyLayoutPositions } from './frame-geometry'
+import { absoluteNodePosition, frameSize } from './frame-geometry'
 
 const DEFAULT_WIDTH = 290
 const DEFAULT_HEIGHT = 430
@@ -8,6 +8,9 @@ export const FRAME_TITLE_SCREEN_HEIGHT = 42
 // overlap is taller than the body stored in `size`.
 const NODE_TITLE_BAND = 30
 const LAYOUT_GAP = 48
+// Each example is its own section. The gutter has to stay obvious at the zoom
+// where several sections are on screen; a hairline gap reads as one shared box.
+const FRAME_GAP = 200
 let elkPromise
 
 interface LayoutNode {
@@ -19,6 +22,7 @@ interface LayoutNode {
   width?: number
   height?: number
   dimensions?: { width?: number; height?: number }
+  style?: { width?: string; height?: string }
   data?: { inputPorts?: { id: string }[]; outputPorts?: { id: string }[] }
 }
 
@@ -107,6 +111,9 @@ function packGroups(groups: Map<string | undefined, LayoutNode[]>, edges: Layout
 
 export async function layoutSelection(nodes: LayoutNode[], edges: LayoutEdge[], options: LayoutOptions = {}) {
   const plan = selectedLayoutGroups(nodes, edges, { entire: options.entire })
+  if (plan.absolute) {
+    return { positions: await layoutPackedFrames(nodes, edges, options), fitFrameIds: plan.fitFrameIds, absolute: true }
+  }
   const positions = new Map<string, { x: number; y: number }>()
   for (const group of plan.groups) {
     if (!group.nodes.length) continue
@@ -116,6 +123,159 @@ export async function layoutSelection(nodes: LayoutNode[], edges: LayoutEdge[], 
     for (const [id, position] of groupPositions) positions.set(id, position)
   }
   return { positions, fitFrameIds: plan.fitFrameIds, absolute: plan.absolute }
+}
+
+// The whole canvas is a hierarchy, and ELK lays out one level at a time.
+// Children are arranged inside their section first. Each section then becomes
+// one box, and a second ELK pass places those boxes so the sections themselves
+// cannot overlap. One flat pass leaves the padding of neighbouring sections on
+// top of each other.
+async function layoutPackedFrames(nodes: LayoutNode[], edges: LayoutEdge[], options: LayoutOptions) {
+  const nodeMap = new Map(nodes.map((node) => [node.id, node]))
+  const frames = nodes.filter((node) => node.type === 'frame')
+  const frameIds = new Set(frames.map((frame) => frame.id))
+  const members = new Map<string, LayoutNode[]>()
+  const loose: LayoutNode[] = []
+  for (const node of nodes) {
+    if (node.type === 'frame') continue
+    if (node.parentNode && frameIds.has(node.parentNode)) {
+      members.set(node.parentNode, [...(members.get(node.parentNode) || []), node])
+    } else {
+      loose.push(node)
+    }
+  }
+
+  const insets = frameInsets()
+  const blocks: {
+    id: string
+    width: number
+    height: number
+    x: number
+    y: number
+    kind: 'frame' | 'loose'
+    local?: Map<string, { x: number; y: number }>
+    left?: number
+    top?: number
+  }[] = []
+
+  for (const frame of frames) {
+    const children = members.get(frame.id) || []
+    const framePos = absoluteNodePosition(frame, nodeMap)
+    const childIds = new Set(children.map((child) => child.id))
+    const childEdges = edges.filter((edge) => childIds.has(edge.source) && childIds.has(edge.target))
+    const local = children.length
+      ? await layoutCanvas(children, childEdges, { originX: 0, originY: 0, columnGap: options.columnGap, rowGap: options.rowGap })
+      : null
+    let left = Infinity
+    let top = Infinity
+    let right = -Infinity
+    let bottom = -Infinity
+    if (local) {
+      for (const child of children) {
+        const position = local.get(child.id)
+        if (!position) continue
+        const size = sizeOf(child)
+        left = Math.min(left, position.x)
+        top = Math.min(top, position.y)
+        right = Math.max(right, position.x + size.width)
+        bottom = Math.max(bottom, position.y + size.height)
+      }
+    }
+    if (!local || !Number.isFinite(left)) {
+      const size = frameSize(frame)
+      blocks.push({ id: frame.id, width: size.width, height: size.height, x: framePos.x, y: framePos.y, kind: 'frame' })
+      continue
+    }
+    blocks.push({
+      id: frame.id,
+      width: right - left + insets.left + insets.right,
+      height: bottom - top + insets.top + insets.bottom,
+      x: framePos.x,
+      y: framePos.y,
+      kind: 'frame',
+      local,
+      left,
+      top,
+    })
+  }
+
+  for (const node of loose) {
+    const position = absoluteNodePosition(node, nodeMap)
+    const size = sizeOf(node)
+    blocks.push({
+      id: node.id,
+      width: size.width,
+      height: size.height + NODE_TITLE_BAND,
+      x: position.x,
+      y: position.y - NODE_TITLE_BAND,
+      kind: 'loose',
+    })
+  }
+
+  blocks.sort((a, b) => a.y - b.y || a.x - b.x)
+  const blockIds = new Set(blocks.map((block) => block.id))
+  const ownerOf = (id: string) => {
+    const node = nodeMap.get(id)
+    if (!node) return null
+    if (node.type === 'frame') return node.id
+    if (node.parentNode && frameIds.has(node.parentNode)) return node.parentNode
+    return node.id
+  }
+  const seenEdges = new Set<string>()
+  const packEdges: { id: string; sources: string[]; targets: string[] }[] = []
+  for (const edge of edges) {
+    const source = ownerOf(edge.source)
+    const target = ownerOf(edge.target)
+    if (!source || !target || source === target || !blockIds.has(source) || !blockIds.has(target)) continue
+    const key = `${source}->${target}`
+    if (seenEdges.has(key)) continue
+    seenEdges.add(key)
+    packEdges.push({ id: key, sources: [source], targets: [target] })
+  }
+
+  const elk = await getElk()
+  const packed = await elk.layout({
+    id: 'frames',
+    layoutOptions: {
+      'elk.algorithm': 'layered',
+      'elk.direction': 'RIGHT',
+      'elk.spacing.nodeNode': String(FRAME_GAP),
+      'elk.layered.spacing.nodeNodeBetweenLayers': String(FRAME_GAP),
+      'elk.separateConnectedComponents': 'true',
+      'elk.spacing.componentComponent': String(FRAME_GAP),
+      'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
+      'elk.padding': '[top=0,left=0,bottom=0,right=0]',
+    },
+    children: blocks.map((block) => ({ id: block.id, width: block.width, height: block.height })),
+    edges: packEdges,
+  })
+  const packedBoxes = packed.children.map((child) => {
+    const block = blocks.find((item) => item.id === child.id)!
+    return { ...block, x: child.x, y: child.y, w: block.width, h: block.height }
+  })
+  pushBoxesApart(packedBoxes, FRAME_GAP)
+
+  const content = nodes.filter((node) => node.type !== 'frame')
+  const originX = content.length ? Math.min(...content.map((node) => absoluteNodePosition(node, nodeMap).x)) : 0
+  const originY = content.length ? Math.min(...content.map((node) => absoluteNodePosition(node, nodeMap).y)) : 0
+  const placed = new Map<string, { x: number; y: number }>()
+  for (const box of packedBoxes) {
+    if (box.kind === 'loose') {
+      placed.set(box.id, { x: originX + box.x, y: originY + box.y + NODE_TITLE_BAND })
+      continue
+    }
+    if (!box.local || box.left === undefined || box.top === undefined) {
+      placed.set(box.id, { x: originX + box.x, y: originY + box.y })
+      continue
+    }
+    for (const [id, position] of box.local) {
+      placed.set(id, {
+        x: originX + box.x + insets.left + (position.x - box.left),
+        y: originY + box.y + insets.top + (position.y - box.top),
+      })
+    }
+  }
+  return placed
 }
 
 function getElk() {
@@ -297,6 +457,13 @@ function separateBoxes(nodes: LayoutNode[], positions: Map<string, { x: number; 
     const size = sizeOf(node)
     return [{ id: node.id, x: pos.x, y: pos.y - NODE_TITLE_BAND, w: size.width, h: size.height + NODE_TITLE_BAND }]
   })
+  pushBoxesApart(boxes, LAYOUT_GAP)
+  for (const box of boxes) positions.set(box.id, { x: box.x, y: box.y + NODE_TITLE_BAND })
+}
+
+// ELK can still leave two boxes crossing. Push the lower or right-hand box
+// until every pair has a gap.
+function pushBoxesApart(boxes: { x: number; y: number; w: number; h: number }[], gap: number) {
   for (let pass = 0; pass < 16; pass += 1) {
     let moved = false
     boxes.sort((a, b) => a.y - b.y || a.x - b.x)
@@ -309,19 +476,18 @@ function separateBoxes(nodes: LayoutNode[], positions: Map<string, { x: number; 
         const gapX = Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w)
         const gapY = Math.max(a.y, b.y) - Math.min(a.y + a.h, b.y + b.h)
         if (overlapX > 0 && overlapY > 0) {
-          if (overlapX < overlapY) b.x = a.x + a.w + LAYOUT_GAP
-          else b.y = a.y + a.h + LAYOUT_GAP
+          if (overlapX < overlapY) b.x = a.x + a.w + gap
+          else b.y = a.y + a.h + gap
           moved = true
-        } else if (overlapX > 0 && gapY >= 0 && gapY < LAYOUT_GAP) {
-          b.y = a.y + a.h + LAYOUT_GAP
+        } else if (overlapX > 0 && gapY >= 0 && gapY < gap) {
+          b.y = a.y + a.h + gap
           moved = true
-        } else if (overlapY > 0 && gapX >= 0 && gapX < LAYOUT_GAP) {
-          b.x = a.x + a.w + LAYOUT_GAP
+        } else if (overlapY > 0 && gapX >= 0 && gapX < gap) {
+          b.x = a.x + a.w + gap
           moved = true
         }
       }
     }
     if (!moved) break
   }
-  for (const box of boxes) positions.set(box.id, { x: box.x, y: box.y + NODE_TITLE_BAND })
 }
