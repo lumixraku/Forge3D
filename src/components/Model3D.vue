@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
@@ -19,6 +19,38 @@ const props = withDefaults(defineProps<{
 }>(), { mode: 'model', segSrc: undefined, autoRotate: true })
 
 const host = ref<HTMLElement | null>(null)
+const loading = ref(false)
+const loadedBytes = ref(0)
+const totalBytes = ref(0)
+const loadError = ref('')
+const progressLabel = computed(() => {
+  const loaded = formatBytes(loadedBytes.value)
+  if (totalBytes.value > 0) {
+    const ratio = (loadedBytes.value / totalBytes.value) * 100
+    const percent = ratio > 0 && ratio < 10 ? ratio.toFixed(1) : Math.min(100, Math.round(ratio))
+    return `${loaded} / ${formatBytes(totalBytes.value)} · ${percent}%`
+  }
+  if (loadedBytes.value > 0) return `${loaded} loaded`
+  return 'Waiting for the file size'
+})
+const progressWidth = computed(() => {
+  if (totalBytes.value <= 0) return '0%'
+  return `${Math.min(100, (loadedBytes.value / totalBytes.value) * 100)}%`
+})
+
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  const digits = unit === 0 || value >= 100 ? 0 : 1
+  return `${value.toFixed(digits)} ${units[unit]}`
+}
+
 let renderer: THREE.WebGLRenderer | undefined
 let scene: THREE.Scene | undefined
 let camera: THREE.PerspectiveCamera | undefined
@@ -27,6 +59,7 @@ let pivot: THREE.Group | undefined
 let raf: number | undefined
 let resizeObserver: ResizeObserver | undefined
 let disposed = false
+let loadToken = 0
 
 function fitAndCenter(root: THREE.Object3D) {
   root.updateMatrixWorld(true)
@@ -199,11 +232,28 @@ function init() {
 
 function loadContent() {
   const url = props.mode === 'split' ? props.segSrc || props.src : props.src
-  if (!url) return
+  const token = ++loadToken
+  loadedBytes.value = 0
+  totalBytes.value = 0
+  loadError.value = ''
+  if (!url) {
+    loading.value = false
+    return
+  }
+  loading.value = true
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
   loader.load(url, (gltf) => {
-    if (disposed || !pivot) return
+    if (disposed || !pivot || token !== loadToken) return
     pivot.add(props.mode === 'split' ? explodeParts(gltf.scene, 0.38) : applyMode(gltf.scene, props.mode))
+    loading.value = false
+  }, (event) => {
+    if (token !== loadToken) return
+    loadedBytes.value = event.loaded
+    if (event.lengthComputable && event.total > 0) totalBytes.value = event.total
+  }, () => {
+    if (disposed || token !== loadToken) return
+    loading.value = false
+    loadError.value = 'Could not load the model.'
   })
 }
 
@@ -215,7 +265,9 @@ function rebuild() {
 }
 
 onMounted(init)
-watch(() => props.mode, rebuild)
+watch(() => [props.mode, props.src, props.segSrc], () => {
+  if (pivot) rebuild()
+})
 
 onBeforeUnmount(() => {
   disposed = true
@@ -231,10 +283,23 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="host" class="forge3d-model3d nodrag nopan forge:relative forge:h-full forge:min-h-[180px] forge:w-full" />
+  <div class="forge3d-model3d nodrag nopan forge:relative forge:h-full forge:min-h-[180px] forge:w-full">
+    <div ref="host" class="forge3d-model3d-view" />
+    <div v-if="loading || loadError" class="forge3d-model-load" role="status" aria-live="polite">
+      <div class="forge3d-model-load-card">
+        <span v-if="loading" class="forge3d-model-load-spin" />
+        <strong>{{ loadError || 'Loading model' }}</strong>
+        <p v-if="loading">{{ progressLabel }}</p>
+        <div v-if="loading" class="forge3d-model-load-bar" :class="{ 'forge3d-indeterminate': totalBytes <= 0 }">
+          <span :style="{ width: progressWidth }" />
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <style scoped>
+.forge3d-model3d-view { position: absolute; inset: 0; }
 .forge3d-model3d :deep(canvas) {
   display: block;
   width: 100% !important;
@@ -243,4 +308,68 @@ onBeforeUnmount(() => {
   cursor: grab;
 }
 .forge3d-model3d :deep(canvas:active) { cursor: grabbing; }
+.forge3d-model-load {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  place-content: center;
+  pointer-events: none;
+  color: #e7ece8;
+  font-family: var(--font-mono);
+  text-align: center;
+}
+.forge3d-model-load-card {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  min-width: 220px;
+  padding: 18px 20px 16px;
+  border-radius: 12px;
+  background: rgba(18, 22, 20, 0.88);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+.forge3d-model-load-spin {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(255, 255, 255, 0.22);
+  border-top-color: var(--acid);
+  border-radius: 50%;
+  animation: model-loading 0.8s linear infinite;
+}
+.forge3d-model-load strong {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.forge3d-model-load p {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+.forge3d-model-load-bar {
+  width: 196px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+}
+.forge3d-model-load-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--acid);
+}
+.forge3d-model-load-bar.forge3d-indeterminate > span {
+  width: 40% !important;
+  animation: model-loading-bar 1.1s ease-in-out infinite;
+}
+@keyframes model-loading { to { transform: rotate(360deg); } }
+@keyframes model-loading-bar {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .forge3d-model-load-spin, .forge3d-model-load-bar.forge3d-indeterminate > span { animation: none; }
+}
 </style>

@@ -81,6 +81,10 @@ async function streamMeshyAsset(request, config, taskRef, kind) {
     'content-type': asset.headers.get('content-type') || (kind === 'preview' ? 'image/png' : 'model/gltf-binary'),
     'cache-control': 'private, no-store',
   }
+  // The viewer reports loaded/total from this header. A streamed body without it
+  // only knows how many bytes have arrived.
+  const length = asset.headers.get('content-length')
+  if (length) headers['content-length'] = length
   if (kind === 'model') headers['content-disposition'] = 'inline; filename="model.glb"'
   return new Response(asset.body, { headers })
 }
@@ -575,12 +579,13 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
       }
       const asset = await fetch(remoteUrl, { signal: request.signal, redirect: 'error' })
       if (!asset.ok || !asset.body) return json({ error: 'Meshy asset could not be loaded' }, 502)
-      return new Response(asset.body, {
-        headers: {
-          'content-type': asset.headers.get('content-type') || 'model/gltf-binary',
-          'cache-control': 'private, no-store',
-        },
-      })
+      const headers = {
+        'content-type': asset.headers.get('content-type') || 'model/gltf-binary',
+        'cache-control': 'private, no-store',
+      }
+      const length = asset.headers.get('content-length')
+      if (length) headers['content-length'] = length
+      return new Response(asset.body, { headers })
     }
 
     if (method === 'GET' && parts[1] === 'executions' && parts[2] && parts[3] === 'nodes' && parts[4] && (parts[5] === 'model' || parts[5] === 'preview') && parts.length === 6) {
@@ -969,6 +974,7 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
       return new Response(asset.bytes, {
         headers: {
           'content-type': asset.contentType,
+          'content-length': String(asset.bytes.byteLength),
           'cache-control': 'public, max-age=31536000, immutable',
         },
       })
