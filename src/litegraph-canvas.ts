@@ -295,6 +295,8 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   view.show_info = false
   view.connections_width = 2
   view.render_connections_border = false
+  // Stock paints a filled disc at the middle of every wire. A wire is just a wire.
+  view.highquality_render = false
   view.allow_searchbox = false
   view.ds.min_scale = 0.6
   view.ds.max_scale = 3.5
@@ -331,7 +333,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     if (highlighted) delete view.highlighted_links[link.id]
     const hovered = Boolean(link) && (link.id === hoverLinkId || link.id === selectedLinkId)
     const running = Boolean(link) && linkIsRunning(link)
-    if (link && args[4] == null && running) args[4] = true
+    // Leave flow off. Stock draws five discs. A running wire gets one streak below.
     if (!args[5]) args[5] = running ? RUNNING_LINK_COLOR : (LINK_COLOR[theme] || LINK_COLOR.dark)
     const width = view.connections_width
     if (hovered) {
@@ -347,7 +349,47 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       if (highlighted) view.highlighted_links[link.id] = true
       view.connections_width = width
       if (hovered) ctx.restore()
+      if (running) paintFlowStreak(ctx, args[0], args[1], args[6], args[7])
     }
+  }
+
+  // One bright length of the wire travels from the output into the input, then
+  // the wire is clear until the next length leaves the output.
+  function paintFlowStreak(ctx: CanvasRenderingContext2D, start: number[], end: number[], startDir: number, endDir: number) {
+    const travel = 1400
+    const gap = 380
+    const length = 0.36
+    const elapsed = LiteGraph.getTime() % (travel + gap)
+    if (elapsed >= travel) return
+    const head = (elapsed / travel) * (1 + length)
+    const tail = head - length
+    const from = Math.max(0, tail)
+    const to = Math.min(1, head)
+    if (to - from < 0.02) return
+    const steps = Math.max(8, Math.ceil((to - from) * 28))
+    ctx.save()
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.shadowColor = RUNNING_LINK_COLOR
+    ctx.shadowBlur = 9
+    ctx.strokeStyle = '#f4ffd0'
+    ctx.lineWidth = 3.5
+    ctx.beginPath()
+    for (let step = 0; step <= steps; step += 1) {
+      const pos = view.computeConnectionPoint(start, end, from + (to - from) * (step / steps), startDir, endDir)
+      if (step === 0) ctx.moveTo(pos[0], pos[1])
+      else ctx.lineTo(pos[0], pos[1])
+    }
+    ctx.stroke()
+    ctx.restore()
+  }
+  // The render loop already runs, but the front canvas (where links sit) only
+  // repaints while dirty. Keep it dirty for the whole run so the streak moves.
+  const drawFrame = view.draw.bind(view)
+  view.draw = (...drawArgs: unknown[]) => {
+    const drawn = drawFrame(...drawArgs)
+    if (anyLinkRunning()) view.dirty_canvas = true
+    return drawn
   }
 
   let hoverWidget: { node: any; widget: any } | null = null
@@ -521,9 +563,22 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   }
 
   function linkIsRunning(link: any) {
-    const target = graph.getNodeById(link.target_id)
-    const flow = target ? byForgeId().get(target.properties.forgeId) : null
+    return endpointRunning(link.origin_id) || endpointRunning(link.target_id)
+  }
+
+  function endpointRunning(liteId: number) {
+    const lite = graph.getNodeById(liteId)
+    const flow = lite?.properties?.forgeId
+      ? flowNodes.find((item) => item.id === lite.properties.forgeId)
+      : null
     return ['queued', 'running', 'cancelling'].includes(flow?._run?.status)
+  }
+
+  function anyLinkRunning() {
+    for (const link of Object.values(graph.links || {}) as any[]) {
+      if (link && linkIsRunning(link)) return true
+    }
+    return false
   }
 
   function setHoverLink(id: number | null) {
@@ -918,9 +973,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     applySelection(nodes)
     for (const link of Object.values(graph.links || {}) as any[]) {
       if (!link) continue
-      const target = graph.getNodeById(link.target_id)
-      const flow = target ? byId.get(target.properties.forgeId) : null
-      link.color = ['queued', 'running', 'cancelling'].includes(flow?._run?.status) ? RUNNING_LINK_COLOR : (LINK_COLOR[theme] || LINK_COLOR.dark)
+      link.color = linkIsRunning(link) ? RUNNING_LINK_COLOR : (LINK_COLOR[theme] || LINK_COLOR.dark)
     }
     view.setDirty(true, true)
   }
