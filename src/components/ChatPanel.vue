@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { bizClass } from '../class-prefix'
-import { nextTick, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { EditorContent } from '@tiptap/vue-3'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
@@ -25,11 +25,51 @@ const emit = defineEmits<{
 }>()
 const fileInput = ref<HTMLInputElement | null>(null)
 const messageList = ref<HTMLElement | null>(null)
+const messageBody = ref<HTMLElement | null>(null)
+// A reply is one message that grows after it is inserted, so watching the
+// message count leaves the new text below the composer. Stay pinned to the
+// bottom until the reader scrolls up to look at older messages.
+let stickToBottom = true
+let pinning = false
+let bodyObserver: ResizeObserver | null = null
 
-watch(() => props.messages.length, async () => {
+function distanceFromBottom(list: HTMLElement) {
+  return list.scrollHeight - list.scrollTop - list.clientHeight
+}
+
+function pinToBottom() {
+  const list = messageList.value
+  if (!list || !stickToBottom) return
+  if (distanceFromBottom(list) < 2) return
+  pinning = true
+  list.scrollTop = list.scrollHeight
+}
+
+function onListScroll() {
+  const list = messageList.value
+  if (!list) return
+  if (pinning) {
+    pinning = false
+    return
+  }
+  stickToBottom = distanceFromBottom(list) < 48
+}
+
+watch(() => props.messages.map((message) => message.id).join('|'), async () => {
+  stickToBottom = true
   await nextTick()
-  messageList.value?.scrollTo({ top: messageList.value.scrollHeight })
+  pinToBottom()
 }, { immediate: true })
+
+onMounted(() => {
+  if (messageBody.value) {
+    bodyObserver = new ResizeObserver(() => pinToBottom())
+    bodyObserver.observe(messageBody.value)
+  }
+  pinToBottom()
+})
+
+onBeforeUnmount(() => bodyObserver?.disconnect())
 
 function renderAssistantMarkdown(content: string) {
   return DOMPurify.sanitize(marked.parse(content || '', { async: false, breaks: true, gfm: true, html: false }))
@@ -65,7 +105,8 @@ function userContent(message) {
   descendants and focus does not bubble. -->
   <section class="forge:grid forge:min-h-0 forge:min-w-0 forge:grid-cols-[minmax(0,1fr)] forge:grid-rows-[62px_minmax(0,1fr)_auto_auto] forge:overflow-hidden forge:border-r forge:border-line forge:bg-bg-panel forge:transition-colors forge:duration-200" @focusin="emit('engaged')">
     <header class="forge:flex forge:items-center forge:justify-between forge:border-b forge:border-line forge:px-[17px]"><div><span class="forge:font-mono forge:text-[9px] forge:font-medium forge:tracking-[.12em] forge:text-text-muted">CANVAS COPILOT</span><b class="forge:mt-1 forge:block forge:text-[11px]">DeepSeek tool-calling agent</b></div><i class="forge:size-[7px] forge:rounded-full forge:bg-acid forge:shadow-[0_0_9px_color-mix(in_srgb,var(--acid)_60%,transparent)]" /></header>
-    <div ref="messageList" class="forge:min-w-0 forge:overflow-y-auto forge:px-[17px] forge:pb-7 forge:pt-[22px]">
+    <div ref="messageList" class="forge:min-w-0 forge:overflow-y-auto forge:px-[17px] forge:pb-7 forge:pt-[22px]" @scroll="onListScroll">
+      <div ref="messageBody">
       <article v-for="message in messages" :key="message.id" class="forge:mb-6 forge:min-w-0 forge:[&>span]:mb-[7px] forge:[&>span]:block forge:[&>span]:font-mono forge:[&>span]:text-[8px] forge:[&>span]:font-semibold forge:[&>span]:tracking-[.12em] forge:[&>span]:text-text-muted forge:[&.forge3d-assistant>span]:text-acid forge:[&.forge3d-pending_p]:text-text-muted forge:[&.forge3d-user]:ml-auto forge:[&.forge3d-user]:w-[min(100%,360px)] forge:[&.forge3d-user]:rounded-[14px_14px_3px_14px] forge:[&.forge3d-user]:border forge:[&.forge3d-user]:border-line-strong forge:[&.forge3d-user]:bg-bg-input forge:[&.forge3d-user]:p-[13px] forge:[&.forge3d-user]:shadow-sm forge:[&.forge3d-user>span]:mb-[9px] forge:[&.forge3d-user>span]:text-right forge:[&.forge3d-user>span]:text-acid forge:[&.forge3d-user_p]:text-text-primary" :class="[bizClass(message.role), { 'forge3d-pending': message.pending }]">
         <span>{{ message.role === 'assistant' ? 'FORGE' : 'YOU' }}</span>
         <template v-if="message.role === 'assistant'">
@@ -95,6 +136,7 @@ function userContent(message) {
           <p v-if="userContent(message)" class="forge:m-0 forge:min-w-0 forge:text-[13px] forge:leading-[1.55] forge:text-text-secondary forge:[overflow-wrap:anywhere]">{{ userContent(message) }}</p>
         </div>
       </article>
+      </div>
     </div>
     <p v-if="error" class="forge:mx-[17px] forge:mb-2 forge:mt-0 forge:text-[11px] forge:text-status-failed">{{ error }}</p>
     <form class="forge:mx-3 forge:mb-3 forge:rounded-xl forge:border forge:border-line-strong forge:bg-bg-input forge:p-[10px] forge:transition-[border-color,box-shadow] forge:focus-within:border-[color-mix(in_srgb,var(--acid)_45%,var(--line-strong))] forge:focus-within:shadow-[0_0_0_2px_color-mix(in_srgb,var(--acid)_10%,transparent)]" @submit.prevent="emit('send')">

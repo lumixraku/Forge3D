@@ -24,6 +24,7 @@ const emit = defineEmits([
 
 const root = ref(null)
 const canvasEl = ref(null)
+const mapEl = ref(null)
 const viewport = ref({ x: 0, y: 0, zoom: 1 })
 const frameButton = ref(null)
 const fileInput = ref(null)
@@ -66,9 +67,10 @@ onMounted(() => {
   host.setTheme(props.theme)
   host.setMode(props.canvasMode)
   host.sync(props.nodes, props.edges, props.nodeRuns, props.missingParameters)
-  observer = new ResizeObserver(() => host?.resize())
+  observer = new ResizeObserver(() => { host?.resize(); drawMinimap() })
   observer.observe(root.value)
   scanUploads()
+  drawMinimap()
 })
 
 onBeforeUnmount(() => {
@@ -83,8 +85,141 @@ watch(() => [props.nodes, props.edges, props.nodeRuns, props.missingParameters],
   scanUploads()
 }, { deep: true })
 
-watch(() => props.theme, (theme) => host?.setTheme(theme))
+watch(() => props.theme, (theme) => { host?.setTheme(theme); drawMinimap() })
 watch(() => props.canvasMode, (mode) => host?.setMode(mode))
+watch(viewport, drawMinimap, { deep: true })
+watch(() => props.nodes, drawMinimap, { deep: true })
+
+const MAP_WIDTH = 220
+const MAP_HEIGHT = 140
+let mapLayout = null
+let mapDragging = false
+
+function absoluteOrigin(node, byId) {
+  let x = node.position?.x || 0
+  let y = node.position?.y || 0
+  let parentId = node.parentNode
+  const seen = new Set()
+  while (parentId && !seen.has(parentId)) {
+    seen.add(parentId)
+    const parent = byId.get(parentId)
+    if (!parent) break
+    x += parent.position?.x || 0
+    y += parent.position?.y || 0
+    parentId = parent.parentNode
+  }
+  return { x, y }
+}
+
+function minimapBoxes() {
+  const byId = new Map(props.nodes.map((node) => [node.id, node]))
+  return props.nodes.flatMap((node) => {
+    const loose = node.type !== 'frame' && !node.parentNode
+    if (node.type !== 'frame' && !loose) return []
+    const origin = absoluteOrigin(node, byId)
+    const width = Number(node.dimensions?.width || node.width || (node.type === 'frame' ? 900 : 250))
+    const height = Number(node.dimensions?.height || node.height || (node.type === 'frame' ? 600 : 180))
+    return [{ id: node.id, x: origin.x, y: origin.y, width, height, frame: node.type === 'frame', selected: Boolean(node.selected) }]
+  })
+}
+
+function drawMinimap() {
+  const map = mapEl.value
+  const panel = root.value
+  if (!map || !panel) return
+  const boxes = minimapBoxes()
+  const ratio = window.devicePixelRatio || 1
+  if (map.width !== Math.round(MAP_WIDTH * ratio) || map.height !== Math.round(MAP_HEIGHT * ratio)) {
+    map.width = Math.round(MAP_WIDTH * ratio)
+    map.height = Math.round(MAP_HEIGHT * ratio)
+  }
+  const ctx = map.getContext('2d')
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
+  const style = getComputedStyle(panel)
+  const acid = style.getPropertyValue('--acid').trim() || '#789800'
+  const card = style.getPropertyValue('--bg-card').trim() || '#ffffff'
+  const line = style.getPropertyValue('--line-strong').trim() || '#cbd1cd'
+  ctx.clearRect(0, 0, MAP_WIDTH, MAP_HEIGHT)
+  ctx.fillStyle = card
+  ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT)
+  if (!boxes.length) {
+    mapLayout = null
+    return
+  }
+  const left = Math.min(...boxes.map((box) => box.x))
+  const top = Math.min(...boxes.map((box) => box.y))
+  const right = Math.max(...boxes.map((box) => box.x + box.width))
+  const bottom = Math.max(...boxes.map((box) => box.y + box.height))
+  const pad = 10
+  const spanX = Math.max(1, right - left)
+  const spanY = Math.max(1, bottom - top)
+  const scale = Math.min((MAP_WIDTH - pad * 2) / spanX, (MAP_HEIGHT - pad * 2) / spanY)
+  const ox = pad + (MAP_WIDTH - pad * 2 - spanX * scale) / 2
+  const oy = pad + (MAP_HEIGHT - pad * 2 - spanY * scale) / 2
+  mapLayout = { left, top, scale, ox, oy }
+  for (const box of boxes) {
+    const x = ox + (box.x - left) * scale
+    const y = oy + (box.y - top) * scale
+    const width = Math.max(1, box.width * scale)
+    const height = Math.max(1, box.height * scale)
+    ctx.fillStyle = box.frame ? 'rgba(109, 143, 120, 0.85)' : 'rgba(60, 74, 82, 0.7)'
+    ctx.fillRect(x, y, width, height)
+    if (box.selected) {
+      ctx.strokeStyle = acid
+      ctx.lineWidth = 1.5
+      ctx.strokeRect(x - 0.5, y - 0.5, width + 1, height + 1)
+    }
+  }
+  const zoom = viewport.value.zoom || 1
+  const viewX = ox + ((-viewport.value.x / zoom) - left) * scale
+  const viewY = oy + ((-viewport.value.y / zoom) - top) * scale
+  const viewW = (panel.clientWidth / zoom) * scale
+  const viewH = (panel.clientHeight / zoom) * scale
+  ctx.fillStyle = 'rgba(120, 152, 0, 0.16)'
+  ctx.fillRect(viewX, viewY, viewW, viewH)
+  ctx.strokeStyle = acid
+  ctx.lineWidth = 1.5
+  ctx.strokeRect(viewX, viewY, viewW, viewH)
+  ctx.strokeStyle = line
+  ctx.lineWidth = 1
+  ctx.strokeRect(0.5, 0.5, MAP_WIDTH - 1, MAP_HEIGHT - 1)
+}
+
+function graphPointFromMap(event) {
+  if (!mapLayout || !mapEl.value) return null
+  const rect = mapEl.value.getBoundingClientRect()
+  const x = event.clientX - rect.left
+  const y = event.clientY - rect.top
+  return {
+    x: mapLayout.left + (x - mapLayout.ox) / mapLayout.scale,
+    y: mapLayout.top + (y - mapLayout.oy) / mapLayout.scale,
+  }
+}
+
+function moveViewFromMap(event) {
+  const point = graphPointFromMap(event)
+  if (point) host?.centerOn(point.x, point.y)
+}
+
+function onMapPointerDown(event) {
+  event.stopPropagation()
+  event.preventDefault()
+  mapDragging = true
+  mapEl.value?.setPointerCapture(event.pointerId)
+  moveViewFromMap(event)
+}
+
+function onMapPointerMove(event) {
+  if (!mapDragging) return
+  event.stopPropagation()
+  moveViewFromMap(event)
+}
+
+function onMapPointerUp(event) {
+  if (!mapDragging) return
+  mapDragging = false
+  event.stopPropagation()
+}
 
 function fitView(options) { host?.fitView(options) }
 function screenToFlowCoordinate(point) { return host?.screenToFlowCoordinate(point) || { x: 0, y: 0 } }
@@ -180,6 +315,18 @@ async function uploadAsset(id, file) {
       @pointerdown.stop
       @click="sectionRunning(frameButton.id) ? emit('stop-run') : emit('run-section', frameButton.id)"
     >{{ sectionRunning(frameButton.id) ? 'Stop' : 'Run' }}</button>
+    <canvas
+      ref="mapEl"
+      class="forge3d-minimap"
+      width="220"
+      height="140"
+      aria-label="Canvas map"
+      @pointerdown="onMapPointerDown"
+      @pointermove="onMapPointerMove"
+      @pointerup="onMapPointerUp"
+      @pointercancel="onMapPointerUp"
+      @contextmenu.prevent
+    />
     <input ref="fileInput" class="forge3d-litegraph-file" type="file" accept="image/jpeg,image/png,image/webp,.glb,.gltf,.fbx,.usdz,.obj,.stl,.3mf" @change="onFilePicked" />
   </div>
 </template>
@@ -192,6 +339,7 @@ async function uploadAsset(id, file) {
 .forge3d-frame-draw-rect { position: absolute; border-style: dashed; border-color: var(--acid); background: color-mix(in srgb, var(--acid) 5%, transparent); }
 .forge3d-frame-draw-size { position: absolute; bottom: 100%; left: 0; transform-origin: bottom left; border-radius: 5px; background: color-mix(in srgb, var(--acid) 16%, var(--bg-input)); padding: 3px 6px; font-family: var(--font-mono, monospace); font-size: 10px; font-weight: 600; line-height: 1; color: var(--text-primary); white-space: nowrap; }
 .forge3d-frame-run { position: absolute; z-index: 5; height: 22px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg-card); color: var(--acid); font: 600 10px/1 var(--font-mono, monospace); letter-spacing: .04em; text-transform: uppercase; }
+.forge3d-minimap { position: absolute; z-index: 6; right: 12px; bottom: 12px; width: 220px; height: 140px; border-radius: 8px; box-shadow: var(--shadow-md); cursor: pointer; touch-action: none; }
 .forge3d-litegraph-file { display: none; }
 .forge3d-canvas-mode-frame .forge3d-litegraph-surface { cursor: crosshair; }
 :deep(.graphdialog) { position: absolute; z-index: 20; display: flex; gap: 6px; align-items: center; padding: 8px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-card); color: var(--text-primary); }

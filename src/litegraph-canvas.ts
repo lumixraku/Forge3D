@@ -161,6 +161,13 @@ function previewSlot(node: any) {
   return Boolean(previewSource(node)) || node.data?.canvasType === 'generated-image' || node.data?.canvasType === 'generated-model'
 }
 
+function previewHit(node: any, localX: number, localY: number) {
+  if (!node?.previewSlot || node.flags?.collapsed) return false
+  return localX >= 8 && localX <= node.size[0] - 8
+    && localY >= node.size[1] - PREVIEW_HEIGHT + 4
+    && localY <= node.size[1] - 8
+}
+
 function pairsOf(edge: any, source: any, target: any) {
   const saved = edge.data?.logicalConnections
   if (saved?.length) return saved
@@ -468,7 +475,9 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     }
     const hit = widgetUnder(mouse[0], mouse[1])
     setHoverWidget(hit)
-    if (hit) {
+    const overPreview = !hit && view.graph?.getNodeOnPos(mouse[0], mouse[1], view.visible_nodes, 5)
+    const previewHover = overPreview && previewHit(overPreview, mouse[0] - overPreview.pos[0], mouse[1] - overPreview.pos[1])
+    if (hit || previewHover) {
       canvas.style.cursor = 'pointer'
       widgetCursor = true
     } else if (widgetCursor) {
@@ -1232,6 +1241,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       const frame = hit.node ? null : graph.getGroupOnPos(event.canvasX, event.canvasY)
       if (frame?.forgeId) selectFrame(frame.forgeId)
       else if (!hit.node) handlers.onPaneClick()
+      else if (previewHit(hit.node, event.canvasX - hit.node.pos[0], event.canvasY - hit.node.pos[1])) openNodePreview(hit.node)
     }
     publishViewport()
     return result
@@ -1314,11 +1324,21 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     handlers.onNodes(cleanNodes(next))
   }
 
-  function onNodeDoubleClick(node: any, _event: MouseEvent, pos: number[]) {
+  function openNodePreview(node: any) {
+    const flow = flowNodes.find((item) => item.id === node.properties.forgeId)
+    if (!flow) return
+    if (canOpenModel(flow)) {
+      handlers.onOpenModel(flow.id)
+      return
+    }
     const url = node.previewUrl
-    if (url && pos?.[1] > node.size[1] - PREVIEW_HEIGHT) {
-      const flow = flowNodes.find((item) => item.id === node.properties.forgeId)
-      handlers.onPreview({ src: url, alt: flow?.data?.label || 'Preview' })
+    if (!url) return
+    handlers.onPreview({ src: url, alt: flow.data?.label || 'Preview' })
+  }
+
+  function onNodeDoubleClick(node: any, _event: MouseEvent, pos: number[]) {
+    if (pos && previewHit(node, pos[0], pos[1])) {
+      openNodePreview(node)
       return
     }
     view.prompt('Name', node.title, (value: string) => {
@@ -1344,6 +1364,15 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     const nextKey = structureKey(decorated, edges)
     if (nextKey !== lastStructure) rebuild(decorated, edges)
     else patch(decorated)
+  }
+
+  function centerOn(graphX: number, graphY: number) {
+    const rect = canvas.getBoundingClientRect()
+    const scale = view.ds.scale || 1
+    view.ds.offset[0] = rect.width / (2 * scale) - graphX
+    view.ds.offset[1] = rect.height / (2 * scale) - graphY
+    view.setDirty(true, true)
+    publishViewport()
   }
 
   function screenToFlowCoordinate(point: { x: number; y: number }) {
@@ -1465,6 +1494,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       view.setDirty(true, true)
     },
     fitView,
+    centerOn,
     screenToFlowCoordinate,
     findNode,
     selectedFrameButton,
