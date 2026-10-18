@@ -17,7 +17,7 @@ const props = defineProps({
 const emit = defineEmits([
   'update:nodes', 'update:edges', 'update-parameter', 'update-uploads', 'update-output', 'clear-upload', 'update-name',
   'drag-start', 'drag-stop', 'selection-start', 'selection-end',
-  'connect-start', 'connect-end', 'node-context-menu', 'pane-context-menu', 'pane-click',
+  'connect-start', 'connect-end', 'node-context-menu', 'frame-context-menu', 'pane-context-menu', 'pane-click',
   'edge-click', 'preview-image', 'run-node', 'run-downstream', 'stop-run', 'open-model-editor', 'run-section',
   'viewport',
 ])
@@ -57,6 +57,7 @@ onMounted(() => {
     onConnectStart: (nodeId) => emit('connect-start', nodeId),
     onConnectEnd: (payload) => emit('connect-end', payload),
     onNodeContextMenu: (payload) => emit('node-context-menu', payload),
+    onFrameContextMenu: (payload) => emit('frame-context-menu', payload),
     onPaneContextMenu: (event) => emit('pane-context-menu', event),
     onPaneClick: () => emit('pane-click'),
     onEdgeClick: (payload) => emit('edge-click', payload),

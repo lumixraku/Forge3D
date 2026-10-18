@@ -12,6 +12,7 @@ defineProps<{
 const emit = defineEmits<{
   'frame-selection': []
   'dissolve-selection': []
+  rename: []
   'create-canvas': []
   copy: []
   paste: []
@@ -33,6 +34,15 @@ const emit = defineEmits<{
       <button type="button" :disabled="!hasClipboard" @click="emit('paste')"><span>Paste</span></button>
       <button type="button" @click="emit('duplicate')"><span>Duplicate selected</span></button>
       <button type="button" @click="emit('delete')"><span>Delete</span></button>
+    </template>
+    <template v-else-if="context.kind === 'section'">
+      <strong>Section</strong>
+      <button type="button" @click="emit('rename')"><span>Rename</span></button>
+      <button type="button" @click="emit('dissolve-selection')"><span>Dissolve section</span></button>
+      <button type="button" @click="emit('copy')"><span>Copy</span></button>
+      <button type="button" @click="emit('duplicate')"><span>Duplicate</span></button>
+      <button type="button" @click="emit('create-canvas')"><span>Create canvas</span></button>
+      <button type="button" @click="emit('delete')"><span>Delete section</span></button>
     </template>
     <template v-else>
       <strong>Canvas</strong>

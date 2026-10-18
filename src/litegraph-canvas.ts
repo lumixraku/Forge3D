@@ -19,8 +19,7 @@ const TONE_COLOR: Record<string, string> = {
   slate: '#3c4a52',
 }
 const PREVIEW_HEIGHT = 148
-// Section fill and title. The selected state used to swap this for acid
-// yellow; the section stays this sage green either way.
+// Section fill and title stay this sage green. Selection is a separate stroke.
 const FRAME_COLOR = '#6d8f78'
 const FRAME_TITLE_BAND = 36
 // Same greens as --acid. LiteGraph's #9A9 reads as white on the light canvas,
@@ -276,6 +275,7 @@ export interface GraphHostHandlers {
   onConnectStart: (nodeId: string) => void
   onConnectEnd: (payload: { clientX: number; clientY: number; sourceId: string }) => void
   onNodeContextMenu: (payload: { event: MouseEvent; node: any }) => void
+  onFrameContextMenu: (payload: { event: MouseEvent; id: string }) => void
   onPaneContextMenu: (event: MouseEvent) => void
   onPaneClick: () => void
   onEdgeClick: (payload: { edge: any; event: MouseEvent }) => void
@@ -320,6 +320,48 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   let mode = 'select'
   let theme = 'dark'
   let flowNodes: any[] = []
+  function selectionColor() {
+    return LINK_COLOR[theme] || LINK_COLOR.dark
+  }
+  // One weight for a selected node and a selected section. Screen pixels, so
+  // zoom does not make the section border heavier than the node ring.
+  const SELECTION_STROKE = 3
+  // Stock selection is a 1px white stroke. Paint a theme-green ring instead.
+  const drawNodeShape = view.drawNodeShape.bind(view)
+  view.drawNodeShape = (node: any, ctx: CanvasRenderingContext2D, size: number[], fgcolor: string, bgcolor: string, selected: boolean, mouseOver: boolean) => {
+    const outline = LiteGraph.NODE_BOX_OUTLINE_COLOR
+    LiteGraph.NODE_BOX_OUTLINE_COLOR = 'rgba(0,0,0,0)'
+    try {
+      drawNodeShape(node, ctx, size, fgcolor, bgcolor, selected, mouseOver)
+    } finally {
+      LiteGraph.NODE_BOX_OUTLINE_COLOR = outline
+    }
+    if (!selected) return
+    const scale = view.ds.scale || 1
+    const band = LiteGraph.NODE_TITLE_HEIGHT
+    ctx.save()
+    ctx.strokeStyle = selectionColor()
+    ctx.lineWidth = SELECTION_STROKE / scale
+    ctx.lineJoin = 'round'
+    ctx.beginPath()
+    const radius = (view.round_radius || 8) * 2
+    if (ctx.roundRect) ctx.roundRect(-6, -band - 6, size[0] + 12, size[1] + band + 12, radius)
+    else ctx.rect(-6, -band - 6, size[0] + 12, size[1] + band + 12)
+    ctx.stroke()
+    ctx.restore()
+  }
+  view.onDrawForeground = (ctx: CanvasRenderingContext2D) => {
+    const scale = view.ds.scale || 1
+    ctx.save()
+    ctx.strokeStyle = selectionColor()
+    ctx.lineWidth = SELECTION_STROKE / scale
+    ctx.lineJoin = 'miter'
+    for (const group of graph._groups) {
+      if (!group.forgeSelected) continue
+      ctx.strokeRect(group.pos[0], group.pos[1], group.size[0], group.size[1])
+    }
+    ctx.restore()
+  }
   let flowEdges: any[] = []
   const images = new Map<string, HTMLImageElement>()
   // LiteGraph only notices the midpoint of a wire, and it does not restyle the
@@ -946,6 +988,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     for (const group of graph._groups) {
       const frame = nodes.find((node) => node.id === group.forgeId)
       group.color = FRAME_COLOR
+      group.forgeSelected = Boolean(frame?.selected)
       group.title = frame?.data?.label || group.title
     }
   }
@@ -1092,9 +1135,9 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     handlers.onDragStop({ nodes: dragged })
   }
 
-  // The section body does not catch the pointer. Only its title strip and the
-  // resize corner do, so a drag on empty space inside the section is a marquee
-  // or a two-finger pan, not a drag of the whole section.
+  // A drag on empty space inside the section is a marquee, so only the title
+  // strip and the resize corner catch the pointer for dragging. A click with
+  // no movement still selects the section, including on the lower half.
   function frameChrome(x: number, y: number) {
     const group = graph.getGroupOnPos(x, y)
     if (!group) return null
@@ -1170,7 +1213,6 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     const connecting = view.connecting_node
     const connectingOutput = view.connecting_output
     const linksBefore = Object.keys(graph.links || {}).length
-    const group = view.selected_group
     const didMove = moved
     interacting = false
     moved = false
@@ -1185,8 +1227,11 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     else if (selecting) handlers.onSelectionEnd()
     selecting = false
     if (!didMove && event.button === 0 && !connecting) {
-      if (group?.forgeId) selectFrame(group.forgeId)
-      else if (!hit.node && !hit.group) handlers.onPaneClick()
+      // selected_group only survives on the title. The rest of the section is
+      // still that section: a click there selects it, a click outside clears.
+      const frame = hit.node ? null : graph.getGroupOnPos(event.canvasX, event.canvasY)
+      if (frame?.forgeId) selectFrame(frame.forgeId)
+      else if (!hit.node) handlers.onPaneClick()
     }
     publishViewport()
     return result
@@ -1227,8 +1272,19 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   view.processContextMenu = (node: any, event: MouseEvent) => {
     event.preventDefault()
     const flow = node?.properties?.forgeId ? flowNodes.find((item) => item.id === node.properties.forgeId) : null
-    if (flow) handlers.onNodeContextMenu({ event, node: flow })
-    else handlers.onPaneContextMenu(event)
+    if (flow) {
+      handlers.onNodeContextMenu({ event, node: flow })
+      return false
+    }
+    // A section is a group, not a node. The body is empty canvas for a left
+    // drag, but a right-click anywhere on the frame is still that section.
+    const group = graph.getGroupOnPos(event.canvasX, event.canvasY)
+    if (group?.forgeId) {
+      selectFrame(group.forgeId)
+      handlers.onFrameContextMenu({ event, id: group.forgeId })
+      return false
+    }
+    handlers.onPaneContextMenu(event)
     return false
   }
   view.showLinkMenu = (link: any, event: MouseEvent) => {

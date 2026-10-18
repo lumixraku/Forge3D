@@ -732,8 +732,9 @@ async function materializeResults(sourceId, runId, output, status) {
         const outputPort = nodeOutputPorts(node.data.canvasType)[0]
         if (!outputPort) continue
         const view = node.data.generatedAssets?.view
-        const port = (view && targetPorts.find((candidate) => candidate.id === view))
-          || targetPorts.find((candidate) => canConnectPorts(node.data.canvasType, outputPort.id, target.data.canvasType, candidate.id) && (candidate.multiple || !usedPorts.has(candidate.id)))
+        const portTaken = (portId) => edges.value.some((edge) => edge.target === targetId && (edge.data?.logicalConnections || []).some((pair) => pair.targetPort === portId))
+        const port = (view && targetPorts.find((candidate) => candidate.id === view && (candidate.multiple || !portTaken(candidate.id))))
+          || targetPorts.find((candidate) => canConnectPorts(node.data.canvasType, outputPort.id, target.data.canvasType, candidate.id) && (candidate.multiple || (!usedPorts.has(candidate.id) && !portTaken(candidate.id))))
         if (!port || (!port.multiple && usedPorts.has(port.id))) continue
         usedPorts.add(port.id)
         if (edges.value.some((edge) => edge.source === node.id && edge.target === targetId)) continue
@@ -777,6 +778,14 @@ function closeContextMenu() {
 function dismissCanvasPopups() {
   closeContextMenu()
   viewportDismissVersion.value += 1
+}
+
+function onPaneClick() {
+  dismissCanvasPopups()
+  const hadSelection = nodes.value.some((node) => node.selected) || edges.value.some((edge) => edge.selected)
+  if (!hadSelection) return
+  nodes.value = nodes.value.map((node) => (node.selected ? { ...node, selected: false } : node))
+  edges.value = edges.value.map((edge) => (edge.selected ? { ...edge, selected: false } : edge))
 }
 
 function openCanvasMenu(event, canvas) {
@@ -834,6 +843,14 @@ function onPaneContextMenu(event) {
   openNodeMenuAt(event.clientX, event.clientY)
 }
 
+function onFrameContextMenu({ event, id }) {
+  event.preventDefault()
+  edges.value = edges.value.map((edge) => (edge.selected ? { ...edge, selected: false } : edge))
+  nodeMenuContext.value = { kind: 'section', frameId: id, left: event.clientX, top: event.clientY }
+  nodeMenuOpen.value = true
+  constrainContextMenu()
+}
+
 function onNodeContextMenu({ event, node }) {
   event.preventDefault()
   if (!node.selected) {
@@ -849,8 +866,20 @@ function onSelectionContextMenu({ event }) {
 }
 
 function runContextMenuAction(action) {
+  const context = nodeMenuContext.value
   closeContextMenu()
+  if (context?.kind === 'section' && context.frameId) {
+    nodes.value = nodes.value.map((node) => ({ ...node, selected: node.id === context.frameId }))
+    edges.value = edges.value.map((edge) => ({ ...edge, selected: false }))
+  }
   action()
+}
+
+function renameSection() {
+  const frame = nodes.value.find((node) => node.selected && node.type === 'frame')
+  if (!frame) return
+  const name = window.prompt('Rename section', frame.data?.label || 'Section')?.trim()
+  if (name) updateNodeName(frame.id, name)
 }
 
 function selectNodeType(type) {
@@ -1074,6 +1103,7 @@ onUnmounted(() => {
           :has-clipboard="Boolean(clipboardFragment)"
           @frame-selection="runContextMenuAction(makeSelectionFrame)"
           @dissolve-selection="runContextMenuAction(dissolveSelectedFrames)"
+          @rename="runContextMenuAction(renameSection)"
           @create-canvas="runContextMenuAction(createCanvasFromSelection)"
           @copy="runContextMenuAction(copySelected)"
           @paste="runContextMenuAction(pasteFragment)"
@@ -1103,8 +1133,9 @@ onUnmounted(() => {
           @pointerdown.capture="onCanvasPointerDown($event); onFrameDrawPointerDown($event)"
           @dragover="onCanvasDragOver"
           @drop="onCanvasDrop"
-          @pane-click="dismissCanvasPopups"
+          @pane-click="onPaneClick"
           @pane-context-menu="onPaneContextMenu"
+          @frame-context-menu="onFrameContextMenu"
           @node-context-menu="onNodeContextMenu"
           @connect-start="onGraphConnectStart"
           @connect-end="onGraphConnectEnd"
