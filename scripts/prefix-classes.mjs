@@ -1,9 +1,7 @@
 /**
- * 给 Forge3D 的样式类名加前缀，让这套 UI 能安全嵌进别的宿主站点。
+ * 给 Forge3D 的样式类名加前缀，避免和通用类名撞车。
  *
- * 背景：Forge3D 原本独占整个 document，Tailwind 生成的 `.border` `.flex` 这类通用类名
- * 和宿主站点（如 fe-tripo-studio 的 UnoCSS）会互相覆盖，宿主的全局 reset 也会压掉
- * 这里的 utility。加上前缀后两套体系类名不再相交，迁移就退化成纯拷贝。
+ * Tailwind 生成的 `.border` `.flex` 这类名字太泛。加上前缀后，类名只属于这个应用。
  *
  * 两类改写：
  *   1. Tailwind utility → `forge:` 变体前缀（由 styles.css 的 `prefix(forge)` 生成）
@@ -32,7 +30,7 @@ const KEEP = new Set([
 //   group      —— 只是 group-* 变体的标记类
 //   *-white    —— styles.css 的 @theme 用 `--color-*: initial` 清空了默认色板，
 //                 所以 bg-white/text-white/border-white 在原项目里本就是空规则。
-//                 仍要前缀化，否则宿主的 UnoCSS 会反过来给它们生成样式。
+//                 仍要前缀化，避免无前缀的 white 工具类被外面的样式接走。
 const TW_FORCE = new Set(['group', 'bg-white', 'text-white', 'border-white/15', 'border-white/20']);
 
 /** 读取预先探测好的 token 分类结果。 */

@@ -1,8 +1,7 @@
 /**
  * 业务语义 class 的前缀口径。
  *
- * Forge3D 的样式类名统一带前缀，好让这套 UI 能安全嵌进别的宿主站点（如 fe-tripo-studio）
- * 而不与宿主的 CSS 互相覆盖。两套前缀分工：
+ * Forge3D 的样式类名统一带前缀，避免和通用类名撞车。两套前缀分工：
  *   - Tailwind utility：`forge:` 变体前缀，由 styles.css 的 `prefix(forge)` 编译期生成
  *   - 业务语义 class：`forge3d-` 普通前缀，即本文件
  *

@@ -1040,7 +1040,6 @@ onUnmounted(() => {
       @rename="renameCanvas"
       @open-canvas="openCanvas"
       @create-canvas="createCanvas"
-      @set-provider="setCanvasProvider"
       @canvas-context-menu="openCanvasMenu($event.event, $event.canvas)"
       @import-file="importCanvasFile"
       @set-theme="setTheme"

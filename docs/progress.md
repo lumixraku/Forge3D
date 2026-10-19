@@ -63,7 +63,7 @@
 
 ### 界面、主题与视觉
 
-- Tailwind 迁移：应用级规则从 `styles.css` 迁入组件按需类（`forge:` 前缀 + `forge3d-` 命名，适配宿主内嵌）；`light:` 变体；执行中边缘流动高亮、进度条、输出端口 halo。
+- Tailwind 迁移：应用级规则从 `styles.css` 迁入组件按需类（`forge:` 前缀 + `forge3d-` 命名）；`light:` 变体；执行中边缘流动高亮、进度条、输出端口 halo。
 - 主题：`index.html` 在首帧前同步解析 `data-theme`（消除 light 主题刷新闪烁）、主题色同步、浅/深主题 token（`--node-ring` 等）。
 - 聊天/顶栏：紧凑 99px composer、30px 圆形按钮（Send/Stop 合并）、附件 pinned 宽度 120px、消息边框统一、顶部按钮群等高对齐。
 - Debug 面板的执行模式仅展示 Mock / Tripo API / Meshy API；未手动指定 provider 时高亮服务器默认值，请求仍省略 provider 交由服务器选择，不可用提供商置灰。
@@ -88,13 +88,12 @@
 - 常规验证命令：`pnpm test`、`pnpm run typecheck`、`pnpm run build`、`git diff --check`、`npx wrangler deploy --dry-run`。
 - 当前基线：`pnpm test` 348 passed/4 skipped，`pnpm run test:postgres` 4/4 通过，`pnpm run typecheck` 与 `pnpm run build` 通过（build 仅有既有 large-chunk warning）。
 - PostgreSQL 验收覆盖真实 HTTP 创建项目、更新节点、上传和读取资源，并直查数据库确认 JSONB 文档与 BYTEA 字节一致；同时覆盖数据库模式不写文件目录。
-- 浏览器验证集中在现有 Chrome/Chrome MCP 会话的 localhost dev server；本地 dev 指向第二个 clone 的时段（2026-08-29 起）阻止了部分视觉验证。
+- 浏览器验证集中在现有 Chrome/Chrome MCP 会话的 localhost dev server。
 - `docs/execution-engine.md`、`docs/project-reference.md`、`docs/api.md` 与本日志同属文档主力；执行引擎细节与 SSE 协议另见 `docs/agent-sse-data-design.md`。
 
 ## Outstanding Issues
 
-- 浏览器验证缺口：因本地 dev server 偶发指向第二个 clone（`/Users/nan/repos/tripo-forge3d-demo`），2026-08-29/31 的行为（Asset Upload 高度稳定、参数门控、图片落画布建节点）未在浏览器实测；视觉确认仍待补。
-- 两个 clone 已分叉（本 tree `02bdbc6`，另一处 `c2785d3` 领先三提交并含 `forge:`→`forge-` 前缀迁移）；上一变更可能需要移植过去，前缀差异不是干净 cherry-pick。
+- 2026-08-29/31 的行为（Asset Upload 高度稳定、参数门控、图片落画布建节点）未在浏览器实测；视觉确认仍待补。
 - 进程内 edit lease 需要共享 TTL 才能多实例部署；跨标签 30s 空闲交接未完整手测。
 - 协作保存仍有边界：`hasUnsavedCanvasChanges` 比较 `viewport`（`toDomainCanvas` 恒等，永不判定 dirty）；`refreshCanvasFromServer` 缺 `openToken` 防护；`releaseOnBlur` 释放后不立即重新获取 lease。
 - SSE 断线期间 `text`/`progress` 增量不持久化，恢复时只展示已恢复状态；卡片、节点状态与画布文档可恢复。

@@ -6,7 +6,6 @@ The repository-root [`README.md`](../README.md) covers product features, usage, 
 
 - [`project-reference.md`](project-reference.md): complete project reference covering the interaction model, data structures, Agent architecture, persistence, local runtime, and Cloudflare deployment.
 - [`execution-engine.md`](execution-engine.md): workflow planning, node scheduling, upstream and downstream data flow, cancellation, failures, and review gates.
-- [`embedding.md`](embedding.md): boundaries and integration guidance for embedding Forge3D in another page or host application.
 
 ## Agent and Protocols
 
