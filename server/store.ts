@@ -33,7 +33,7 @@ export function migrateCanvas(canvas, now = () => new Date().toISOString()) {
     // way through.
     const type = node.type === 'split' ? 'segments' : node.type
     const split = splitNodeTrees(node.config, node.uploadAssets, node.generatedAssets, node.outputResult)
-    const config = normalizeNodeConfig(type, split.config)
+    const config = normalizeNodeConfig(type, split.config, migrated.provider)
     const uploadAssets = split.uploadAssets
     const generatedAssets = normalizeGeneratedAssets(type, split.generatedAssets)
     // A node with an empty tree carries no field at all, matching what the canvas

@@ -5,6 +5,8 @@ import { randomUUID } from './ids.js'
 import { recordNodeExecution } from './run-log.js'
 import { latestNodeRuns } from './node-state.js'
 import { tripoNodeOutput } from './tripo-mapping.js'
+import { meshyNodeOutput } from './meshy-mapping.js'
+import { MESHY_PREVIEW_TASK } from './meshy-provider.js'
 
 const TRIPO_FAILURE_STATUSES = new Set(['failed', 'banned', 'expired', 'cancelled'])
 const ACTIVE_EXECUTION_STATUSES = new Set(['queued', 'running', 'cancelling'])
@@ -61,6 +63,140 @@ export async function syncExecutionWithTripo(run, getTripoTask) {
   else if (statuses.some((status) => ['queued', 'running'].includes(status))) run.status = 'running'
   else run.status = 'succeeded'
   run.completedAt = ['succeeded', 'failed', 'cancelled'].includes(run.status) ? new Date().toISOString() : null
+  return run
+}
+
+const MESHY_FAILURE_STATUSES = new Set(['FAILED', 'CANCELED'])
+
+function fillPreviewTask(value, taskId) {
+  if (value === MESHY_PREVIEW_TASK) return taskId
+  if (Array.isArray(value)) return value.map((item) => fillPreviewTask(item, taskId))
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, fillPreviewTask(item, taskId)]))
+  return value
+}
+
+function refreshRunStatus(run) {
+  const statuses = Object.values(run.nodeRuns || {}).map((nodeRun) => nodeRun.status)
+  if (statuses.includes('failed')) run.status = 'failed'
+  else if (statuses.includes('cancelled')) run.status = 'cancelled'
+  else if (statuses.some((status) => ['queued', 'running'].includes(status))) run.status = 'running'
+  else if (statuses.includes('waiting_review')) run.status = 'waiting_review'
+  else run.status = 'succeeded'
+  run.completedAt = ['succeeded', 'failed', 'cancelled'].includes(run.status) ? new Date().toISOString() : null
+}
+
+// A handed-off Meshy task keeps running after the Worker request that submitted
+// it has ended. The client's poll calls this to copy Meshy's status back, and to
+// submit the refine step once the preview task succeeds.
+export async function syncExecutionWithMeshy(run, { getMeshyTask, submitMeshyTask } = {}) {
+  if (!run || !getMeshyTask) return run
+  const open = Object.entries(run.nodeRuns || {}).filter(([, nodeRun]) => nodeRun.meshyHandedOff && nodeRun.meshyTaskId && ['queued', 'running'].includes(nodeRun.status))
+  if (!open.length) return run
+
+  let changed = false
+  await Promise.all(open.map(async ([nodeId, nodeRun]) => {
+    let task
+    try {
+      task = await getMeshyTask(nodeRun.meshyTaskId, nodeRun.meshyTaskEndpoint)
+    } catch {
+      return
+    }
+    const progress = task.progress ?? nodeRun.progress
+    if (task.status === 'SUCCEEDED' && nodeRun.meshyFollowup && !nodeRun.meshyRefined && submitMeshyTask) {
+      try {
+        const refineId = await submitMeshyTask(nodeRun.meshyFollowup.endpoint, fillPreviewTask(nodeRun.meshyFollowup.body, task.id))
+        nodeRun.meshyTaskId = refineId
+        nodeRun.meshyTaskEndpoint = nodeRun.meshyFollowup.endpoint
+        nodeRun.meshyFollowup = null
+        nodeRun.meshyRefined = true
+        nodeRun.status = 'running'
+        nodeRun.progress = Math.max(progress ?? 0, 50)
+        changed = true
+      } catch (failure) {
+        nodeRun.status = 'failed'
+        nodeRun.error = failure.message
+        changed = true
+      }
+      return
+    }
+    const node = run.input?.nodes?.find((candidate) => candidate.id === nodeId) || { type: nodeRun.nodeType, name: nodeRun.nodeName, config: {} }
+    if (task.status === 'SUCCEEDED') {
+      nodeRun.status = 'succeeded'
+      nodeRun.output = meshyNodeOutput(node, task)
+      nodeRun.progress = 100
+      nodeRun.error = null
+      changed = true
+      return
+    }
+    if (MESHY_FAILURE_STATUSES.has(task.status)) {
+      const reason = task.task_error?.message ? `: ${task.task_error.message}` : ''
+      nodeRun.status = task.status === 'CANCELED' ? 'cancelled' : 'failed'
+      nodeRun.error = `Meshy task ${task.status}${reason}`
+      if (progress !== undefined) nodeRun.progress = progress
+      changed = true
+      return
+    }
+    if (nodeRun.progress !== progress) {
+      nodeRun.progress = progress
+      nodeRun.status = 'running'
+      changed = true
+    }
+  }))
+  if (changed) refreshRunStatus(run)
+  return run
+}
+
+function producedContext(run) {
+  const context = new Map()
+  for (const [nodeId, nodeRun] of Object.entries(run.nodeRuns || {})) {
+    if (nodeRun.status !== 'succeeded' || !nodeRun.output) continue
+    const { modelUrl = null, preview = null, ports = null } = nodeRun.output
+    if (!(modelUrl || preview || ports || nodeRun.meshyTaskId)) continue
+    context.set(nodeId, { tripoTaskId: nodeRun.tripoTaskId || null, meshyTaskId: nodeRun.meshyTaskId || nodeRun.output?.meshyTaskId || null, modelUrl, preview, ports })
+  }
+  return context
+}
+
+// Continues a handed-off run: once the open Meshy tasks have settled, submit the
+// next ready nodes. One wave per call, so a poll stays inside a Worker request.
+export async function resumeMeshyExecution(run, canvas, createProvider) {
+  if (!run || !createProvider || !canvas || !['queued', 'running'].includes(run.status)) return run
+  if (!Object.values(run.nodeRuns || {}).some((nodeRun) => nodeRun.meshyHandedOff)) return run
+  if (Object.values(run.nodeRuns || {}).some((nodeRun) => nodeRun.status === 'running')) return run
+  const nodes = run.input?.nodes || []
+  const edges = run.input?.edges || []
+  const provider = createProvider({ context: producedContext(run), run, onUpdate: async () => {}, canvas })
+  const ready = nodes.filter((node) => {
+    const nodeRun = run.nodeRuns[node.id]
+    if (!nodeRun || nodeRun.status !== 'queued') return false
+    const dependencies = edges.filter((edge) => edge.target?.nodeId === node.id).map((edge) => edge.source?.nodeId)
+    return dependencies.every((id) => run.nodeRuns[id]?.status === 'succeeded')
+  })
+  if (!ready.length) {
+    refreshRunStatus(run)
+    return run
+  }
+  for (const node of ready) run.nodeRuns[node.id].status = 'running'
+  await Promise.all(ready.map(async (node) => {
+    try {
+      const result = await executeNode(node, { nodes, edges }, { provider })
+      if (result.status === 'running') {
+        const nodeRun = run.nodeRuns[node.id]
+        nodeRun.status = 'running'
+        if (result.meshyTaskId) nodeRun.meshyTaskId = result.meshyTaskId
+        if (result.meshyTaskEndpoint) nodeRun.meshyTaskEndpoint = result.meshyTaskEndpoint
+        if (result.meshyFollowup) nodeRun.meshyFollowup = result.meshyFollowup
+        if (result.meshyHandedOff) nodeRun.meshyHandedOff = true
+        if (result.progress !== undefined) nodeRun.progress = result.progress
+        return
+      }
+      recordNodeExecution([run], { runId: run.id, canvas, node, result, entryNode: node, mode: run.mode })
+    } catch (failure) {
+      const activeNodeRun = run.nodeRuns[node.id]
+      recordNodeExecution([run], { runId: run.id, canvas, node, entryNode: node, mode: run.mode, result: { status: 'failed', durationMs: null, output: null, error: failure.message, ...(activeNodeRun?.meshyTaskId ? { meshyTaskId: activeNodeRun.meshyTaskId } : {}) } })
+    }
+  }))
+  refreshRunStatus(run)
   return run
 }
 
@@ -227,7 +363,7 @@ export async function executeExecution(runs, run, canvas, executionCanvas, nodes
     const { modelUrl = null, preview = null, ports = null } = nodeRun.output
     // `ports` carries the per-output-port values a multi-output node produced,
     // which a single `preview` cannot represent.
-    if (modelUrl || preview || ports) context.set(nodeId, { tripoTaskId: nodeRun.tripoTaskId || null, modelUrl, preview, ports })
+    if (modelUrl || preview || ports) context.set(nodeId, { tripoTaskId: nodeRun.tripoTaskId || null, meshyTaskId: nodeRun.meshyTaskId || nodeRun.output?.meshyTaskId || null, modelUrl, preview, ports })
   }
   // The provider resolves inputs against the full canvas, not the pruned
   // execution canvas: a single-node run carries no edges, so the upstream image
@@ -244,19 +380,38 @@ export async function executeExecution(runs, run, canvas, executionCanvas, nodes
     if (!ready.length) break
     for (const node of ready) run.nodeRuns[node.id].status = 'running'
     await onUpdate()
+    let deferred = false
     await Promise.all(ready.map(async (node) => {
       try {
         const result = await executeNode(node, executionCanvas, provider ? { provider } : undefined)
-        if (result.status === 'succeeded') context.set(node.id, { tripoTaskId: result.tripoTaskId || null, modelUrl: result.output?.modelUrl || null, preview: result.output?.preview || null, ports: result.output?.ports || null })
+        if (result.status === 'running') {
+          const nodeRun = run.nodeRuns[node.id]
+          nodeRun.status = 'running'
+          if (result.meshyTaskId) nodeRun.meshyTaskId = result.meshyTaskId
+          if (result.meshyTaskEndpoint) nodeRun.meshyTaskEndpoint = result.meshyTaskEndpoint
+          if (result.meshyFollowup) nodeRun.meshyFollowup = result.meshyFollowup
+          if (result.meshyHandedOff) nodeRun.meshyHandedOff = true
+          if (result.progress !== undefined) nodeRun.progress = result.progress
+          deferred = true
+          return
+        }
+        if (result.status === 'succeeded') context.set(node.id, { tripoTaskId: result.tripoTaskId || null, meshyTaskId: result.meshyTaskId || null, modelUrl: result.output?.modelUrl || null, preview: result.output?.preview || null, ports: result.output?.ports || null })
         recordNodeExecution(runs, { runId: run.id, canvas, node, result, entryNode, mode: run.mode })
       } catch (failure) {
         const activeNodeRun = run.nodeRuns[node.id]
         recordNodeExecution(runs, { runId: run.id, canvas, node, entryNode, mode: run.mode, result: { status: 'failed', durationMs: null, output: null, error: failure.message, ...(activeNodeRun?.tripoTaskId ? { tripoTaskId: activeNodeRun.tripoTaskId } : {}), ...(activeNodeRun?.progress === undefined ? {} : { progress: activeNodeRun.progress }) } })
       } finally {
-        completed.add(node.id)
+        const nodeRun = run.nodeRuns[node.id]
+        if (!(nodeRun.status === 'running' && nodeRun.meshyHandedOff)) completed.add(node.id)
       }
     }))
     await onUpdate()
+    if (deferred) {
+      run.status = 'running'
+      run.completedAt = null
+      await onUpdate()
+      return executionDto(run)
+    }
     if (Object.values(run.nodeRuns).some((nodeRun) => nodeRun.status === 'failed')) break
   }
   for (const nodeRun of Object.values(run.nodeRuns)) {

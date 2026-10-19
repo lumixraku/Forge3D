@@ -226,7 +226,7 @@ function inputPlan(node: any, edges: any[], byId: Map<string, any>) {
 
 function widgetPlan(node: any) {
   if (node.type === 'frame') return []
-  const schema = nodeSchema(node.data?.canvasType, node.data?.provider || 'tripo')
+  const schema = nodeSchema(node.data?.canvasType, node.data?.provider || 'meshy')
   return visibleParameters(schema?.parameters, node.data?.config || {})
 }
 

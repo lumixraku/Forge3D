@@ -18,7 +18,11 @@ export class MeshyError extends Error {
   }
 }
 
-export function isMeshyConfigured(env = process.env) {
+function envValue(name) {
+  return typeof process === 'undefined' ? undefined : process.env[name]
+}
+
+export function isMeshyConfigured(env = { MESHY_API_KEY: envValue('MESHY_API_KEY') }) {
   return Boolean(env.MESHY_API_KEY)
 }
 
@@ -31,8 +35,8 @@ function retryDelay(response, attempt) {
 }
 
 export function createMeshyClient({
-  apiKey = process.env.MESHY_API_KEY,
-  baseUrl = process.env.MESHY_BASE_URL,
+  apiKey = envValue('MESHY_API_KEY'),
+  baseUrl = envValue('MESHY_BASE_URL'),
   fetchImpl = fetch,
   wait = (duration) => new Promise((resolve) => setTimeout(resolve, duration)),
 } = {}) {

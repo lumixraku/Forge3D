@@ -5,7 +5,7 @@
 import { createMeshyClient, isMeshyConfigured } from './meshy.js'
 import { executeMeshyNode } from './meshy-provider.js'
 
-export function createMeshyRunner(env = process.env, { readAsset } = {}) {
+export function createMeshyRunner(env = {}, { readLocal, pollBudgetMs = null } = {}) {
   if (!isMeshyConfigured(env)) return null
   const client = createMeshyClient({ apiKey: env.MESHY_API_KEY, baseUrl: env.MESHY_BASE_URL })
 
@@ -16,13 +16,17 @@ export function createMeshyRunner(env = process.env, { readAsset } = {}) {
       return executeMeshyNode(node, fullCanvas || executionCanvas, {
         client,
         context,
-        readAsset,
+        readLocal,
+        pollBudgetMs,
         // Progress is written onto the node run so the canvas can show a percentage
         // while a task that takes minutes is still running.
-        onProgress: async ({ meshyTaskId, progress }) => {
+        onProgress: async ({ meshyTaskId, meshyTaskEndpoint, meshyFollowup, meshyHandedOff, progress }) => {
           const nodeRun = run.nodeRuns?.[node.id]
           if (!nodeRun) return
           nodeRun.meshyTaskId = meshyTaskId
+          if (meshyTaskEndpoint) nodeRun.meshyTaskEndpoint = meshyTaskEndpoint
+          if (meshyFollowup) nodeRun.meshyFollowup = meshyFollowup
+          if (meshyHandedOff) nodeRun.meshyHandedOff = true
           nodeRun.progress = progress
           await onUpdate()
         },
@@ -31,7 +35,13 @@ export function createMeshyRunner(env = process.env, { readAsset } = {}) {
   }
 }
 
-export function createMeshyTaskReader(env = process.env) {
+export function createMeshySubmitter(env = {}) {
+  if (!isMeshyConfigured(env)) return null
+  const client = createMeshyClient({ apiKey: env.MESHY_API_KEY, baseUrl: env.MESHY_BASE_URL })
+  return (endpoint, body) => client.createTask(endpoint, body)
+}
+
+export function createMeshyTaskReader(env = {}) {
   if (!isMeshyConfigured(env)) return null
   const client = createMeshyClient({ apiKey: env.MESHY_API_KEY, baseUrl: env.MESHY_BASE_URL })
   const endpoints = [

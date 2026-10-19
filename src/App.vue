@@ -24,7 +24,7 @@ import { useCanvasRun } from './composables/useCanvasRun'
 import { useDebugSettings } from './composables/useDebugSettings'
 import { request } from './api'
 import { edgeDefaults, nodePresentation } from './canvas-graph'
-import { applyNodeParameter } from './canvas-schema'
+import { applyNodeParameter, defaultCanvasProvider } from './canvas-schema'
 import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, compatibleUpstreamNodeTypes, hasModelEditor, isExecutableNodeType, missingParametersByNode, nodeCatalog, nodeCategories, nodeDefaults, nodeInputPorts, nodeOutputPorts, outputPortsOf } from './canvas-nodes'
 import { resultArtifacts } from './run-results'
 
@@ -229,7 +229,7 @@ configureIdleRelease({
   isBusy: () => saving.value || agentBusy.value || isRunning.value,
 })
 
-const { capabilitiesError, debugPanelOpen, tripoAvailable, meshyAvailable, tripoNodeTypes, meshyNodeTypes } = useDebugSettings()
+const { capabilitiesError, debugMode, debugPanelOpen, tripoAvailable, meshyAvailable, tripoNodeTypes, meshyNodeTypes } = useDebugSettings()
 
 const { isRunning, runDetails, runSummary, runCanvas, cancelRun, executions, executionsLoading, loadExecutions, restoreSuccessfulResults: restoreResults, activeExecutions } = useCanvasRun({
   activeCanvas,
@@ -389,7 +389,7 @@ function onGraphConnectEnd(payload) {
 function updateNodeParameter({ id, key, value }) {
   const node = nodes.value.find((candidate) => candidate.id === id)
   if (!node) return
-  const provider = activeCanvas.value?.provider || node.data.provider || 'tripo'
+  const provider = activeCanvas.value?.provider || node.data.provider || defaultCanvasProvider
   updateNodeConfig(id, applyNodeParameter(node.data.canvasType, node.data.config, key, value, provider))
 }
 
@@ -571,7 +571,8 @@ function buildCanvasNode(type, { id, position, selected = false, config, uploadA
     tone,
     status: 'ready',
     canvasType: type,
-    config: { ...nodeDefaults(type), ...config },
+    provider: activeCanvas.value?.provider || defaultCanvasProvider,
+    config: { ...nodeDefaults(type, activeCanvas.value?.provider || defaultCanvasProvider), ...config },
     uploadAssets: { ...uploadAssets },
     generatedAssets: { ...generatedAssets },
     inputPorts: nodeInputPorts(type),
@@ -1164,8 +1165,9 @@ onUnmounted(() => {
     <ModelEditor v-else-if="modelEditorNode" :node="modelEditorNode" @back="closeModelEditor" @update-config="updateNodeConfig(modelEditorNode.id, $event)" />
     <ImagePreviewOverlay :preview="imagePreview" @close="closeImagePreview" />
     <DebugPanel
+      v-if="debugMode"
       v-model:open="debugPanelOpen"
-      :active-provider="activeCanvas?.provider || 'tripo'"
+      :active-provider="activeCanvas?.provider || defaultCanvasProvider"
       :tripo-available="tripoAvailable"
       :meshy-available="meshyAvailable"
       :provider-locked="Boolean(activeCanvas?.nodes?.length)"

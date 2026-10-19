@@ -2,6 +2,9 @@ export type PortType = 'image' | 'text' | 'model' | 'any'
 export type ParameterValue = string | number | boolean
 export type CanvasProvider = 'mock' | 'tripo' | 'meshy'
 
+/** Canvas-level default. Node schemas stay on the Tripo shape until a caller passes `meshy`. */
+export const defaultCanvasProvider: CanvasProvider = 'meshy'
+
 /**
  * What part a node plays in the canvas. Every node is exactly one of these:
  * input carries what the user gave, execution runs and is configured, result

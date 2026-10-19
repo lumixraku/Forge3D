@@ -3,22 +3,19 @@
 // file upload endpoint: images are handed over as public URLs or data URIs, so
 // a local file is read off disk and inlined rather than uploaded.
 
-import { readFile } from 'node:fs/promises'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { meshyNodeOutput, meshyRequest, usesMeshy } from './meshy-mapping.js'
-import { assetUrlPrefix, resolveAssetPath } from './tripo-assets.js'
-import { resolveGenerateModelImages, resolvePrompt, resolveUpstreamPreview } from './tripo-provider.js'
+import { resolveGenerateModelImages, resolvePrompt, resolveUpstreamPreview } from './run-inputs.js'
 import { nodeInputPorts, nodeOutputPortValues, resolveInputSources } from '../src/canvas-nodes.js'
-
-const root = path.dirname(fileURLToPath(import.meta.url))
-const publicDirectory = path.join(root, '..', 'public')
 
 // Only images reach Meshy here: generate-model is the one backed node type, and
 // it never takes a mesh. Meshy itself accepts jpg, jpeg, and png.
 const IMAGE_MIME_BY_EXTENSION = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp',
 }
+
+// Stored on a deferred run so a later poll can start the refine task with the
+// preview task id Meshy has not assigned yet.
+export const MESHY_PREVIEW_TASK = '__MESHY_PREVIEW_TASK__'
 
 /**
  * Turns whatever a node holds as a reference into something Meshy accepts.
@@ -29,39 +26,28 @@ const IMAGE_MIME_BY_EXTENSION = {
  *   inlined as a data URI
  * - a public http(s) URL -> passed through untouched
  */
-async function toMeshyInput(reference, { readAsset, binary = false } = {}) {
+function toBase64(bytes) {
+  const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
+  if (typeof Buffer !== 'undefined') return Buffer.from(view).toString('base64')
+  let binary = ''
+  const size = 0x8000
+  for (let index = 0; index < view.length; index += size) {
+    binary += String.fromCharCode(...view.subarray(index, index + size))
+  }
+  return btoa(binary)
+}
+
+async function toMeshyInput(reference, { readLocal, binary = false } = {}) {
   if (!reference || typeof reference !== 'string') return null
   if (/^https?:\/\//.test(reference) || reference.startsWith('data:')) return reference
+  if (!readLocal) throw new Error(`The reference "${reference}" is not a supported image source.`)
 
-  let bytes
-  let filename
-  if (reference.startsWith(assetUrlPrefix)) {
-    const assetId = reference.slice(assetUrlPrefix.length)
-    if (readAsset) {
-      const asset = await readAsset(assetId)
-      if (!asset) throw new Error('The upstream asset could not be read.')
-      bytes = asset.bytes
-      filename = assetId
-    } else {
-      const resolved = resolveAssetPath(assetId)
-      if (!resolved) throw new Error('The upstream asset could not be read.')
-      bytes = await readFile(resolved)
-      filename = path.basename(resolved)
-    }
-  } else if (reference.startsWith('/')) {
-    // A bundled demo file such as /shark-reference.png. Meshy cannot fetch a
-    // local dev path, so it is inlined like any other reference.
-    const resolved = path.join(publicDirectory, reference)
-    if (!resolved.startsWith(publicDirectory + path.sep)) throw new Error('The reference image path is not allowed.')
-    bytes = await readFile(resolved).catch(() => { throw new Error(`The reference file ${reference} is missing.`) })
-    filename = path.basename(resolved)
-  } else {
-    throw new Error(`The reference "${reference}" is not a supported image source.`)
-  }
-
+  const file = await readLocal(reference)
+  if (!file?.bytes) throw new Error('The upstream asset could not be read.')
+  const filename = file.filename || 'asset'
   const extension = filename.split('.').pop()?.toLowerCase() || ''
   const mime = binary ? 'application/octet-stream' : (IMAGE_MIME_BY_EXTENSION[extension] || 'application/octet-stream')
-  return `data:${mime};base64,${bytes.toString('base64')}`
+  return `data:${mime};base64,${toBase64(file.bytes)}`
 }
 
 const IMAGE_TASK_TYPES = new Set(['text-to-image', 'image-to-image'])
@@ -94,9 +80,12 @@ async function resolveMesh(node, canvas, context, toInput, portId = null) {
 export async function executeMeshyNode(node, canvas, {
   client,
   context = new Map(),
-  readAsset,
+  readLocal,
   onProgress = async () => {},
   pollIntervalMs = 2000,
+  // `0` submits the task and returns while Meshy is still working. The Worker
+  // uses this because `waitUntil` ends 30 seconds after the response.
+  pollBudgetMs = null,
 } = {}) {
   if (!usesMeshy(node)) return null
   const startedAt = Date.now()
@@ -124,7 +113,7 @@ export async function executeMeshyNode(node, canvas, {
     }
   }
 
-  const toInput = (reference, options) => toMeshyInput(reference, { readAsset, ...options })
+  const toInput = (reference, options) => toMeshyInput(reference, { readLocal, ...options })
   const imageNodes = node.type === 'generate-model' || node.type === 'multiview-to-3d' || node.type === 'image-to-image' || node.type === 'creative-lab' || node.type === 'retexture'
   const resolved = imageNodes
     ? await resolveGenerateModelImages(node, canvas, context, { toInput, labeledViews: false })
@@ -148,11 +137,28 @@ export async function executeMeshyNode(node, canvas, {
   if (!request) return null
 
   const taskId = await client.createTask(request.endpoint, request.body)
+  const meshyFollowup = request.refine
+    ? request.refine(MESHY_PREVIEW_TASK)
+    : null
   // Text to 3D and Creative Lab are two-step, so a single-task run owns the
   // whole bar while the first task is mapped onto the first half and its
   // follow-up onto the second. The percentage never jumps backwards.
   const scale = request.refine ? (progress) => Math.round(progress / 2) : (progress) => progress
-  await onProgress({ meshyTaskId: taskId, progress: 0 })
+  const handedOff = pollBudgetMs === 0
+  await onProgress({ meshyTaskId: taskId, meshyTaskEndpoint: request.endpoint, meshyFollowup, meshyHandedOff: handedOff, progress: 0 })
+  if (handedOff) {
+    return {
+      nodeId: node.id,
+      status: 'running',
+      durationMs: Math.max(1, Date.now() - startedAt),
+      meshyTaskId: taskId,
+      meshyTaskEndpoint: request.endpoint,
+      meshyFollowup,
+      meshyHandedOff: true,
+      progress: 0,
+      output: null,
+    }
+  }
   let task = await client.awaitTask(request.endpoint, taskId, {
     intervalMs: pollIntervalMs,
     onProgress: (current) => onProgress({ meshyTaskId: taskId, progress: scale(current.progress ?? 0) }),

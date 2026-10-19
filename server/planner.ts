@@ -1,6 +1,6 @@
 import { describeCanvasParameters, canvasParameters } from './canvas-parameters.js'
 import { randomUUID } from './ids.js'
-import { applyNodeParameter, nodeDefaults as schemaDefaults, canvasNodeSchema } from '../src/canvas-schema.js'
+import { applyNodeParameter, defaultCanvasProvider, nodeDefaults as schemaDefaults, canvasNodeSchema } from '../src/canvas-schema.js'
 import { nodeInputPorts, nodeOutputPorts } from '../src/canvas-nodes.js'
 
 export const nodeDefaults = Object.fromEntries(canvasNodeSchema
@@ -266,7 +266,7 @@ function setParameter(canvas, changes, type, field, value) {
   if (definition.kind === 'enum' && !definition.values.includes(value)) return false
   const previousValue = node.config[field]
   if (previousValue === value) return true
-  node.config = applyNodeParameter(type, node.config, field, value)
+  node.config = applyNodeParameter(type, node.config, field, value, canvas.provider || defaultCanvasProvider)
   changes.push({ nodeId: node.id, nodeLabel: canvasParameters[type].label, fieldLabel: definition.label, previousValue, value })
   return true
 }

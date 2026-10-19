@@ -1,5 +1,6 @@
 import { randomUUID } from './ids.js'
 import { validateCanvasGraph } from '../src/canvas-nodes.js'
+import { defaultCanvasProvider } from '../src/canvas-schema.js'
 
 function invalid(message) {
   const error = new Error(message)
@@ -9,7 +10,7 @@ function invalid(message) {
 
 export function createCanvas(input) {
   if (!input.name?.trim()) invalid('Canvas name is required')
-  const provider = input.provider ?? 'tripo'
+  const provider = input.provider ?? defaultCanvasProvider
   if (!['mock', 'tripo', 'meshy'].includes(provider)) invalid('Canvas provider must be "mock", "tripo", or "meshy"')
   if (!Array.isArray(input.nodes)) invalid('Canvas nodes are invalid')
   if (!input.nodes.every((node) =>

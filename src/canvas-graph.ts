@@ -1,5 +1,5 @@
 import { canConnectNodeTypes, canConnectPorts, nodeCatalog, nodeDisplayName, nodeInputPorts, nodeOutputPorts, outputPortsOf } from './canvas-nodes'
-import { normalizeNodeConfig, normalizeGeneratedAssets, splitNodeTrees } from './canvas-schema'
+import { defaultCanvasProvider, normalizeNodeConfig, normalizeGeneratedAssets, splitNodeTrees } from './canvas-schema'
 
 export const edgeDefaults = { selectable: true, type: 'execution' }
 export const nodePresentation = Object.fromEntries(nodeCatalog.map((node) => [node.type, [node.presentation.kind, node.presentation.detail, node.presentation.tone]]))
@@ -31,7 +31,7 @@ export function toCanvasGraph(canvas) {
     // it), so an older canvas that still keeps its uploads and results inside
     // config migrates exactly once, here.
     const split = splitNodeTrees(node.config, node.uploadAssets, node.generatedAssets, node.outputResult)
-    const provider = canvas.provider || 'tripo'
+    const provider = canvas.provider || defaultCanvasProvider
     return {
       id: node.id,
       type: 'canvas',

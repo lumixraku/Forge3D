@@ -3,13 +3,15 @@
 // collection migrations, and serving the built assets. The route table and turn
 // execution are shared with the Node dev server, so the two cannot drift apart.
 //
-// Tripo, Meshy, and the local asset store are Node-only, so they are passed as
-// null and the shared core reports them as unavailable instead of failing on
-// execution.
+// Tripo and the on-disk asset cache stay Node-only. Meshy is fetch-only: the
+// Worker submits the task and returns, and the client's later polls collect the
+// result. `waitUntil` ends 30 seconds after the response, which is shorter than
+// a Meshy generation.
 
 import { migrateCanvasRefs, migrateTurns } from './server/migrations.js'
 import { createApi } from './server/api-core.js'
 import { defaultAccount } from './server/credits.js'
+import { createMeshyRunner, createMeshySubmitter, createMeshyTaskReader } from './server/meshy-run.js'
 
 const collections = ['canvases', 'sessions', 'runs', 'turns', 'agentTraces', 'accounts', 'creditLedger']
 
@@ -78,6 +80,18 @@ async function loadState(env) {
 
 let initialized = false
 
+function readWorkerReference(env) {
+  return async function readLocal(reference) {
+    if (!reference.startsWith('/') || reference.startsWith('//') || reference.startsWith('/api/')) {
+      throw new Error(`The reference "${reference}" is not a supported image source.`)
+    }
+    const response = await env.ASSETS.fetch(new Request(new URL(reference, 'https://assets.local')))
+    if (!response.ok) throw new Error(`The reference file ${reference} is missing.`)
+    const filename = reference.split('/').pop()
+    return { bytes: new Uint8Array(await response.arrayBuffer()), filename }
+  }
+}
+
 const handle = createApi({
   async createContext(request, { env, ctx }) {
     const state = await loadState(env)
@@ -104,9 +118,13 @@ const handle = createApi({
           baseUrl: env.DEEPSEEK_BASE_URL,
           model: env.DEEPSEEK_MODEL,
         },
-        // Node-only: the Tripo and Meshy runners and the on-disk asset cache.
+        // Tripo still needs the local asset cache. Meshy reads public URLs, data
+        // URIs, and files from the asset binding.
         createTripoProvider: null,
-        createMeshyProvider: null,
+        createMeshyProvider: createMeshyRunner(env, { readLocal: readWorkerReference(env), pollBudgetMs: 0 }),
+        getMeshyTask: createMeshyTaskReader(env),
+        submitMeshyTask: createMeshySubmitter(env),
+        resumeMeshyRuns: true,
         getTripoTask: null,
         readAsset: null,
         uploadAsset: null,

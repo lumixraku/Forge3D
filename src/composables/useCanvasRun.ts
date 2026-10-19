@@ -65,6 +65,7 @@ function toCanvasRun(execution: ExecutionDto): CanvasRun {
 
 export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvasBusy, error, runToken, saveCanvas, materializeResults, onAccountChanged = async () => {} }) {
   const activeExecutions = ref<Record<string, CanvasRun>>({})
+  const pollingExecutions = new Set<string>()
   const executions = ref([])
   const executionsLoading = ref(false)
   const isRunning = computed(() => Object.values(activeExecutions.value).some((execution) => ['queued', 'running', 'cancelling'].includes(execution.status)))
@@ -102,6 +103,12 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
     executionsLoading.value = true
     try {
       executions.value = (await request(`/api/canvases/${canvasId}/executions`)).map(toCanvasRun)
+      for (const execution of executions.value) {
+        if (!['queued', 'running', 'cancelling'].includes(execution.status) || pollingExecutions.has(execution.id)) continue
+        pollingExecutions.add(execution.id)
+        const pollInterval = POLL_INTERVAL_MS[activeCanvas.value?.provider || 'meshy']
+        void pollExecution(execution, [], canvasId, runToken.value, pollInterval).finally(() => pollingExecutions.delete(execution.id))
+      }
     } catch (caught) {
       error.value = caught.message
     } finally {
@@ -165,9 +172,10 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
       run.value = toCanvasRun(execution)
       await onAccountChanged()
       if (runToken.value !== pollToken || activeCanvas.value?.id !== canvasId) return
-      const pollInterval = POLL_INTERVAL_MS[activeCanvas.value.provider || 'tripo']
+      const pollInterval = POLL_INTERVAL_MS[activeCanvas.value.provider || 'meshy']
       activeExecutions.value = { ...activeExecutions.value, [execution.id]: run.value }
-      void pollExecution(execution, plan, canvasId, pollToken, pollInterval)
+      pollingExecutions.add(execution.id)
+      void pollExecution(execution, plan, canvasId, pollToken, pollInterval).finally(() => pollingExecutions.delete(execution.id))
       await loadExecutions(canvasId)
     } catch (caught) {
       error.value = caught.message
@@ -198,7 +206,8 @@ export function useCanvasRun({ activeCanvas, nodes, edges, run, nodeRuns, canvas
         run.value = current
         nodeRuns.value = { ...nodeRuns.value, ...current.nodeRuns }
       }
-      for (const node of plan) {
+      const targets = plan.length ? plan : nodes.value.filter((node) => current.nodeRuns[node.id])
+      for (const node of targets) {
         const nodeRun = current.nodeRuns[node.id]
         if (!nodeRun) continue
         // Result nodes are materialized from the stage's raw output; the export

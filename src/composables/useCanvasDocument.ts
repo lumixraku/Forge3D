@@ -1,5 +1,6 @@
 import { nextTick, ref } from 'vue'
 import { request } from '../api'
+import { defaultCanvasProvider } from '../canvas-schema'
 import { reconcileCanvasGraph, toCanvasGraph, toDomainCanvas } from '../canvas-graph'
 import { importPlacementOffset, validateImportedCanvas } from '../canvas-fragment'
 import { deleteWorkflowDraft, readWorkflowDraft, writeWorkflowDraft } from '../workflow-draft'
@@ -337,13 +338,6 @@ export function useCanvasDocument({
   async function createCanvas() {
     const name = window.prompt('Name this canvas', 'New 3D canvas')?.trim()
     if (!name) return
-    const provider = window.prompt('Provider: mock, tripo, or meshy', 'tripo')?.trim().toLowerCase()
-    if (!provider) return
-    if (!['mock', 'tripo', 'meshy'].includes(provider)) {
-      error.value = 'Canvas provider must be "mock", "tripo", or "meshy"'
-      return
-    }
-
     try {
       const canvas = await request('/api/projects', {
         method: 'POST',
@@ -351,7 +345,7 @@ export function useCanvasDocument({
         body: JSON.stringify({
           name,
           description: 'A new 3D production canvas ready to customize.',
-          provider,
+          provider: defaultCanvasProvider,
           nodes: [],
           edges: [],
           viewport: { x: 80, y: 160, zoom: 0.72 },

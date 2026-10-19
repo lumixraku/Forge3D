@@ -11,7 +11,10 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tripoNodeOutput, tripoRequest, usesTripo } from './tripo-mapping.js'
 import { assetUrlPrefix, resolveAssetPath } from './tripo-assets.js'
-import { nodeInputPorts, nodeOutputPorts, nodeOutputPortValues, resolveInputSources, resolveNodeInputs } from '../src/canvas-nodes.js'
+import { nodeInputPorts, nodeOutputPorts, nodeOutputPortValues, resolveInputSources } from '../src/canvas-nodes.js'
+import { inboundSources, resolveGenerateModelImages, resolvePrompt, resolveUpstreamPreview } from './run-inputs.js'
+
+export { resolveGenerateModelImages, resolvePrompt, resolveUpstreamPreview }
 
 const root = path.dirname(fileURLToPath(import.meta.url))
 const publicDirectory = path.join(root, '..', 'public')
@@ -22,28 +25,6 @@ const MIME_BY_EXTENSION = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp',
   glb: 'model/gltf-binary', gltf: 'model/gltf+json', fbx: 'application/octet-stream',
   obj: 'text/plain', stl: 'application/octet-stream',
-}
-
-function inboundSources(node, canvas) {
-  const nodesById = new Map(canvas.nodes.map((item) => [item.id, item]))
-  return (canvas.edges || [])
-    .filter((edge) => edge.target?.nodeId === node.id)
-    .map((edge) => nodesById.get(edge.source?.nodeId))
-    .filter(Boolean)
-}
-
-/**
- * The prompt this node runs with: its own field first, then whatever text its
- * declared text ports carry. A text port names its own config field as a
- * fallback, so a node with nothing connected still resolves its own prompt.
- *
- * Exported for the Meshy provider, which resolves prompts the same way.
- */
-export function resolvePrompt(node, canvas) {
-  const own = typeof node.config?.prompt === 'string' ? node.config.prompt.trim() : ''
-  if (own) return own
-  const text = resolveNodeInputs(node, canvas).text
-  return typeof text === 'string' ? text.trim() : ''
 }
 
 /**
@@ -192,71 +173,6 @@ function resolveUpstreamImage(node, canvas, context = new Map()) {
     frontier = next
   }
   return null
-}
-
-/**
- * The thumbnail of the nearest upstream node that produced one this run. Used by
- * a node whose own task renders no image, so it still shows what it acted on.
- *
- * Exported for the Meshy provider, which falls back the same way.
- */
-export function resolveUpstreamPreview(node, canvas, context) {
-  const seen = new Set([node.id])
-  let frontier = inboundSources(node, canvas)
-  while (frontier.length) {
-    const next = []
-    for (const source of frontier) {
-      if (seen.has(source.id)) continue
-      seen.add(source.id)
-      const produced = context.get(source.id)
-      if (produced?.preview) return produced.preview
-      next.push(...inboundSources(source, canvas))
-    }
-    frontier = next
-  }
-  return null
-}
-
-/**
- * Resolves generate-model's image inputs for this run. Returns `{ input }` for
- * one image, `{ multiview }` for several, or `{}` when nothing came in so the
- * node falls back to text.
- *
- * `toInput` turns a reference into whatever the provider accepts (a Tripo file
- * token or URL, a Meshy URL or data URI). With `labeledViews` the multiview
- * result is a list of view-key objects (Tripo's labeled form); without it the
- * views come back as a plain ordered list, front first (Meshy's form).
- *
- * Exported for the Meshy provider, which resolves the same ports.
- */
-export async function resolveGenerateModelImages(node, canvas, context, { toInput, labeledViews = true }) {
-  const sources = resolveInputSources(node, canvas)
-  const views: Record<string, unknown> = {}
-  for (const key of ['front', 'back', 'left', 'right']) {
-    const source = (sources[key] || [])[0]
-    if (!source) continue
-    const value = nodeOutputPortValues(source.node, context.get(source.node.id))[source.portId]
-    if (value) views[key] = value
-  }
-  const viewKeys = Object.keys(views)
-  if (viewKeys.length >= 2 && views.front) {
-    const inputs = []
-    for (const key of viewKeys) {
-      const resolved = await toInput(views[key])
-      inputs.push(labeledViews ? { [key]: resolved } : resolved)
-    }
-    return { multiview: inputs }
-  }
-  const loose = (sources.image || [])
-    .map((source) => nodeOutputPortValues(source.node, context.get(source.node.id))[source.portId])
-    .filter(Boolean)
-  if (loose.length > 1) {
-    const inputs = []
-    for (const url of loose) inputs.push(await toInput(url))
-    return { multiview: inputs }
-  }
-  if (loose.length === 1) return { input: await toInput(loose[0]) }
-  return {}
 }
 
 /**

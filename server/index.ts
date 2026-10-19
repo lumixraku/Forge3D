@@ -6,7 +6,8 @@ import { createServer } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { createPostgresStore } from './postgres-store.js'
 import { createTripoRunner, createTripoTaskReader } from './tripo-run.js'
-import { createMeshyRunner, createMeshyTaskReader } from './meshy-run.js'
+import { createMeshyRunner, createMeshySubmitter, createMeshyTaskReader } from './meshy-run.js'
+import { createMeshyLocalReader } from './meshy-local-file.js'
 import { persistUploadedAsset, readAsset as readAssetFromDisk } from './tripo-assets.js'
 import { createApi } from './api-core.js'
 import { listenOnAvailablePort } from './listen.js'
@@ -16,8 +17,9 @@ const store = await createPostgresStore()
 const readAsset = store.readAsset || readAssetFromDisk
 const uploadAsset = store.uploadAsset || persistUploadedAsset
 const createTripoProvider = createTripoRunner(process.env, { readAsset })
-const createMeshyProvider = createMeshyRunner(process.env, { readAsset })
-const getMeshyTask = createMeshyTaskReader()
+const createMeshyProvider = createMeshyRunner(process.env, { readLocal: createMeshyLocalReader(readAsset) })
+const submitMeshyTask = createMeshySubmitter(process.env)
+const getMeshyTask = createMeshyTaskReader(process.env)
 const getTripoTask = createTripoTaskReader()
 
 // Local dev defaults to the Pi agent service. Set AGENT_SERVICE_URL=direct to use
@@ -43,6 +45,7 @@ const context = {
     createTripoProvider,
     createMeshyProvider,
     getMeshyTask,
+    submitMeshyTask,
     getTripoTask,
     readAsset,
     uploadAsset,

@@ -1,5 +1,6 @@
 import { computed, nextTick } from 'vue'
 import { request } from '../api'
+import { defaultCanvasProvider } from '../canvas-schema'
 import { buildFragment, CLIPBOARD_MIME, remapFragment, serializeFragment } from '../canvas-fragment'
 import { toCanvasGraph } from '../canvas-graph'
 import { removeSelectedElements } from '../canvas-selection'
@@ -118,6 +119,7 @@ export function useCanvasSelection({ nodes, edges, activeCanvas, error, saveCanv
     const payload = {
       name,
       description: `${selection.nodes.length} selected steps from ${activeCanvas.value.name}`,
+      provider: activeCanvas.value.provider || defaultCanvasProvider,
       nodes: selection.nodes,
       edges: selection.edges,
     }

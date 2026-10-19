@@ -15,7 +15,7 @@
 import { randomUUID } from './ids.js'
 import { latestNodeRuns } from './node-state.js'
 import { executionAssets } from './run-assets.js'
-import { assertProjectExecutionCapacity, cancelExecution, canvasExecutions, createExecution, executeExecution, executionById, executionDto, paginateAssets, syncExecutionWithTripo } from './executions.js'
+import { assertProjectExecutionCapacity, cancelExecution, canvasExecutions, createExecution, executeExecution, executionById, executionDto, paginateAssets, resumeMeshyExecution, syncExecutionWithMeshy, syncExecutionWithTripo } from './executions.js'
 import { createInitialSession, createCanvas, createSession, duplicateCanvas } from './canvases.js'
 import { runDeepSeekAgent } from './deepseek.js'
 import { cancelAgentViaService, runAgentViaService } from './agent-client.js'
@@ -69,13 +69,31 @@ function findMeshyTask(runs, execution, nodeId) {
   return null
 }
 
+// Workers reject `redirect: "error"`. Follow only another https Meshy host so a
+// signed URL can hop to its CDN without this route becoming an open proxy.
+async function fetchMeshyAsset(url, signal) {
+  let current = url
+  for (let hop = 0; hop < 3; hop += 1) {
+    const response = await fetch(current, { signal, redirect: 'manual' })
+    if (response.status < 300 || response.status >= 400) return response
+    const location = response.headers.get('location')
+    await response.body?.cancel()
+    if (!location) return response
+    const next = new URL(location, current)
+    const meshyHost = next.hostname === 'meshy.ai' || next.hostname.endsWith('.meshy.ai')
+    if (next.protocol !== 'https:' || !meshyHost) return response
+    current = next
+  }
+  return fetch(current, { signal, redirect: 'manual' })
+}
+
 async function streamMeshyAsset(request, config, taskRef, kind) {
   if (!config.getMeshyTask) return json({ error: 'Meshy is not configured.' }, 503)
   if (!taskRef) return json({ error: 'Meshy model task not found' }, 404)
   const task = await config.getMeshyTask(taskRef.taskId, taskRef.endpoint)
   const remote = kind === 'preview' ? task?.thumbnail_url : task?.model_urls?.glb
   if (!remote) return json({ error: kind === 'preview' ? 'Meshy task has no preview' : 'Meshy task has no GLB model' }, 404)
-  const asset = await fetch(remote, { signal: request.signal, redirect: 'error' })
+  const asset = await fetchMeshyAsset(remote, request.signal)
   if (!asset.ok || !asset.body) return json({ error: 'Meshy asset could not be loaded' }, 502)
   const headers = {
     'content-type': asset.headers.get('content-type') || (kind === 'preview' ? 'image/png' : 'model/gltf-binary'),
@@ -246,6 +264,14 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
   }
   // In-flight bookkeeping, deliberately outside the per-request context so it
   // survives for the life of the process (or isolate).
+  const meshyPolls = new Map()
+  function withMeshyPoll(id, operation) {
+    const previous = meshyPolls.get(id) || Promise.resolve()
+    const pending = previous.catch(() => {}).then(operation)
+    meshyPolls.set(id, pending)
+    pending.finally(() => { if (meshyPolls.get(id) === pending) meshyPolls.delete(id) })
+    return pending
+  }
   const canvasTurnQueues = new Map()
   const activeTurnIds = new Set()
   const activeTurnCancels = new Map()
@@ -560,7 +586,7 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
     if (method === 'GET' && parts[1] === 'capabilities' && parts.length === 2) {
       return json({
         providers: { mock: true, tripo: Boolean(config.createTripoProvider), meshy: Boolean(config.createMeshyProvider) },
-        defaultProvider: config.createTripoProvider ? 'tripo' : config.createMeshyProvider ? 'meshy' : 'mock',
+        defaultProvider: config.createMeshyProvider ? 'meshy' : config.createTripoProvider ? 'tripo' : 'mock',
         tripoNodeTypes: [...tripoNodeTypes],
         meshyNodeTypes: [...meshyNodeTypes],
       })
@@ -577,7 +603,7 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
       if (remoteUrl.protocol !== 'https:' || remoteUrl.hostname !== 'assets.meshy.ai') {
         return json({ error: 'Only Meshy asset URLs can be previewed' }, 400)
       }
-      const asset = await fetch(remoteUrl, { signal: request.signal, redirect: 'error' })
+      const asset = await fetchMeshyAsset(remoteUrl, request.signal)
       if (!asset.ok || !asset.body) return json({ error: 'Meshy asset could not be loaded' }, 502)
       const headers = {
         'content-type': asset.headers.get('content-type') || 'model/gltf-binary',
@@ -898,10 +924,21 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
       if (!execution) return json({ error: 'Execution not found' }, 404)
       const before = JSON.stringify(execution)
       await syncExecutionWithTripo(execution, config.getTripoTask)
-      if (JSON.stringify(execution) !== before) {
+      const handedOff = Object.values(execution.nodeRuns || {}).some((nodeRun) => nodeRun.meshyHandedOff)
+      if (handedOff) {
+        await withMeshyPoll(execution.id, async () => {
+          await store.reload(['runs'])
+          const fresh = executionById(state.runs, execution.id)
+          if (!fresh) return
+          const snapshot = JSON.stringify(fresh)
+          await syncExecutionWithMeshy(fresh, config)
+          if (config.resumeMeshyRuns) await resumeMeshyExecution(fresh, canvasById(fresh.canvasId), config.createMeshyProvider)
+          if (JSON.stringify(fresh) !== snapshot) await settlePaidExecution(store, fresh)
+        })
+      } else if (JSON.stringify(execution) !== before) {
         await settlePaidExecution(store, execution)
       }
-      return json(executionDto(execution))
+      return json(executionDto(executionById(state.runs, execution.id) || execution))
     }
 
     if (method === 'GET' && parts[1] === 'canvases' && parts[2] && parts[3] === 'executions' && parts.length === 4) {

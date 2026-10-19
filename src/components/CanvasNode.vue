@@ -80,7 +80,7 @@ function anchoredMenuPosition(button: HTMLElement | null, side: 'left' | 'right'
   }
 }
 const runtimeStatus = computed(() => props.nodeRun?.status || props.data.status)
-const schema = computed(() => nodeSchema(props.data.canvasType, props.data.provider || 'tripo'))
+const schema = computed(() => nodeSchema(props.data.canvasType, props.data.provider || 'meshy'))
 const isExecutableNode = computed(() => Boolean(schema.value?.executable))
 // The forced part this node plays. Result nodes present a run's artifact and show
 // no parameters; execution nodes are configuration only and never show a result.
@@ -172,7 +172,7 @@ function toggleApprove() {
 }
 
 function update(key: string, value: unknown) {
-  emit('update-config', applyNodeParameter(props.data.canvasType, props.data.config, key, value, props.data.provider || 'tripo'))
+  emit('update-config', applyNodeParameter(props.data.canvasType, props.data.config, key, value, props.data.provider || 'meshy'))
 }
 
 // Edits a result field. Not through applyNodeParameter: that is for parameter
