@@ -15,6 +15,7 @@ const emit = defineEmits<{
   rename: []
   'create-canvas': []
   copy: []
+  cut: []
   paste: []
   duplicate: []
   delete: []
@@ -31,6 +32,7 @@ const emit = defineEmits<{
       <button type="button" :disabled="!canDissolveSelection" @click="emit('dissolve-selection')"><span>Dissolve section</span></button>
       <button type="button" @click="emit('create-canvas')"><span>Create canvas</span></button>
       <button type="button" @click="emit('copy')"><span>Copy</span></button>
+      <button type="button" @click="emit('cut')"><span>Cut</span></button>
       <button type="button" :disabled="!hasClipboard" @click="emit('paste')"><span>Paste</span></button>
       <button type="button" @click="emit('duplicate')"><span>Duplicate selected</span></button>
       <button type="button" @click="emit('delete')"><span>Delete</span></button>
@@ -40,6 +42,7 @@ const emit = defineEmits<{
       <button type="button" @click="emit('rename')"><span>Rename</span></button>
       <button type="button" @click="emit('dissolve-selection')"><span>Dissolve section</span></button>
       <button type="button" @click="emit('copy')"><span>Copy</span></button>
+      <button type="button" @click="emit('cut')"><span>Cut</span></button>
       <button type="button" @click="emit('duplicate')"><span>Duplicate</span></button>
       <button type="button" @click="emit('create-canvas')"><span>Create canvas</span></button>
       <button type="button" @click="emit('delete')"><span>Delete section</span></button>

@@ -84,8 +84,8 @@ onUnmounted(() => window.removeEventListener('pointerdown', dismissSwitcher, tru
 <template>
   <header class="forge:relative forge:z-10 forge:grid forge:grid-cols-[350px_1fr_auto] forge:items-center forge:border-b forge:border-line forge:bg-bg-tertiary forge:transition-colors forge:duration-200 forge:max-[1200px]:grid-cols-[310px_1fr_auto] forge:max-[760px]:sticky forge:max-[760px]:top-0 forge:max-[760px]:grid-cols-[auto_1fr]">
     <div class="forge:flex forge:h-full forge:items-center forge:gap-3 forge:border-r forge:border-line forge:px-[18px] forge:max-[760px]:border-r-0">
-      <span class="forge3d-brand-mark forge:grid forge:place-items-center forge:w-[35px] forge:h-[35px] forge:rounded-[10px] forge:bg-acid forge:text-text-inverse forge:font-mono forge:font-semibold forge:text-xs forge:transition-all forge:duration-150 forge:hover:scale-105 forge:hover:shadow-[0_0_0_3px] forge:hover:shadow-acid/20">F3</span>
-      <div><strong class="forge:block forge:font-mono forge:font-semibold forge:text-sm forge:tracking-[-0.03em]">Forge3D</strong><small class="forge:block forge:mt-[2px] forge:text-text-muted forge:text-[11px]">Conversational canvas studio</small></div>
+      <span class="forge3d-brand-mark forge:grid forge:place-items-center forge:w-[35px] forge:h-[35px] forge:rounded-[10px] forge:bg-acid forge:text-text-inverse forge:font-mono forge:font-semibold forge:text-xs forge:transition-all forge:duration-150 forge:hover:scale-105 forge:hover:shadow-[0_0_0_3px] forge:hover:shadow-acid/20">3D</span>
+      <div><strong class="forge:block forge:font-mono forge:font-semibold forge:text-sm forge:tracking-[-0.03em]">3d workflow</strong><small class="forge:block forge:mt-[2px] forge:text-text-muted forge:text-[11px]">Conversational canvas studio</small></div>
     </div>
     <!-- No canvas yet: the switcher and New still have to be reachable, or the
          first canvas can never be created. -->

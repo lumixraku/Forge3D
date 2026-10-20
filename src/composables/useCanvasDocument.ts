@@ -44,6 +44,7 @@ export function useCanvasDocument({
 }) {
   const hydrating = ref(false)
   const workflowDirty = ref(false)
+  const openingCanvas = ref(false)
   let saveTimer
   let savePromise = null
   let openToken = 0
@@ -119,45 +120,62 @@ export function useCanvasDocument({
 
   async function openCanvas(id, { replaceHistory = false } = {}) {
     const token = ++openToken
-    const previousCanvasId = activeCanvas.value?.id
-    // Land the previous canvas's pending edits before resetWorkspace drops them.
-    if (activeCanvas.value && activeCanvas.value.id !== id) {
-      await saveCanvas({ immediate: true })
-      await releasePresence(previousCanvasId)
-    }
-    if (token !== openToken) return
-    resetWorkspace()
-    closeCanvasEvents()
-    agentToken.value += 1
-    canvasRunToken.value += 1
-    error.value = ''
-    activeSession.value = null
-    const [data, session] = await Promise.all([
-      request(`/api/canvases/${id}`),
-      loadSessions(id),
-    ])
-    if (token !== openToken) return
-    activeCanvas.value = restoreWorkflowDraft(data.canvas)
-    await canvasOpened(id)
-    activeSession.value = session
-    run.value = null
-    nodeRuns.value = data.nodeRuns || {}
-    await toCanvas(activeCanvas.value)
-    await onCanvasHydrated(id)
-    if (workflowDirty.value) {
-      acquireEditLease()
-      await saveCanvas({ immediate: true })
-    }
-    if (token !== openToken) return
-    await restoreTurns()
-    if (token !== openToken) return
-    // Subscribe after the REST reads, so the channel only has to carry what
-    // happens from here on; an interrupted turn was already restored above.
-    subscribeCanvasEvents(id)
-    fitView({ padding: 0.18, duration: 500 })
+    openingCanvas.value = true
+    try {
+      const previousCanvasId = activeCanvas.value?.id
+      // The next canvas is read while the previous one lands its edits; the two
+      // do not depend on each other, so neither waits on the other's round trips.
+      const loading = Promise.all([
+        request(`/api/canvases/${id}`),
+        loadSessions(id),
+      ])
+      loading.catch(() => {})
+      // Land the previous canvas's pending edits before resetWorkspace drops them.
+      if (activeCanvas.value && activeCanvas.value.id !== id) {
+        await saveCanvas({ immediate: true })
+        await releasePresence(previousCanvasId)
+      }
+      if (token !== openToken) return
+      resetWorkspace()
+      closeCanvasEvents()
+      agentToken.value += 1
+      canvasRunToken.value += 1
+      error.value = ''
+      activeSession.value = null
+      const [data, session] = await loading
+      if (token !== openToken) return
+      activeCanvas.value = restoreWorkflowDraft(data.canvas)
+      // The lease only drives the editor badge; it does not gate drawing the canvas.
+      void canvasOpened(id)
+      activeSession.value = session
+      run.value = null
+      nodeRuns.value = data.nodeRuns || {}
+      await toCanvas(activeCanvas.value)
+      if (token !== openToken) return
+      // The nodes are on screen: show them now. Run results, previews and the
+      // chat backlog fill in afterwards and never hold the canvas back.
+      fitView({ padding: 0.18, duration: 0 })
+      openingCanvas.value = false
+      const path = `/projects/${encodeURIComponent(id)}`
+      window.history[replaceHistory ? 'replaceState' : 'pushState']({}, '', path)
 
-    const path = `/projects/${encodeURIComponent(id)}`
-    window.history[replaceHistory ? 'replaceState' : 'pushState']({}, '', path)
+      const stale = () => token !== openToken
+      void (async () => {
+        await restoreTurns()
+        if (stale()) return
+        // Subscribe after the REST read, so the channel only has to carry what
+        // happens from here on; an interrupted turn was already restored above.
+        subscribeCanvasEvents(id)
+      })().catch((caught) => { if (!stale()) error.value = caught.message })
+      void (async () => {
+        await onCanvasHydrated(id)
+        if (stale() || !workflowDirty.value) return
+        acquireEditLease()
+        await saveCanvas({ immediate: true })
+      })().catch((caught) => { if (!stale()) error.value = caught.message })
+    } finally {
+      if (token === openToken) openingCanvas.value = false
+    }
   }
 
   function markWorkflowDirty() {
@@ -357,7 +375,9 @@ export function useCanvasDocument({
           viewport: starterCanvasViewport,
         }),
       })
-      await loadCanvass(canvas.id)
+      // The POST already returns the new row; re-reading the whole list is a wasted round trip.
+      canvases.value = [...canvases.value, canvas]
+      await openCanvas(canvas.id, { replaceHistory: true })
     } catch (caught) {
       error.value = caught.message
     } finally {
@@ -429,6 +449,7 @@ export function useCanvasDocument({
     syncCanvasSummary,
     loadCanvass,
     openCanvas,
+    openingCanvas,
     workflowDirty,
     saveCanvas,
     stopPendingSave,

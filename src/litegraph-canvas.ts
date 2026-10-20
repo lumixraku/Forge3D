@@ -368,7 +368,22 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   view.ds.max_scale = 3.5
   view.showShowNodePanel = () => {}
   view.processNodeDblClicked = () => {}
-  view.processKey = () => {}
+  // The constructor already bound the stock processKey. Replacing the method
+  // does not replace that listener, so Cmd+C stored a private snapshot and
+  // Cmd+V inserted nodes the document rebuild immediately threw away.
+  canvas.removeEventListener('keydown', view._key_callback, true)
+  document.removeEventListener('keyup', view._key_callback, true)
+  const stockProcessKey = LGraphCanvas.prototype.processKey
+  view.processKey = (event: KeyboardEvent) => {
+    const chord = event.metaKey || event.ctrlKey
+    const key = event.key?.toLowerCase?.() || ''
+    if (event.type === 'keydown' && chord && ['a', 'c', 'd', 'v', 'x', 'y', 'z'].includes(key)) return
+    if (event.type === 'keydown' && (event.key === 'Backspace' || event.key === 'Delete' || event.key === 'Escape')) return
+    return stockProcessKey.call(view, event)
+  }
+  view._key_callback = (event: KeyboardEvent) => view.processKey(event)
+  canvas.addEventListener('keydown', view._key_callback, true)
+  document.addEventListener('keyup', view._key_callback, true)
   view.onDropItem = () => true
   view.onSelectionChange = () => commitSelection()
 
@@ -377,6 +392,16 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   let moved = false
   let dragOrigin: { x: number; y: number } | null = null
   let selecting = false
+  // Shift/Ctrl on the current press: keep the existing selection, sections included.
+  let additive = false
+  // LiteGraph rewrites selected_nodes inside processMouseUp. The wrapper decides
+  // the final selection afterwards, so those intermediate changes are ignored.
+  let releasing = false
+  let draggedFrameId: string | null = null
+  // Pressed on a node that was already selected: keep the group for a drag,
+  // narrow to that node only if the press ends without movement.
+  let pressedSelected: any = null
+  let lastDragPos: number[] | null = null
   let lastStructure = ''
   let edgeQueued = false
   let mode = 'select'
@@ -385,10 +410,12 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   function selectionColor() {
     return LINK_COLOR[theme] || LINK_COLOR.dark
   }
-  // One weight for a selected node and a selected section. Screen pixels, so
-  // zoom does not make the section border heavier than the node ring.
-  const SELECTION_STROKE = 3
-  // Stock selection is a 1px white stroke. Paint a theme-green ring instead.
+  // Every selection, one node, many nodes or a section, is the same thin dashed
+  // box. Screen pixels, so zoom keeps the weight and the gap the same.
+  const SELECTION_STROKE = 1
+  const SELECTION_DASH = [4, 3]
+  const SELECTION_PAD = 10
+  // Stock paints its own white outline on a selected node. The dashed box replaces it.
   const drawNodeShape = view.drawNodeShape.bind(view)
   view.drawNodeShape = (node: any, ctx: CanvasRenderingContext2D, size: number[], fgcolor: string, bgcolor: string, selected: boolean, mouseOver: boolean) => {
     const outline = LiteGraph.NODE_BOX_OUTLINE_COLOR
@@ -399,24 +426,11 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       fillText(text, y === titleY ? TITLE_TEXT_X : x, y, maxWidth)
     }
     try {
-      drawNodeShape(node, ctx, size, fgcolor, bgcolor, selected, mouseOver)
+      drawNodeShape(node, ctx, size, fgcolor, bgcolor, false, mouseOver)
     } finally {
       ctx.fillText = fillText
       LiteGraph.NODE_BOX_OUTLINE_COLOR = outline
     }
-    if (!selected) return
-    const scale = view.ds.scale || 1
-    const band = LiteGraph.NODE_TITLE_HEIGHT
-    ctx.save()
-    ctx.strokeStyle = selectionColor()
-    ctx.lineWidth = SELECTION_STROKE / scale
-    ctx.lineJoin = 'round'
-    ctx.beginPath()
-    const radius = (view.round_radius || 8) * 2
-    if (ctx.roundRect) ctx.roundRect(-6, -band - 6, size[0] + 12, size[1] + band + 12, radius)
-    else ctx.rect(-6, -band - 6, size[0] + 12, size[1] + band + 12)
-    ctx.stroke()
-    ctx.restore()
   }
   view.onDrawForeground = (ctx: CanvasRenderingContext2D) => {
     const scale = view.ds.scale || 1
@@ -424,9 +438,24 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     ctx.strokeStyle = selectionColor()
     ctx.lineWidth = SELECTION_STROKE / scale
     ctx.lineJoin = 'miter'
-    for (const group of graph._groups) {
-      if (!group.forgeSelected) continue
-      ctx.strokeRect(group.pos[0], group.pos[1], group.size[0], group.size[1])
+    // One dashed box around everything selected, held off the content by a gap.
+    const region = view.dragging_rectangle ? null : selectionRegion()
+    if (region) {
+      const pad = SELECTION_PAD / scale
+      ctx.setLineDash(SELECTION_DASH.map((part) => part / scale))
+      ctx.strokeRect(region[0] - pad, region[1] - pad, region[2] + pad * 2, region[3] + pad * 2)
+      ctx.setLineDash([])
+    }
+    // Live marquee in the theme color instead of the stock white box.
+    if (selecting && view.dragging_rectangle) {
+      const box = dragBox(view.dragging_rectangle)
+      ctx.save()
+      ctx.globalAlpha = 0.08
+      ctx.fillStyle = selectionColor()
+      ctx.fillRect(box.x, box.y, box.w, box.h)
+      ctx.restore()
+      ctx.lineWidth = 1 / scale
+      ctx.strokeRect(box.x, box.y, box.w, box.h)
     }
     ctx.restore()
   }
@@ -1033,6 +1062,55 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     if (action === 'model') handlers.onOpenModel(id)
   }
 
+  // The browser opens only six connections to the API origin. A canvas with
+  // dozens of previews would take all of them and queue the next canvas's reads
+  // behind slow image downloads, so same-origin previews load a few at a time
+  // through fetch, which (unlike clearing an <img> src) can really be aborted.
+  const PREVIEW_CONCURRENCY = 2
+  const previewQueue: string[] = []
+  const previewLoads = new Map<string, AbortController>()
+
+  function pumpPreviews() {
+    while (previewLoads.size < PREVIEW_CONCURRENCY && previewQueue.length) {
+      const url = previewQueue.shift()!
+      const image = images.get(url)
+      if (!image) continue
+      const controller = new AbortController()
+      previewLoads.set(url, controller)
+      fetch(url, { signal: controller.signal })
+        .then((response) => (response.ok ? response.blob() : null))
+        .then((blob) => {
+          if (images.get(url) !== image) return
+          // A failed preview leaves the cache, so the next time it is shown it retries.
+          if (!blob) return void images.delete(url)
+          const objectUrl = URL.createObjectURL(blob)
+          image.addEventListener('load', () => URL.revokeObjectURL(objectUrl), { once: true })
+          image.src = objectUrl
+        })
+        .catch(() => { if (images.get(url) === image && !controller.signal.aborted) images.delete(url) })
+        .finally(() => {
+          if (previewLoads.get(url) === controller) previewLoads.delete(url)
+          pumpPreviews()
+        })
+    }
+  }
+
+  // Previews of nodes that are gone (the previous canvas) stop downloading.
+  function dropUnusedImages() {
+    const used = new Set(graph._nodes.map((node: any) => node.previewUrl).filter(Boolean))
+    for (const [url, image] of images) {
+      if (used.has(url) || image.complete) continue
+      previewLoads.get(url)?.abort()
+      previewLoads.delete(url)
+      image.onload = null
+      images.delete(url)
+    }
+    for (let index = previewQueue.length - 1; index >= 0; index -= 1) {
+      if (!images.has(previewQueue[index])) previewQueue.splice(index, 1)
+    }
+    pumpPreviews()
+  }
+
   function attachPreview(created: any, url: string) {
     created.previewUrl = url
     if (!url) {
@@ -1047,8 +1125,14 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     const image = cached || new Image()
     if (!cached) {
       image.onload = () => view.setDirty(true, true)
-      image.src = url
       images.set(url, image)
+      // Another host has its own connection pool, and may not allow CORS fetch.
+      if (new URL(url, location.href).origin === location.origin) {
+        previewQueue.push(url)
+        pumpPreviews()
+      } else {
+        image.src = url
+      }
     }
     created.previewImage = image
   }
@@ -1093,6 +1177,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       buildNode(node, byId, edges)
     }
     silent = false
+    dropUnusedImages()
     connectEdges(nodes, edges)
     applySelection(nodes)
     view.ds.scale = viewport.scale
@@ -1289,10 +1374,89 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     view.dragging_canvas = false
   }
 
+  function dragBox(rect: ArrayLike<number>) {
+    const width = rect[2]
+    const height = rect[3]
+    return {
+      x: width < 0 ? rect[0] + width : rect[0],
+      y: height < 0 ? rect[1] + height : rect[1],
+      w: Math.abs(width),
+      h: Math.abs(height),
+    }
+  }
+
+  // The marquee picks an object only when it covers at least one of its four corners.
+  function coversCorner(a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) {
+    const inside = (x: number, y: number) => x >= a.x && x <= a.x + a.w && y >= a.y && y <= a.y + a.h
+    return inside(b.x, b.y) || inside(b.x + b.w, b.y) || inside(b.x, b.y + b.h) || inside(b.x + b.w, b.y + b.h)
+  }
+
+  function graphNodeBox(node: any) {
+    const bounds = new Float32Array(4)
+    node.getBounding(bounds)
+    return { x: bounds[0], y: bounds[1], w: bounds[2], h: bounds[3] }
+  }
+
+  // A selected frame is one object. Its children stay unselected and only move with it.
+  function insideSelectedFrame(id: string, selected: Set<string>) {
+    let parent = flowNodes.find((node) => node.id === id)?.parentNode
+    while (parent) {
+      if (selected.has(parent)) return true
+      parent = flowNodes.find((node) => node.id === parent)?.parentNode
+    }
+    return false
+  }
+
+  // The marquee selects an object once it covers one of that object's corners.
+  // A marquee drawn inside a frame never reaches its corners and leaves it alone.
+  function marqueeSelection(box: { x: number; y: number; w: number; h: number }, additive: boolean) {
+    const selected = new Set<string>()
+    if (additive) {
+      for (const node of flowNodes) if (node.selected) selected.add(node.id)
+    }
+    for (const group of graph._groups) {
+      if (!group.forgeId) continue
+      const frame = { x: group.pos[0], y: group.pos[1], w: group.size[0], h: group.size[1] }
+      if (!coversCorner(box, frame)) continue
+      selected.add(group.forgeId)
+    }
+    for (const node of graph._nodes) {
+      const id = node.properties?.forgeId
+      if (!id || selected.has(id) || !coversCorner(box, graphNodeBox(node))) continue
+      selected.add(id)
+    }
+    for (const id of [...selected]) if (insideSelectedFrame(id, selected)) selected.delete(id)
+    return flowNodes.map((node) => ({ ...node, selected: selected.has(node.id) }))
+  }
+
+  function publishSelection(next: any[]) {
+    // Always resync LiteGraph: its own handlers may have toggled is_selected.
+    applySelection(next)
+    view.setDirty(true, true)
+    if (next.every((node, index) => Boolean(node.selected) === Boolean(flowNodes[index]?.selected))) return
+    flowNodes = next
+    remember()
+    handlers.onNodes(cleanNodes(next))
+    view.setDirty(true, true)
+  }
+
+  // Stock behavior collapses a multi-selection to the pressed node, so a group
+  // could never be dragged together. Keep it and decide on release instead.
+  const originalNodeSelected = view.processNodeSelected.bind(view)
+  view.processNodeSelected = (node: any, event: MouseEvent) => {
+    const modifier = event && (event.shiftKey || event.ctrlKey || event.metaKey)
+    if (!modifier && node?.is_selected && event?.type?.endsWith('down')) {
+      pressedSelected = node
+      return
+    }
+    originalNodeSelected(node, event)
+  }
+
   const originalDown = view.processMouseDown.bind(view)
   const originalMove = view.processMouseMove.bind(view)
   const originalUp = view.processMouseUp.bind(view)
   view.processMouseDown = (event: MouseEvent) => {
+    if (event.button === 0) additive = event.shiftKey || event.ctrlKey || event.metaKey
     if (mode === 'select' && event.button === 0) {
       const hit = readPointer(event)
       if (!hit.node && !hit.group && !event.ctrlKey) {
@@ -1318,6 +1482,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     if (view.node_dragged || view.selected_group) {
       const origin = view.node_dragged?.pos || view.selected_group?.pos
       dragOrigin = origin ? { x: origin[0], y: origin[1] } : null
+      draggedFrameId = view.node_dragged ? null : view.selected_group?.forgeId || null
       handlers.onDragStart()
     }
     return result
@@ -1325,6 +1490,37 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   view.processMouseMove = (event: MouseEvent) => {
     releaseCanvasPan(event)
     const result = originalMove(event)
+    // Selected sections ride along when a selected node is dragged. LiteGraph
+    // already moves the selected nodes, so only the section boxes shift here.
+    const dragged = view.node_dragged
+    if (dragged) {
+      if (lastDragPos) {
+        const dx = dragged.pos[0] - lastDragPos[0]
+        const dy = dragged.pos[1] - lastDragPos[1]
+        if (dx || dy) {
+          const live = byForgeId()
+          const frames = new Set<string>()
+          for (const group of graph._groups) {
+            if (!group.forgeSelected) continue
+            group.pos[0] += dx
+            group.pos[1] += dy
+            frames.add(group.forgeId)
+          }
+          // Children of a selected section are not selected, so LiteGraph leaves
+          // them behind. Carry them with their section.
+          if (frames.size) {
+            for (const flow of flowNodes) {
+              if (!insideSelectedFrame(flow.id, frames)) continue
+              const child = live.get(flow.id)
+              if (!child || child.is_selected) continue
+              child.pos[0] += dx
+              child.pos[1] += dy
+            }
+          }
+        }
+      }
+      lastDragPos = [dragged.pos[0], dragged.pos[1]]
+    }
     const origin = view.node_dragged?.pos || view.selected_group?.pos
     if (origin && dragOrigin && Math.hypot(origin[0] - dragOrigin.x, origin[1] - dragOrigin.y) > 3) {
       interacting = true
@@ -1339,25 +1535,55 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     const connectingOutput = view.connecting_output
     const linksBefore = Object.keys(graph.links || {}).length
     const didMove = moved
+    const rect = view.dragging_rectangle
+    // originalUp consumes the rectangle. Copy it first. A click on empty canvas
+    // still clears the selection; a real marquee keeps whatever it covered.
+    const marqueeBox = selecting && rect && (Math.abs(rect[2]) > 10 || Math.abs(rect[3]) > 10) ? dragBox(rect) : null
+    const frameDragged = draggedFrameId
     interacting = false
     moved = false
     dragOrigin = null
-    const result = originalUp(event)
+    draggedFrameId = null
+    releasing = true
+    let result
+    try {
+      result = originalUp(event)
+    } finally {
+      releasing = false
+    }
     view.dragging_canvas = false
     const linksAfter = Object.keys(graph.links || {}).length
     if (connecting && connectingOutput && linksAfter === linksBefore && !hit.node) {
       handlers.onConnectEnd({ clientX: event.clientX, clientY: event.clientY, sourceId: connecting.properties.forgeId })
     }
-    if (didMove) commitGeometry()
-    else if (selecting) handlers.onSelectionEnd()
     selecting = false
-    if (!didMove && event.button === 0 && !connecting) {
-      // selected_group only survives on the title. The rest of the section is
-      // still that section: a click there selects it, a click outside clears.
-      const frame = hit.node ? null : graph.getGroupOnPos(event.canvasX, event.canvasY)
-      if (frame?.forgeId) selectFrame(frame.forgeId)
-      else if (!hit.node) handlers.onPaneClick()
-      else if (previewHit(hit.node, event.canvasX - hit.node.pos[0], event.canvasY - hit.node.pos[1])) openNodePreview(hit.node)
+    const left = event.button === 0
+    if (left && marqueeBox) {
+      publishSelection(marqueeSelection(marqueeBox, additive))
+    } else if (left && frameDragged) {
+      // Dragging a section by its title leaves that section selected.
+      selectFrame(frameDragged, additive)
+    } else if (left && !didMove && !connecting && !hit.node) {
+      // A click on a section body or title selects the section and its children.
+      const frame = graph.getGroupOnPos(event.canvasX, event.canvasY)
+      if (frame?.forgeId) selectFrame(frame.forgeId, additive)
+      else if (!additive) {
+        view.deselectAllNodes()
+        handlers.onPaneClick()
+        publishSelection(flowNodes.map((node) => ({ ...node, selected: false })))
+      }
+    } else if (left && pressedSelected && !didMove && !connecting) {
+      // A plain click on a node inside a multi-selection narrows to that node.
+      const only = pressedSelected.properties?.forgeId
+      publishSelection(flowNodes.map((node) => ({ ...node, selected: node.id === only })))
+    } else if (!didMove) commitSelection()
+    additive = false
+    pressedSelected = null
+    lastDragPos = null
+    if (didMove) commitGeometry()
+    else if (marqueeBox) handlers.onSelectionEnd()
+    if (!didMove && !marqueeBox && event.button === 0 && !connecting && hit.node && previewHit(hit.node, event.canvasX - hit.node.pos[0], event.canvasY - hit.node.pos[1])) {
+      openNodePreview(hit.node)
     }
     publishViewport()
     return result
@@ -1438,23 +1664,47 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   }
 
   function commitSelection() {
-    if (silent) return
+    if (silent || releasing) return
     const selected = new Set(Object.values(view.selected_nodes || {}).map((node: any) => node.properties?.forgeId).filter(Boolean))
+    // Shift/Ctrl keeps selected sections. A plain node click drops them.
     const next = flowNodes.map((node) => ({
       ...node,
-      selected: node.type === 'frame' ? false : selected.has(node.id),
+      selected: node.type === 'frame' ? additive && Boolean(node.selected) : selected.has(node.id),
     }))
-    if (next.every((node, index) => Boolean(node.selected) === Boolean(flowNodes[index]?.selected))) return
-    flowNodes = next
-    remember()
-    handlers.onNodes(cleanNodes(next))
+    publishSelection(next)
   }
 
-  function selectFrame(id: string) {
-    const next = flowNodes.map((node) => ({ ...node, selected: node.id === id }))
-    flowNodes = next
-    remember()
-    handlers.onNodes(cleanNodes(next))
+  function selectionRegion() {
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    // Children of a selected section count as part of it, not as extra items.
+    const selectedIds = new Set(flowNodes.filter((node) => node.selected).map((node) => node.id))
+    const chosen = flowNodes.filter((node) => node.selected && !(node.parentNode && selectedIds.has(node.parentNode)))
+    if (!chosen.length) return null
+    for (const node of chosen) {
+      const live = node.type === 'frame'
+        ? graph._groups.find((group: any) => group.forgeId === node.id)
+        : byForgeId().get(node.id)
+      if (!live) continue
+      const box = node.type === 'frame'
+        ? { x: live.pos[0], y: live.pos[1], w: live.size[0], h: live.size[1] }
+        : graphNodeBox(live)
+      minX = Math.min(minX, box.x)
+      minY = Math.min(minY, box.y)
+      maxX = Math.max(maxX, box.x + box.w)
+      maxY = Math.max(maxY, box.y + box.h)
+    }
+    if (minX === Infinity) return null
+    return [minX, minY, maxX - minX, maxY - minY]
+  }
+
+  function selectFrame(id: string, add = false) {
+    const selected = new Set([id])
+    if (add) for (const node of flowNodes) if (node.selected) selected.add(node.id)
+    for (const other of [...selected]) if (insideSelectedFrame(other, selected)) selected.delete(other)
+    publishSelection(flowNodes.map((node) => ({ ...node, selected: selected.has(node.id) })))
   }
 
   function openNodePreview(node: any) {
@@ -1780,6 +2030,8 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     runNodeAction: runAction,
     destroy() {
       window.removeEventListener('keydown', onLinkKey, true)
+      canvas.removeEventListener('keydown', view._key_callback, true)
+      document.removeEventListener('keyup', view._key_callback, true)
       canvas.removeEventListener('mousedown', view._mousedown_callback, true)
       canvas.removeEventListener('mousemove', view._mousemove_callback)
       canvas.removeEventListener('mouseup', view._mouseup_callback, true)

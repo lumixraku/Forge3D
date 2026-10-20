@@ -41,10 +41,9 @@ The local Node runtime provides the complete development and generation experien
 - Mock, Tripo API, and Meshy API providers.
 - Image and 3D file uploads.
 - Binary persistence for uploaded assets and generated results in PostgreSQL.
-- A JSON and local-disk fallback when PostgreSQL is not configured.
 - Local debugging, testing, and frontend or backend development.
 
-By default, the local service uses PostgreSQL for application data and assets. If `DATABASE_URL` is unset, it uses the file store instead. These storage modes do not synchronize automatically.
+The local service requires PostgreSQL for application data and assets. Startup stops with an actionable message when `DATABASE_URL` is missing or the database is unreachable.
 
 ### Cloudflare Web Deployment
 
@@ -65,7 +64,7 @@ Prepare the following configuration for the features you intend to use.
 
 ### Required Configuration
 
-To use the DeepSeek Agent locally, create a `.env` file in the repository root:
+Create a `.env` file in the repository root. It supplies `DATABASE_URL` for the local runtime and, for the DeepSeek Agent, the API key:
 
 ```bash
 cp .env.example .env
@@ -88,7 +87,7 @@ You may leave `DEEPSEEK_API_KEY` empty if you only want to use the canvas and Mo
 
 ### Local Database
 
-PostgreSQL is recommended for local persistence. Start it first:
+PostgreSQL is required for local persistence and for the Node API to start. Start it first:
 
 ```bash
 docker compose up -d postgres
@@ -102,7 +101,7 @@ DATABASE_URL=postgresql://forge3d:forge3d@127.0.0.1:5432/forge3d
 
 The Node service applies migrations at startup. An empty database is initialized from `server/seed/`, and database data is retained in a Docker volume.
 
-To run without PostgreSQL, remove `DATABASE_URL` or leave it empty. The local service will use JSON documents and asset files under `server/data/`. This mode is suitable for quick evaluation, but not recommended for multi-process or production persistence.
+`DATABASE_URL` is required. If it is missing, or if PostgreSQL is not running, the Node API exits with a message that names the fix; it does not fall back to local JSON files.
 
 ### Optional Generation Services
 
@@ -124,7 +123,7 @@ The application still works with the Mock provider when these keys are absent. N
 
 ## Run Locally
 
-Requirements: Node.js 20+ and pnpm `11.16.0`.
+Requirements: Node.js 20+, pnpm `11.16.0`, and Docker running (or another PostgreSQL 16 instance reachable through `DATABASE_URL`).
 
 ```bash
 corepack enable
@@ -136,6 +135,8 @@ pnpm dev
 ```
 
 Open the local frontend URL printed in the terminal. `pnpm dev` starts the frontend, Node API, and local Agent service together, and selects available ports automatically.
+
+`pnpm dev` exits immediately when PostgreSQL is unreachable or `DATABASE_URL` is missing, printing the command that fixes it. Run `docker compose up -d postgres` first, then retry.
 
 Common verification commands:
 
@@ -187,10 +188,10 @@ Cloudflare does not use `DATABASE_URL` from the local `.env` file and cannot acc
 - [Meshy Agent SSE](docs/meshy-agent-sse-protocol.md): Agent SSE conventions for Meshy-related execution.
 - [Todo](docs/todo.md): current limitations and planned work.
 - [Progress](docs/progress.md): current project status organized by capability.
-- [Docker and local database](docker/README.md): local PostgreSQL startup, storage responsibilities, and file-store fallback.
+- [Docker and local database](docker/README.md): local PostgreSQL startup and storage responsibilities.
 
 ## Current Limitations
 
 - The Cloudflare deployment uses D1 but does not have R2, so application uploads of images and 3D files cannot be persisted.
 - Real Tripo and Meshy execution is currently available only through the local Node runtime; the Cloudflare deployment can use Mock workflows.
-- Local PostgreSQL, the file store, and Cloudflare D1 do not synchronize automatically.
+- Local PostgreSQL and Cloudflare D1 do not synchronize automatically.

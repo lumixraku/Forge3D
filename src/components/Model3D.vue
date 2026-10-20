@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, defineExpose, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
@@ -263,6 +263,23 @@ function rebuild() {
   pivot.rotation.set(0, 0, 0)
   loadContent()
 }
+
+function snapshot() {
+  if (!renderer || !scene || !camera || !pivot?.children.length) return ''
+  renderer.render(scene, camera)
+  const source = renderer.domElement
+  const out = document.createElement('canvas')
+  out.width = source.width
+  out.height = source.height
+  const ctx = out.getContext('2d')
+  if (!ctx) return ''
+  ctx.fillStyle = '#202322'
+  ctx.fillRect(0, 0, out.width, out.height)
+  ctx.drawImage(source, 0, 0)
+  return out.toDataURL('image/png')
+}
+
+defineExpose({ snapshot })
 
 onMounted(init)
 watch(() => [props.mode, props.src, props.segSrc], () => {

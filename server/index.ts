@@ -12,8 +12,28 @@ import { persistUploadedAsset, readAsset as readAssetFromDisk } from './tripo-as
 import { createApi } from './api-core.js'
 import { listenOnAvailablePort } from './listen.js'
 
+// The local runtime stores everything in PostgreSQL. A missing or unreachable
+// database is the most common startup failure, so report it with the fix
+// instead of a raw driver stack.
+async function createRuntimeStore() {
+  if (!process.env.DATABASE_URL) {
+    console.error('DATABASE_URL is not set. Copy .env.example to .env, then start PostgreSQL with "docker compose up -d postgres".')
+    process.exit(1)
+  }
+  try {
+    return await createPostgresStore()
+  } catch (error) {
+    if (error?.code === 'ECONNREFUSED') {
+      const { hostname, port } = new URL(process.env.DATABASE_URL)
+      console.error(`Cannot reach PostgreSQL at ${hostname}:${port}. Start it with "docker compose up -d postgres".`)
+      process.exit(1)
+    }
+    throw error
+  }
+}
+
 const port = Number(process.env.PORT || 8787)
-const store = await createPostgresStore()
+const store = await createRuntimeStore()
 const readAsset = store.readAsset || readAssetFromDisk
 const uploadAsset = store.uploadAsset || persistUploadedAsset
 const createTripoProvider = createTripoRunner(process.env, { readAsset })

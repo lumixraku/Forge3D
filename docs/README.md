@@ -16,7 +16,7 @@ The repository-root [`README.md`](../README.md) covers product features, usage, 
 ## API and Runtime
 
 - [`api.md`](api.md): the HTTP API shared by the Node API and Cloudflare Worker, including runtime capability differences.
-- [`../docker/README.md`](../docker/README.md): local PostgreSQL container, table responsibilities, and file-store fallback.
+- [`../docker/README.md`](../docker/README.md): local PostgreSQL container and table responsibilities.
 
 ## Project Status
 
@@ -25,8 +25,8 @@ The repository-root [`README.md`](../README.md) covers product features, usage, 
 
 ## Runtime Boundaries
 
-- The local Node runtime can use PostgreSQL or fall back to JSON documents and local asset files.
+- The local Node runtime requires PostgreSQL for application documents and asset files.
 - The local Node runtime supports persistent uploads and can use Tripo and Meshy for real generation tasks.
 - The Cloudflare Worker uses D1 for application data and does not connect to local PostgreSQL.
 - Cloudflare does not currently have an R2 binding, so user-uploaded images and models are not persisted there.
-- Local PostgreSQL, the file store, and Cloudflare D1 do not synchronize automatically.
+- Local PostgreSQL and Cloudflare D1 do not synchronize automatically.

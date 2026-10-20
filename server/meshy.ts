@@ -39,6 +39,8 @@ export function createMeshyClient({
   baseUrl = envValue('MESHY_BASE_URL'),
   fetchImpl = fetch,
   wait = (duration) => new Promise((resolve) => setTimeout(resolve, duration)),
+  maxRetries = MAX_RETRIES,
+  timeoutMs = 60000,
 } = {}) {
   if (!apiKey) throw new MeshyError('Meshy is not configured. Set MESHY_API_KEY.', 503)
   const root = (baseUrl || DEFAULT_BASE_URL).replace(/\/$/, '')
@@ -46,19 +48,19 @@ export function createMeshyClient({
   async function send(path, { method = 'GET', body = null, headers = {} } = {}) {
     let lastResponse = null
     let lastFailure = null
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       let response
       try {
         response = await fetchImpl(`${root}${path}`, {
           method,
           headers: { authorization: `Bearer ${apiKey}`, ...headers },
           ...(body ? { body } : {}),
-          signal: AbortSignal.timeout(60000),
+          signal: AbortSignal.timeout(timeoutMs),
         })
       } catch (failure) {
         // A dropped connection is as transient as a 5xx, and losing one costs a
         // whole node run, so it gets the same backoff rather than failing outright.
-        if (attempt === MAX_RETRIES) throw new MeshyError('The Meshy service is unavailable.', 503)
+        if (attempt === maxRetries) throw new MeshyError('The Meshy service is unavailable.', 503)
         lastFailure = failure
         await wait(Math.min(RETRY_BASE_MS * 2 ** attempt, RETRY_CAP_MS))
         continue
@@ -66,7 +68,7 @@ export function createMeshyClient({
       // 429 is a rate limit; 5xx is transient too. Everything else is final.
       if (response.status !== 429 && response.status < 500) return unwrap(response, path)
       lastResponse = response
-      if (attempt === MAX_RETRIES) break
+      if (attempt === maxRetries) break
       await wait(retryDelay(response, attempt))
     }
     // The key must never reach the message: these errors surface in the UI.

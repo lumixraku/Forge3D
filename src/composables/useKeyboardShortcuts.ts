@@ -1,5 +1,5 @@
 import { onMounted, onUnmounted } from 'vue'
-import { CLIPBOARD_MIME, parseFragment } from '../canvas-fragment'
+import { CLIPBOARD_MIME, parseFragmentText, readClipboardFragment, rememberedFragmentData } from '../canvas-fragment'
 
 // Global canvas shortcuts. Registered in the capture phase so an open overlay can
 // claim Escape before the canvas sees it.
@@ -23,6 +23,7 @@ export function useKeyboardShortcuts({
   redo,
   selectAll,
   copySelected,
+  cutSelected,
   pasteFragment,
   duplicateSelected,
   deleteSelected,
@@ -107,25 +108,42 @@ export function useKeyboardShortcuts({
     }
     if (modifier && event.key.toLowerCase() === 'c' && hasSelection.value) {
       event.preventDefault()
+      if (!ensureEditAccess()) return
       copySelected()
+      return
     }
+    if (modifier && event.key.toLowerCase() === 'x' && hasSelection.value) {
+      event.preventDefault()
+      if (!ensureEditAccess()) return
+      cutSelected()
+    }
+  }
+
+  function clipboardIsForeign(event: ClipboardEvent) {
+    const text = event.clipboardData?.getData('text/plain') || ''
+    if (parseFragmentText(text)) return false
+    const types = event.clipboardData ? [...event.clipboardData.types] : []
+    return Boolean(text.trim()) || types.some((type) => type !== 'text/plain' && type !== CLIPBOARD_MIME)
   }
 
   async function handlePaste(event: ClipboardEvent) {
     if (isEditing(event.target) || workspaceMode.value !== 'canvas') return
-    try {
-      const items = await navigator.clipboard.read()
-      const item = items.find((candidate) => candidate.types.includes(CLIPBOARD_MIME))
-      if (!item) return
-      const blob = await item.getType(CLIPBOARD_MIME)
-      const fragment = parseFragment(await blob.arrayBuffer())
-      if (!fragment) return
-      event.preventDefault()
-      if (!ensureEditAccess()) return
-      pasteFragment(fragment, { selectInserted: true })
-    } catch {
-      // Leave unsupported and non-Forge3D clipboard content to the browser.
+    // Text from another app, or an image, is not a canvas fragment.
+    if (clipboardIsForeign(event)) return
+    const text = event.clipboardData?.getData('text/plain') || ''
+    // An empty clipboard means this tab's copy never left the page.
+    let fragment = parseFragmentText(text) || rememberedFragmentData()
+    if (!fragment) {
+      try {
+        fragment = await readClipboardFragment()
+      } catch {
+        fragment = null
+      }
     }
+    if (!fragment) return
+    event.preventDefault()
+    if (!ensureEditAccess()) return
+    pasteFragment(fragment, { selectInserted: true })
   }
 
   onMounted(() => {

@@ -43,7 +43,10 @@ export function createMeshySubmitter(env = {}) {
 
 export function createMeshyTaskReader(env = {}) {
   if (!isMeshyConfigured(env)) return null
-  const client = createMeshyClient({ apiKey: env.MESHY_API_KEY, baseUrl: env.MESHY_BASE_URL })
+  // Lookups answer a browser request (a node preview, a status poll) that the
+  // client will simply repeat. Backing off for minutes here pins one of the
+  // browser's six connections per request and starves every other API call.
+  const client = createMeshyClient({ apiKey: env.MESHY_API_KEY, baseUrl: env.MESHY_BASE_URL, maxRetries: 0, timeoutMs: 8000 })
   const endpoints = [
     '/openapi/v2/text-to-3d', '/openapi/v1/image-to-3d', '/openapi/v1/multi-image-to-3d',
     '/openapi/v1/text-to-image', '/openapi/v1/image-to-image', '/openapi/v1/text-to-motion',
@@ -64,6 +67,8 @@ export function createMeshyTaskReader(env = {}) {
       try {
         return await client.getTask(candidate, taskId)
       } catch (failure) {
+        // Unreachable Meshy fails every endpoint the same way; stop probing.
+        if (failure?.status === 503) throw failure
         lastFailure = failure
       }
     }

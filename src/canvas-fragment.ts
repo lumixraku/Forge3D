@@ -2,17 +2,80 @@ import { decode, encode } from '@msgpack/msgpack'
 import { nodeSize } from './frame-geometry'
 
 export const CLIPBOARD_MIME = 'web application/vnd.forge3d.canvas-fragment+msgpack'
+// Plain text so a paste event can read the fragment without a clipboard-read
+// prompt. The async clipboard hides the custom msgpack type from that event.
+export const FRAGMENT_TEXT_PREFIX = 'forge3d-canvas-fragment/1\n'
+
+// The last fragment this tab copied. Paste uses it when the system clipboard
+// write was rejected, which is what made Cmd+V look like a no-op.
+let rememberedFragment = null
+
+export function rememberFragment(fragment) {
+  rememberedFragment = fragment
+}
+
+export function rememberedFragmentData() {
+  return rememberedFragment
+}
+
+export function fragmentToClipboardText(fragment) {
+  return FRAGMENT_TEXT_PREFIX + JSON.stringify(fragment)
+}
+
+export function parseFragmentText(text) {
+  if (typeof text !== 'string' || !text.startsWith(FRAGMENT_TEXT_PREFIX)) return null
+  try {
+    return acceptFragment(JSON.parse(text.slice(FRAGMENT_TEXT_PREFIX.length)))
+  } catch {
+    return null
+  }
+}
+
+export async function readClipboardFragment() {
+  let sawForeignText = false
+  try {
+    const text = await navigator.clipboard.readText()
+    const parsed = parseFragmentText(text)
+    if (parsed) return parsed
+    sawForeignText = Boolean(text.trim())
+  } catch {
+    // readText needs a gesture and a focused document. The in-tab copy still pastes.
+  }
+  try {
+    const items = await navigator.clipboard.read()
+    const item = items.find((candidate) => candidate.types.includes(CLIPBOARD_MIME))
+    if (item) {
+      const blob = await item.getType(CLIPBOARD_MIME)
+      const parsed = parseFragment(await blob.arrayBuffer())
+      if (parsed) return parsed
+    }
+  } catch {
+    // Older copies used only the custom type, and that read can be denied.
+  }
+  return sawForeignText ? null : rememberedFragment
+}
 
 export function serializeFragment(fragment) {
   return encode(fragment)
 }
 
+function acceptFragment(fragment) {
+  if (fragment?.kind !== 'canvas-fragment' || fragment?.schemaVersion !== '1.0' || !Array.isArray(fragment.nodes) || !Array.isArray(fragment.edges)) return null
+  // Boxing a few nodes inside a section copies those nodes, not the section.
+  // Their parent id is left behind; drop it so they paste as their own nodes.
+  const present = new Set(fragment.nodes.map((node) => node.id))
+  fragment.nodes = fragment.nodes.map((node) => {
+    if (!node.ui?.parentFrameId || present.has(node.ui.parentFrameId)) return node
+    const { parentFrameId, ...ui } = node.ui
+    return { ...node, ui }
+  })
+  validateImportedCanvas(fragment)
+  return fragment.nodes.length ? fragment : null
+}
+
 export function parseFragment(bytes) {
   try {
-    const fragment = decode(bytes)
-    if (fragment?.kind !== 'canvas-fragment' || fragment?.schemaVersion !== '1.0' || !Array.isArray(fragment.nodes) || !Array.isArray(fragment.edges)) return null
-    validateImportedCanvas(fragment)
-    return fragment.nodes.length ? fragment : null
+    return acceptFragment(decode(bytes))
   } catch {
     return null
   }

@@ -23,6 +23,7 @@ import { useCanvasDocument } from './composables/useCanvasDocument'
 import { useCanvasRun } from './composables/useCanvasRun'
 import { useDebugSettings } from './composables/useDebugSettings'
 import { request } from './api'
+import { readClipboardFragment } from './canvas-fragment'
 import { edgeDefaults, nodePresentation } from './canvas-graph'
 import { applyNodeParameter, defaultCanvasProvider } from './canvas-schema'
 import { activeInputPorts, canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, compatibleUpstreamNodeTypes, hasModelEditor, isExecutableNodeType, missingParametersByNode, nodeCatalog, nodeCategories, nodeDefaults, nodeOutputPorts, outputPortsOf } from './canvas-nodes'
@@ -113,7 +114,7 @@ watch(editorName, (name) => {
 const {
   selectedNodes, frameableSelectedNodes, canFrameSelection, canDissolveSelection,
   selectedCount, hasSelection, deleteSelected, dissolveSelectedFrames, selectAll,
-  selectCanvasEdge, onEdgeClick, copySelected, pasteFragment, duplicateSelected, createCanvasFromSelection,
+  selectCanvasEdge, onEdgeClick, copySelected, cutSelected, pasteFragment, duplicateSelected, createCanvasFromSelection,
 } = useCanvasSelection({
   nodes,
   edges,
@@ -162,7 +163,7 @@ const { syncHistoryCanvas, recordHistory, undo, redo } = useCanvasHistory({
 })
 
 const {
-  hydrating, toCanvas, fromCanvas, syncCanvasSummary, loadCanvass, openCanvas,
+  hydrating, toCanvas, fromCanvas, syncCanvasSummary, loadCanvass, openCanvas, openingCanvas,
   saveCanvas, stopPendingSave, duplicateCanvas, deleteCanvas, creatingCanvas, createCanvas,
   renameCanvas, setCanvasProvider, exportCanvas, importCanvasFile, refreshCanvasFromServer,
 } = useCanvasDocument({
@@ -883,6 +884,18 @@ function onSelectionContextMenu({ event }) {
   openSelectionMenuAt(event.clientX, event.clientY)
 }
 
+async function pasteClipboard() {
+  if (workspaceMode.value !== 'canvas') return
+  try {
+    const fragment = await readClipboardFragment()
+    if (!fragment) return
+    if (!ensureEditAccess()) return
+    pasteFragment(fragment, { selectInserted: true })
+  } catch {
+    error.value = 'Could not paste the selection'
+  }
+}
+
 function runContextMenuAction(action) {
   const context = nodeMenuContext.value
   closeContextMenu()
@@ -967,6 +980,7 @@ useKeyboardShortcuts({
   redo,
   selectAll,
   copySelected,
+  cutSelected,
   pasteFragment,
   duplicateSelected,
   deleteSelected,
@@ -1054,7 +1068,7 @@ onUnmounted(() => {
       :saved-state="savedState"
       :theme="theme"
       :account="account"
-      :busy="agentBusy || creatingCanvas"
+      :busy="agentBusy || creatingCanvas || openingCanvas"
       @rename="renameCanvas"
       @open-canvas="openCanvas"
       @create-canvas="createCanvas"
@@ -1117,13 +1131,14 @@ onUnmounted(() => {
           :categories="nodeCategories"
           :can-frame-selection="canFrameSelection"
           :can-dissolve-selection="canDissolveSelection"
-          :has-clipboard="Boolean(clipboardFragment)"
+          :has-clipboard="true"
           @frame-selection="runContextMenuAction(makeSelectionFrame)"
           @dissolve-selection="runContextMenuAction(dissolveSelectedFrames)"
           @rename="runContextMenuAction(renameSection)"
           @create-canvas="runContextMenuAction(createCanvasFromSelection)"
           @copy="runContextMenuAction(copySelected)"
-          @paste="runContextMenuAction(pasteFragment)"
+          @cut="runContextMenuAction(cutSelected)"
+          @paste="runContextMenuAction(pasteClipboard)"
           @duplicate="runContextMenuAction(duplicateSelected)"
           @delete="runContextMenuAction(deleteSelected)"
           @select-node-type="selectNodeType"
@@ -1180,7 +1195,7 @@ onUnmounted(() => {
       <ExecutionOutputPanel id="task-queue-panel" :class="{ 'forge3d-is-open': taskQueueOpen }" :executions="executions" :active-execution="run" :active-executions="activeExecutions" :loading="executionsLoading" />
     </section>
     <ModelEditor v-else-if="modelEditorNode" :node="modelEditorNode" @back="closeModelEditor" @update-config="updateNodeConfig(modelEditorNode.id, $event)" />
-    <div v-if="creatingCanvas" class="forge3d-create-mask" role="status" aria-live="polite" aria-busy="true" aria-label="Loading">
+    <div v-if="creatingCanvas || openingCanvas" class="forge3d-create-mask" role="status" aria-live="polite" aria-busy="true" aria-label="Loading">
       <span class="forge3d-create-spin" />
       <span class="forge3d-create-label">Loading</span>
     </div>

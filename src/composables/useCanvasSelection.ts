@@ -1,7 +1,8 @@
 import { computed, nextTick } from 'vue'
 import { request } from '../api'
 import { defaultCanvasProvider } from '../canvas-schema'
-import { buildFragment, CLIPBOARD_MIME, remapFragment, serializeFragment } from '../canvas-fragment'
+import { absoluteNodePosition, indexNodes } from '../frame-geometry'
+import { buildFragment, fragmentToClipboardText, rememberFragment, remapFragment } from '../canvas-fragment'
 import { toCanvasGraph } from '../canvas-graph'
 import { removeSelectedElements } from '../canvas-selection'
 
@@ -57,23 +58,41 @@ export function useCanvasSelection({ nodes, edges, activeCanvas, error, saveCanv
     return buildFragment(fromCanvas(), new Set(selected.map((node) => node.id)), name)
   }
 
+  function pasteOffset() {
+    const map = indexNodes(nodes.value)
+    const selected = nodes.value.filter((node) => node.selected)
+    const anchor = selected.length ? selected : nodes.value
+    const roots = anchor.filter((node) => !node.parentNode || !anchor.some((item) => item.id === node.parentNode))
+    const placed = roots.length ? roots : anchor
+    if (!placed.length) return { x: 120, y: 120 }
+    const boxes = placed.map((node) => absoluteNodePosition(node, map))
+    const minY = Math.min(...boxes.map((point) => point.y))
+    const maxX = Math.max(...placed.map((node, index) => boxes[index].x + (node.width || node.dimensions?.width || 260)))
+    return { x: maxX + 48, y: minY }
+  }
+
   async function copySelected() {
     const fragment = selectedFragmentData('Copied selection')
-    if (!fragment) return
+    if (!fragment) return false
+    rememberFragment(fragment)
     try {
-      const bytes = serializeFragment(fragment)
-      const blob = new Blob([bytes], { type: CLIPBOARD_MIME.slice(4) })
-      await navigator.clipboard.write([new ClipboardItem({ [CLIPBOARD_MIME]: blob })])
+      await navigator.clipboard.writeText(fragmentToClipboardText(fragment))
     } catch {
       error.value = 'Could not copy the selection to the system clipboard'
+      return false
     }
+    return true
+  }
+
+  async function cutSelected() {
+    if (!await copySelected()) return
+    deleteSelected()
   }
 
   async function pasteFragment(fragment, options: any = {}) {
     if (!fragment?.nodes?.length) return
-    const maxX = nodes.value.length ? Math.max(...nodes.value.map((node) => node.position.x)) : 0
     const { nodes: domainNodes, edges: domainEdges } = remapFragment(fragment, {
-      offset: options.offset || { x: maxX + 310, y: 120 },
+      offset: options.offset || pasteOffset(),
       translateRoots: options.translateRoots,
     })
     const nextCanvas = {
@@ -149,6 +168,7 @@ export function useCanvasSelection({ nodes, edges, activeCanvas, error, saveCanv
     selectCanvasEdge,
     onEdgeClick,
     copySelected,
+    cutSelected,
     pasteFragment,
     duplicateSelected,
     createCanvasFromSelection,

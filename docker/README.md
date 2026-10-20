@@ -34,7 +34,7 @@ docker compose down -v
 
 ## Storage Responsibilities
 
-When `DATABASE_URL` is configured, the local Node API uses PostgreSQL:
+The local Node API requires `DATABASE_URL` and uses PostgreSQL:
 
 - `forge3d_documents` stores canvases, sessions, execution records, Agent traces, accounts, credit-ledger entries, and other application documents.
 - `forge3d_assets` stores binary image and model assets.
@@ -44,14 +44,9 @@ When `DATABASE_URL` is configured, the local Node API uses PostgreSQL:
 
 PostgreSQL is used by the local Node runtime, not by the Cloudflare web deployment. The Cloudflare Worker uses the D1 binding from `wrangler.toml`; these databases do not synchronize automatically.
 
-## File-store Fallback
+## No File-store Fallback
 
-When `DATABASE_URL` is not configured, the Node API uses the file store:
-
-- Application data is written to `server/data/*.json`.
-- Binary assets are written to `server/data/assets/`.
-
-The file store is suitable for quick evaluation and development without a database. It does not automatically migrate or synchronize data with PostgreSQL.
+The Node API does not fall back to local files. Without `DATABASE_URL`, or without a reachable PostgreSQL server, startup exits with a message and does not serve the API. The JSON store in `server/store.ts` is used by tests only.
 
 ## Related Files
 
