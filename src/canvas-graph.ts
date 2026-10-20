@@ -1,4 +1,4 @@
-import { canConnectNodeTypes, canConnectPorts, nodeCatalog, nodeDisplayName, nodeInputPorts, nodeOutputPorts, outputPortsOf } from './canvas-nodes'
+import { activeInputPorts, canConnectNodeTypes, canConnectPorts, inferModelInputMode, nodeCatalog, nodeDisplayName, nodeOutputPorts, outputPortsOf } from './canvas-nodes'
 import { defaultCanvasProvider, normalizeNodeConfig, normalizeGeneratedAssets, splitNodeTrees } from './canvas-schema'
 
 export const edgeDefaults = { selectable: true, type: 'execution' }
@@ -32,6 +32,11 @@ export function toCanvasGraph(canvas) {
     // config migrates exactly once, here.
     const split = splitNodeTrees(node.config, node.uploadAssets, node.generatedAssets, node.outputResult)
     const provider = canvas.provider || defaultCanvasProvider
+    if (type === 'generate-model') {
+      const incoming = canvas.edges.filter((edge) => edge.target.nodeId === node.id).map((edge) => edge.target.port)
+      split.config = { ...(split.config || {}), inputMode: inferModelInputMode(split.config, incoming) }
+    }
+    const config = normalizeNodeConfig(type, split.config, provider)
     return {
       id: node.id,
       type: 'canvas',
@@ -47,10 +52,10 @@ export function toCanvasGraph(canvas) {
         status: 'ready',
         canvasType: type,
         provider,
-        config: normalizeNodeConfig(type, split.config, provider),
+        config,
         uploadAssets: split.uploadAssets,
         generatedAssets: normalizeGeneratedAssets(type, split.generatedAssets),
-        inputPorts: nodeInputPorts(type),
+        inputPorts: activeInputPorts(type, config),
         outputPorts: outputPortsOf(type, split.uploadAssets),
       },
     }
@@ -65,9 +70,12 @@ export function toCanvasGraph(canvas) {
       const key = `${edge.source.nodeId}->${edge.target.nodeId}`
       if (!sourceType || !targetType || !canConnectNodeTypes(sourceType, targetType) || seenEdges.has(key)) return null
       seenEdges.add(key)
+      const allowed = new Set((nodes.find((candidate) => candidate.id === edge.target.nodeId)?.data?.inputPorts || []).map((port) => port.id))
       const logicalConnections = canvas.edges
         .filter((candidate) => candidate.source.nodeId === edge.source.nodeId && candidate.target.nodeId === edge.target.nodeId)
         .map((candidate) => ({ sourcePort: candidate.source.port, targetPort: candidate.target.port }))
+        .filter((pair) => allowed.has(pair.targetPort))
+      if (!logicalConnections.length) return null
       return {
         id: edge.id,
         source: edge.source.nodeId,
@@ -147,8 +155,10 @@ export function toDomainCanvas(activeCanvas, nodes, edges) {
       const sourceType = nodes.find((node) => node.id === edge.source)?.data?.canvasType
       const targetType = nodes.find((node) => node.id === edge.target)?.data?.canvasType
       const sourceNode = nodes.find((node) => node.id === edge.source)
-      const preserved = edge.data?.logicalConnections?.filter(({ sourcePort, targetPort }) => canConnectPorts(sourceType, sourcePort, targetType, targetPort)) || []
-      const inferred = preserved.length ? preserved : inferLogicalConnections(sourceType, targetType, sourceNode?.data?.outputPorts)
+      const targetNode = nodes.find((node) => node.id === edge.target)
+      const allowed = new Set(activeInputPorts(targetType, targetNode?.data?.config).map((port) => port.id))
+      const preserved = edge.data?.logicalConnections?.filter(({ sourcePort, targetPort }) => allowed.has(targetPort) && canConnectPorts(sourceType, sourcePort, targetType, targetPort)) || []
+      const inferred = preserved.length ? preserved : inferLogicalConnections(sourceType, targetType, sourceNode?.data?.outputPorts, targetNode?.data?.config)
       return inferred.map(({ sourcePort, targetPort }, index) => ({
         id: inferred.length === 1 ? edge.id : `${edge.id}-${index + 1}`,
         source: { nodeId: edge.source, port: sourcePort },
@@ -158,8 +168,8 @@ export function toDomainCanvas(activeCanvas, nodes, edges) {
   }
 }
 
-function inferLogicalConnections(sourceType, targetType, outputs = nodeOutputPorts(sourceType)) {
-  const inputs = nodeInputPorts(targetType)
+function inferLogicalConnections(sourceType, targetType, outputs = nodeOutputPorts(sourceType), config?) {
+  const inputs = activeInputPorts(targetType, config)
   const named = outputs.flatMap((output) => {
     const input = inputs.find((candidate) => candidate.id === output.id && canConnectPorts(sourceType, output.id, targetType, candidate.id))
     return input ? [{ sourcePort: output.id, targetPort: input.id }] : []

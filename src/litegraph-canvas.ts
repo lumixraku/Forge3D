@@ -19,6 +19,21 @@ const TONE_COLOR: Record<string, string> = {
   slate: '#3c4a52',
 }
 const PREVIEW_HEIGHT = 148
+// Stock title text starts at NODE_TITLE_HEIGHT (30) to clear a status dot we
+// paint in the title color, so the gap is just empty padding.
+const TITLE_TEXT_X = 12
+const ACTION_INSET = 10
+const ACTION_GAP = 6
+const ACTION_SIZE = 28
+const measureText = (() => {
+  const canvas = document.createElement('canvas')
+  const context = canvas.getContext('2d')
+  return (label: string, font = '12px sans-serif') => {
+    if (!context) return label.length * 7
+    context.font = font
+    return context.measureText(label).width
+  }
+})()
 // Section fill and title stay this sage green. Selection is a separate stroke.
 const FRAME_COLOR = '#6d8f78'
 const FRAME_TITLE_BAND = 36
@@ -29,9 +44,9 @@ const LINK_COLOR: Record<string, string> = {
   dark: '#d7ff56',
 }
 const RUNNING_LINK_COLOR = '#d6ff55'
-// Drawn ourselves so every row shares one left edge, one right edge, and the
-// same corner. LiteGraph's own widgets are capsules with arrows that shove the
-// labels out of line.
+// Parameter rows share one left edge, one right edge, and the same corner.
+// Action buttons are not parameters: they size to the label and share a row.
+// LiteGraph's own widgets are capsules with arrows that shove the labels out of line.
 const WIDGET_PALETTE = {
   light: {
     field: '#ffffff',
@@ -120,6 +135,7 @@ function ensureNodeType() {
     ctx.restore()
   }
   ForgeNode.prototype.onDrawForeground = function(this: any, ctx: CanvasRenderingContext2D) {
+    this.graph?._forgeHost?.paintNodeActions(this, ctx)
     if (!this.properties.missing || this.flags?.collapsed) return
     ctx.font = '11px sans-serif'
     ctx.fillStyle = '#ef5b5b'
@@ -218,7 +234,12 @@ function inputPlan(node: any, edges: any[], byId: Map<string, any>) {
       if (edge.target !== node.id) return total
       return total + pairsOf(edge, byId.get(edge.source), node).filter((pair: any) => pair.targetPort === port.id).length
     }, 0)
-    const copies = port.multiple ? Math.max(1, count + 1) : 1
+    // Gen HD Model's loose-image mode takes up to four pictures. Show all four
+    // sockets up front. One spare that appears only after a connection reads as
+    // a single input. Any images already wired past four stay visible.
+    const copies = port.multiple
+      ? (node.data?.canvasType === 'generate-model' && port.id === 'image' ? Math.max(4, count) : Math.max(1, count + 1))
+      : 1
     for (let index = 0; index < copies; index += 1) slots.push(port)
   }
   return slots
@@ -252,6 +273,40 @@ function actionPlan(node: any) {
   if (['queued', 'running', 'cancelling'].includes(run?.status)) actions.push({ id: 'stop', label: 'Stop' })
   if (canOpenModel(node)) actions.push({ id: 'model', label: 'Open 3D' })
   return actions
+}
+
+function actionIcon(id: string) {
+  if (id === 'upload') return 'replace'
+  if (id === 'clear') return 'remove'
+  if (id === 'model') return 'model'
+  if (id.startsWith('download')) return 'download'
+  return ''
+}
+
+function packActions(actions: { id: string; label: string }[], width: number, kind: 'icon' | 'text') {
+  const inner = Math.max(40, width - ACTION_INSET * 2)
+  const rows: { id: string; label: string; kind: 'icon' | 'text'; w: number }[][] = []
+  let row: { id: string; label: string; kind: 'icon' | 'text'; w: number }[] = []
+  let used = 0
+  for (const action of actions) {
+    const w = kind === 'icon' ? ACTION_SIZE : Math.min(inner, Math.max(ACTION_SIZE, Math.ceil(measureText(action.label) + 20)))
+    if (row.length && used + ACTION_GAP + w > inner) {
+      rows.push(row)
+      row = []
+      used = 0
+    }
+    row.push({ ...action, kind, w })
+    used += w + ACTION_GAP
+  }
+  if (row.length) rows.push(row)
+  return rows
+}
+
+function actionBandHeight(actions: { id: string; label: string }[], width: number, preview: boolean) {
+  const icons = actions.filter((action) => actionIcon(action.id) && !preview)
+  const texts = actions.filter((action) => !actionIcon(action.id))
+  const rows = packActions(texts, width, 'text').length + packActions(icons, width, 'icon').length
+  return rows ? rows * ACTION_SIZE + (rows - 1) * ACTION_GAP + 12 : 0
 }
 
 function canOpenModel(node: any) {
@@ -338,9 +393,15 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   view.drawNodeShape = (node: any, ctx: CanvasRenderingContext2D, size: number[], fgcolor: string, bgcolor: string, selected: boolean, mouseOver: boolean) => {
     const outline = LiteGraph.NODE_BOX_OUTLINE_COLOR
     LiteGraph.NODE_BOX_OUTLINE_COLOR = 'rgba(0,0,0,0)'
+    const fillText = ctx.fillText.bind(ctx)
+    const titleY = LiteGraph.NODE_TITLE_TEXT_Y - LiteGraph.NODE_TITLE_HEIGHT
+    ctx.fillText = (text: string, x: number, y: number, maxWidth?: number) => {
+      fillText(text, y === titleY ? TITLE_TEXT_X : x, y, maxWidth)
+    }
     try {
       drawNodeShape(node, ctx, size, fgcolor, bgcolor, selected, mouseOver)
     } finally {
+      ctx.fillText = fillText
       LiteGraph.NODE_BOX_OUTLINE_COLOR = outline
     }
     if (!selected) return
@@ -459,7 +520,13 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     const localY = y - node.pos[1]
     const width = node.size[0]
     for (const widget of node.widgets) {
-      if (!widget || widget.disabled || widget.last_y == null) continue
+      if (!widget || widget.disabled) continue
+      const box = widget._box
+      if (box) {
+        if (localX >= box.x && localX <= box.x + box.w && localY >= box.y && localY <= box.y + box.h) return { node, widget }
+        continue
+      }
+      if (widget.last_y == null) continue
       const widgetWidth = widget.width || width
       const height = widget.computeSize ? widget.computeSize(width)[1] : LiteGraph.NODE_WIDGET_HEIGHT
       if (localX < 6 || localX > widgetWidth - 12 || localY < widget.last_y || localY > widget.last_y + height) continue
@@ -485,6 +552,35 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       widgetCursor = false
     }
   }
+  // Stock combo arrows stop on the first and last entry. These rows are a
+  // two-way menu: the next click past either end comes back around.
+  const passWidgets = view.processNodeWidgets.bind(view)
+  view.processNodeWidgets = (node: any, pos: number[], event: MouseEvent, activeWidget?: any) => {
+    if (event?.type === `${LiteGraph.pointerevents_method}down` && node?.widgets && pos) {
+      const localX = pos[0] - node.pos[0]
+      const localY = pos[1] - node.pos[1]
+      const width = node.size[0]
+      for (const widget of node.widgets) {
+        if (!widget || widget.type !== 'combo' || widget.disabled || widget.last_y == null) continue
+        const height = widget.computeSize ? widget.computeSize(width)[1] : LiteGraph.NODE_WIDGET_HEIGHT
+        const widgetWidth = widget.width || width
+        if (localX < 6 || localX > widgetWidth - 12 || localY < widget.last_y || localY > widget.last_y + height) continue
+        const delta = localX < 40 ? -1 : localX > widgetWidth - 40 ? 1 : 0
+        const values = widget.options?.values
+        const list = Array.isArray(values) ? values : []
+        if (!delta || list.length < 2) break
+        const index = list.indexOf(widget.value)
+        if (index < 0) break
+        const next = list[(index + delta + list.length) % list.length]
+        widget.value = next
+        widget.callback?.(next, view, node, pos, event)
+        view.dirty_canvas = true
+        return widget
+      }
+    }
+    return passWidgets(node, pos, event, activeWidget)
+  }
+
   view.drawNodeWidgets = (node: any, posY: number, ctx: CanvasRenderingContext2D) => {
     const widgets = node.widgets
     if (!widgets?.length) return 0
@@ -504,11 +600,6 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       const rowHeight = widget.computeSize ? widget.computeSize(width)[1] : height
       widget.last_y = y
       const hot = hoverWidget?.node === node && hoverWidget.widget === widget
-      const pressed = widget.type === 'button' && widget.clicked
-      if (pressed) {
-        widget.clicked = false
-        view.dirty_canvas = true
-      }
       ctx.globalAlpha = (view.editor_alpha ?? 1) * (widget.disabled ? 0.45 : 1)
       const rowX = inset
       const rowW = width - inset * 2
@@ -516,38 +607,32 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       ctx.beginPath()
       if (ctx.roundRect) ctx.roundRect(rowX, y, rowW, height, 5)
       else ctx.rect(rowX, y, rowW, height)
-      ctx.fillStyle = pressed ? palette.pressed : hot ? palette.hover : widget.type === 'button' ? palette.button : palette.field
+      ctx.fillStyle = hot ? palette.hover : palette.field
       ctx.fill()
       ctx.strokeStyle = hot ? palette.hoverOutline : palette.outline
       ctx.stroke()
       const midY = y + height / 2
-      if (widget.type === 'button') {
-        ctx.fillStyle = palette.text
-        ctx.textAlign = 'center'
-        ctx.fillText(widget.label || widget.name, width / 2, midY)
-      } else {
-        const stepped = widget.type === 'number' || widget.type === 'combo' || widget.type === 'slider'
-        ctx.strokeStyle = palette.caret
-        ctx.fillStyle = palette.caret
-        if (stepped) {
-          caret(ctx, rowX + 7, midY, -1)
-          caret(ctx, right - 12, midY, 1)
-        }
-        const value = widget.type === 'toggle' ? '' : widgetValue(widget)
-        ctx.textAlign = 'right'
-        ctx.fillStyle = palette.text
-        const valueX = widget.type === 'toggle' ? right - 30 : stepped ? right - 16 : right - 8
-        if (value) ctx.fillText(value, valueX, midY)
-        if (widget.type === 'toggle') paintSwitch(ctx, right - 8, midY, Boolean(widget.value), palette)
-        ctx.save()
-        ctx.beginPath()
-        ctx.rect(labelX, y, Math.max(8, valueX - labelX - 8), height)
-        ctx.clip()
-        ctx.textAlign = 'left'
-        ctx.fillStyle = palette.label
-        ctx.fillText(widget.label || widget.name || '', labelX, midY)
-        ctx.restore()
+      const stepped = widget.type === 'number' || widget.type === 'combo' || widget.type === 'slider'
+      ctx.strokeStyle = palette.caret
+      ctx.fillStyle = palette.caret
+      if (stepped) {
+        caret(ctx, rowX + 7, midY, -1)
+        caret(ctx, right - 12, midY, 1)
       }
+      const value = widget.type === 'toggle' ? '' : widgetValue(widget)
+      ctx.textAlign = 'right'
+      ctx.fillStyle = palette.text
+      const valueX = widget.type === 'toggle' ? right - 30 : stepped ? right - 16 : right - 8
+      if (value) ctx.fillText(value, valueX, midY)
+      if (widget.type === 'toggle') paintSwitch(ctx, right - 8, midY, Boolean(widget.value), palette)
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(labelX, y, Math.max(8, valueX - labelX - 8), height)
+      ctx.clip()
+      ctx.textAlign = 'left'
+      ctx.fillStyle = palette.label
+      ctx.fillText(widget.label || widget.name || '', labelX, midY)
+      ctx.restore()
       y += rowHeight + 4
     }
     ctx.restore()
@@ -711,6 +796,8 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   }
   canvas.addEventListener('pointerleave', clearLinkHover)
 
+  // Title rename is a DOM field in the camera layer, so it rides with the node.
+  let renamingId: string | null = null
   function publishViewport() {
     const scale = view.ds.scale
     handlers.onViewport({
@@ -718,6 +805,34 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       y: view.ds.offset[1] * scale,
       zoom: scale,
     })
+  }
+  function renameNode() {
+    return renamingId ? byForgeId().get(renamingId) : null
+  }
+  function restoreTitle(node: any) {
+    if (node?.getTitle) delete node.getTitle
+  }
+  function renameField() {
+    const node = renameNode()
+    if (!node || node.flags?.collapsed) return null
+    const height = LiteGraph.NODE_TITLE_HEIGHT
+    return {
+      id: renamingId,
+      x: node.pos[0],
+      y: node.pos[1] - height,
+      w: node.size[0],
+      h: height,
+      textX: TITLE_TEXT_X,
+      value: node.title || '',
+      color: '#fff',
+    }
+  }
+  function closeRename() {
+    if (!renamingId) return
+    restoreTitle(renameNode())
+    renamingId = null
+    view.setDirty(true, true)
+    publishViewport()
   }
 
   // LiteGraph lays the graph out in CSS pixels, then draws into a backing
@@ -848,13 +963,14 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       slot.color_off = slot.color_on
     }
     for (const parameter of widgetPlan(node)) addParameterWidget(created, node, parameter)
-    for (const action of actionPlan(node)) {
-      created.addWidget('button', action.label, null, () => runAction(node.id, action.id))
-    }
     const size = created.computeSize()
     size[0] = Math.max(250, size[0])
     created.previewSlot = previewSlot(node)
-    if (created.previewSlot) size[1] += PREVIEW_HEIGHT
+    created.uploadWell = node.data?.canvasType === 'reference-image' && !created.previewSlot
+    const actions = actionPlan(node).filter((action: { id: string }) => !(created.uploadWell && (action.id === 'upload' || action.id === 'clear')))
+    const band = actionBandHeight(actions, size[0], Boolean(created.previewSlot))
+    if (band) size[1] += band
+    if (created.previewSlot || created.uploadWell) size[1] += PREVIEW_HEIGHT
     if (node._missing) size[1] += 16
     created.setSize(size)
     graph.add(created)
@@ -1252,6 +1368,13 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   view._mousedown_callback = (event: MouseEvent) => {
     if (event.button === 0 && view.graph) {
       view.adjustMouseEvent(event)
+      const button = actionAt(event.canvasX, event.canvasY)
+      if (button) {
+        runAction(button.nodeId, button.id)
+        event.stopPropagation()
+        event.preventDefault()
+        return
+      }
       const onNode = view.graph.getNodeOnPos(event.canvasX, event.canvasY, view.visible_nodes, 5)
       const onGroup = frameChrome(event.canvasX, event.canvasY)
       if (!onNode && !onGroup) {
@@ -1273,6 +1396,16 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     const result = view.processMouseMove(event)
     trackLinkHover()
     trackWidgetHover()
+    const button = event.canvasX == null ? null : actionAt(event.canvasX, event.canvasY)
+    const key = button?.key || null
+    if (key !== hoverActionKey) {
+      hoverActionKey = key
+      view.setDirty(true, true)
+    }
+    if (button) {
+      canvas.style.cursor = 'pointer'
+      widgetCursor = true
+    }
     return result
   }
   canvas.addEventListener('mousemove', view._mousemove_callback)
@@ -1341,20 +1474,12 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       openNodePreview(node)
       return
     }
-    view.prompt('Name', node.title, (value: string) => {
-      if (value?.trim()) handlers.onName(node.properties.forgeId, value.trim())
-    }, null, false)
-    const dialog = view.prompt_box as HTMLElement | null
-    if (!dialog) return
-    // The stock prompt centers itself with canvas.width, which is the bitmap
-    // size. Place the field on the title, in CSS pixels.
-    const rect = canvas.getBoundingClientRect()
-    const titleY = node.pos[1] - LiteGraph.NODE_TITLE_HEIGHT
-    const cssX = (node.pos[0] + view.ds.offset[0]) * view.ds.scale
-    const cssY = (titleY + view.ds.offset[1]) * view.ds.scale
-    dialog.style.transform = 'none'
-    dialog.style.left = `${Math.min(Math.max(8, cssX), Math.max(8, rect.width - 280))}px`
-    dialog.style.top = `${Math.min(Math.max(8, cssY), Math.max(8, rect.height - 48))}px`
+    restoreTitle(renameNode())
+    renamingId = node.properties.forgeId
+    // The canvas title uses the same string. Hide it so the field is the only copy.
+    node.getTitle = () => ''
+    view.setDirty(true, true)
+    publishViewport()
   }
 
   function sync(nodes: any[], edges: any[], nodeRuns: Record<string, any> = {}, missing: Record<string, string[]> = {}) {
@@ -1443,22 +1568,173 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     return { dimensions: { width: live.size[0], height: live.size[1] }, position: { x: live.pos[0], y: live.pos[1] } }
   }
 
+  // Text actions (Run, Run downstream, Stop, Approve) are drawn in the node,
+  // in the node's own coordinates. A DOM button kept its own position and
+  // stayed where the node used to be.
+  function localActions(node: any) {
+    const buttons: { key: string; nodeId: string; id: string; label: string; x: number; y: number; w: number; h: number }[] = []
+    if (node.flags?.collapsed) return buttons
+    const flow = flowNodes.find((item) => item.id === node.properties.forgeId)
+    if (!flow) return buttons
+    const preview = Boolean(node.previewSlot)
+    const actions = actionPlan(flow).filter((action) => !actionIcon(action.id) && !(node.uploadWell && (action.id === 'upload' || action.id === 'clear')))
+    if (!actions.length) return buttons
+    const width = node.size[0]
+    const icons = actionPlan(flow).filter((action) => actionIcon(action.id) && !(node.uploadWell && (action.id === 'upload' || action.id === 'clear')))
+    const textRows = packActions(actions, width, 'text')
+    const iconRows = preview ? [] : packActions(icons, width, 'icon')
+    const rowCount = textRows.length + iconRows.length
+    const band = rowCount ? rowCount * ACTION_SIZE + (rowCount - 1) * ACTION_GAP + 12 : 0
+    const previewTop = preview || node.uploadWell ? node.size[1] - PREVIEW_HEIGHT : node.size[1]
+    let y = previewTop - band + 6
+    for (const row of textRows) {
+      let x = ACTION_INSET
+      for (const item of row) {
+        buttons.push({ key: `${flow.id}:${item.id}`, nodeId: flow.id, id: item.id, label: item.label, x, y, w: item.w, h: ACTION_SIZE })
+        x += item.w + ACTION_GAP
+      }
+      y += ACTION_SIZE + ACTION_GAP
+    }
+    return buttons
+  }
+
+  let hoverActionKey: string | null = null
+  function paintNodeActions(node: any, ctx: CanvasRenderingContext2D) {
+    const buttons = localActions(node)
+    if (!buttons.length) return
+    const palette = theme === 'light' ? WIDGET_PALETTE.light : WIDGET_PALETTE.dark
+    ctx.save()
+    ctx.font = '12px sans-serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.lineWidth = 1
+    for (const button of buttons) {
+      const hot = hoverActionKey === button.key
+      ctx.beginPath()
+      if (ctx.roundRect) ctx.roundRect(button.x, button.y, button.w, button.h, 8)
+      else ctx.rect(button.x, button.y, button.w, button.h)
+      ctx.fillStyle = hot ? palette.hover : palette.field
+      ctx.fill()
+      ctx.strokeStyle = hot ? palette.hoverOutline : palette.outline
+      ctx.stroke()
+      ctx.fillStyle = palette.text
+      ctx.fillText(button.label, button.x + button.w / 2, button.y + button.h / 2)
+    }
+    ctx.restore()
+  }
+
+  function actionAt(x: number, y: number) {
+    const node = view.graph?.getNodeOnPos(x, y, view.visible_nodes, 5)
+    if (!node) return null
+    const localX = x - node.pos[0]
+    const localY = y - node.pos[1]
+    for (const button of localActions(node)) {
+      if (localX >= button.x && localX <= button.x + button.w && localY >= button.y && localY <= button.y + button.h) return button
+    }
+    return null
+  }
+
+  function actionChrome() {
+    const buttons: { key: string; nodeId: string; id: string; label: string; icon: string; kind: 'icon' | 'text'; x: number; y: number; w: number; h: number }[] = []
+    for (const node of graph._nodes) {
+      if (node.flags?.collapsed) continue
+      const flow = flowNodes.find((item) => item.id === node.properties.forgeId)
+      if (!flow) continue
+      const preview = Boolean(node.previewSlot)
+      const actions = actionPlan(flow).filter((action) => actionIcon(action.id) && !(node.uploadWell && (action.id === 'upload' || action.id === 'clear')))
+      if (!actions.length) continue
+      const width = node.size[0]
+      const texts = actionPlan(flow).filter((action) => !actionIcon(action.id))
+      const textRows = packActions(texts, width, 'text')
+      const iconRows = preview ? [] : packActions(actions, width, 'icon')
+      const rowCount = textRows.length + iconRows.length
+      const band = rowCount ? rowCount * ACTION_SIZE + (rowCount - 1) * ACTION_GAP + 12 : 0
+      const previewTop = preview || node.uploadWell ? node.size[1] - PREVIEW_HEIGHT : node.size[1]
+      let y = node.pos[1] + previewTop - band + 6 + textRows.length * (ACTION_SIZE + ACTION_GAP)
+      for (const row of iconRows) {
+        let x = node.pos[0] + ACTION_INSET
+        for (const item of row) {
+          buttons.push({
+            key: `${flow.id}:${item.id}`,
+            nodeId: flow.id,
+            id: item.id,
+            label: item.label,
+            icon: actionIcon(item.id),
+            kind: item.kind,
+            x,
+            y,
+            w: item.w,
+            h: ACTION_SIZE,
+          })
+          x += item.w + ACTION_GAP
+        }
+        y += ACTION_SIZE + ACTION_GAP
+      }
+      if (!preview) continue
+      let x = node.pos[0] + width - ACTION_INSET - actions.length * ACTION_SIZE - (actions.length - 1) * ACTION_GAP
+      const iconY = node.pos[1] + node.size[1] - PREVIEW_HEIGHT + 12
+      for (const action of actions) {
+        buttons.push({
+          key: `${flow.id}:${action.id}`,
+          nodeId: flow.id,
+          id: action.id,
+          label: action.label,
+          icon: actionIcon(action.id),
+          kind: 'icon',
+          x,
+          y: iconY,
+          w: ACTION_SIZE,
+          h: ACTION_SIZE,
+        })
+        x += ACTION_SIZE + ACTION_GAP
+      }
+    }
+    return buttons
+  }
+
+  function uploadWells() {
+    const wells = []
+    for (const node of graph._nodes) {
+      if (!node.uploadWell || node.flags?.collapsed) continue
+      const nodeId = node.properties.forgeId
+      wells.push({
+        key: nodeId,
+        nodeId,
+        x: node.pos[0] + 8,
+        y: node.pos[1] + node.size[1] - PREVIEW_HEIGHT + 4,
+        w: node.size[0] - 16,
+        h: PREVIEW_HEIGHT - 12,
+      })
+    }
+    return wells
+  }
+
   function selectedFrameButton() {
     const frame = flowNodes.find((node) => node.type === 'frame' && node.selected)
     const group = frame && graph._groups.find((item: any) => item.forgeId === frame.id)
     if (!frame || !group) return null
     const scale = view.ds.scale
+    const fontSize = group.font_size || 24
+    const titleWidth = measureText(String(group.title || ''), `${fontSize}px Arial`)
+    const buttonHeight = 22
+    // Title baseline sits fontSize below the section top. Center the button on that text.
+    const textCenter = fontSize - 9
     return {
       id: frame.id,
-      left: (group.pos[0] + group.size[0] - 72 + view.ds.offset[0]) * scale,
-      top: (group.pos[1] + view.ds.offset[1]) * scale - 26,
+      left: (group.pos[0] + 4 + titleWidth + 8 + view.ds.offset[0]) * scale,
+      top: (group.pos[1] + textCenter + view.ds.offset[1]) * scale - buttonHeight / 2,
     }
   }
+
+  view.node_title_color = '#fff'
+  LiteGraph.NODE_SELECTED_TITLE_COLOR = '#fff'
 
   const hostApi = {
     sync,
     scheduleEdges,
     onNodeDoubleClick,
+    renameField,
+    closeRename,
     resize() {
       const parent = canvas.parentElement
       if (!parent) return
@@ -1498,6 +1774,10 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     screenToFlowCoordinate,
     findNode,
     selectedFrameButton,
+    actionChrome,
+    uploadWells,
+    paintNodeActions,
+    runNodeAction: runAction,
     destroy() {
       window.removeEventListener('keydown', onLinkKey, true)
       canvas.removeEventListener('mousedown', view._mousedown_callback, true)

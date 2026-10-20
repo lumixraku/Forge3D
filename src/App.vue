@@ -25,7 +25,7 @@ import { useDebugSettings } from './composables/useDebugSettings'
 import { request } from './api'
 import { edgeDefaults, nodePresentation } from './canvas-graph'
 import { applyNodeParameter, defaultCanvasProvider } from './canvas-schema'
-import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, compatibleUpstreamNodeTypes, hasModelEditor, isExecutableNodeType, missingParametersByNode, nodeCatalog, nodeCategories, nodeDefaults, nodeInputPorts, nodeOutputPorts, outputPortsOf } from './canvas-nodes'
+import { activeInputPorts, canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, compatibleUpstreamNodeTypes, hasModelEditor, isExecutableNodeType, missingParametersByNode, nodeCatalog, nodeCategories, nodeDefaults, nodeOutputPorts, outputPortsOf } from './canvas-nodes'
 import { resultArtifacts } from './run-results'
 
 const ModelEditor = defineAsyncComponent(() => import('./components/ModelEditor.vue'))
@@ -163,7 +163,7 @@ const { syncHistoryCanvas, recordHistory, undo, redo } = useCanvasHistory({
 
 const {
   hydrating, toCanvas, fromCanvas, syncCanvasSummary, loadCanvass, openCanvas,
-  saveCanvas, stopPendingSave, duplicateCanvas, deleteCanvas, createCanvas,
+  saveCanvas, stopPendingSave, duplicateCanvas, deleteCanvas, creatingCanvas, createCanvas,
   renameCanvas, setCanvasProvider, exportCanvas, importCanvasFile, refreshCanvasFromServer,
 } = useCanvasDocument({
   canvases,
@@ -396,7 +396,22 @@ function updateNodeParameter({ id, key, value }) {
 function updateNodeConfig(id, config) {
   const node = nodes.value.find((candidate) => candidate.id === id)
   if (!node) return
-  node.data = { ...node.data, config }
+  const inputPorts = activeInputPorts(node.data.canvasType, config)
+  const previous = new Set((node.data.inputPorts || []).map((port) => port.id))
+  const portsChanged = inputPorts.length !== previous.size || inputPorts.some((port) => !previous.has(port.id))
+  node.data = { ...node.data, config, inputPorts }
+  // The other mode's wires are not inputs anymore. Drop them so a later save
+  // cannot retarget a loose image onto Front, or a labeled view onto Image.
+  if (portsChanged) {
+    const allowed = new Set(inputPorts.map((port) => port.id))
+    edges.value = edges.value.flatMap((edge) => {
+      if (edge.target !== id) return [edge]
+      const pairs = edge.data?.logicalConnections
+      if (!pairs?.length) return []
+      const next = pairs.filter((pair) => allowed.has(pair.targetPort))
+      return next.length ? [{ ...edge, data: { ...edge.data, logicalConnections: next } }] : []
+    })
+  }
   saveCanvas()
 }
 
@@ -564,6 +579,8 @@ async function arrangeCanvas() {
 
 function buildCanvasNode(type, { id, position, selected = false, config, uploadAssets, generatedAssets, parentNode, initialAsset } = {}) {
   const [kind, detail, tone] = nodePresentation[type]
+  const provider = activeCanvas.value?.provider || defaultCanvasProvider
+  const nodeConfig = { ...nodeDefaults(type, provider), ...config }
   const data = {
     kind,
     label: nodeCatalog.find((item) => item.type === type)?.label || type,
@@ -571,11 +588,11 @@ function buildCanvasNode(type, { id, position, selected = false, config, uploadA
     tone,
     status: 'ready',
     canvasType: type,
-    provider: activeCanvas.value?.provider || defaultCanvasProvider,
-    config: { ...nodeDefaults(type, activeCanvas.value?.provider || defaultCanvasProvider), ...config },
+    provider,
+    config: nodeConfig,
     uploadAssets: { ...uploadAssets },
     generatedAssets: { ...generatedAssets },
-    inputPorts: nodeInputPorts(type),
+    inputPorts: activeInputPorts(type, nodeConfig),
     outputPorts: outputPortsOf(type, uploadAssets),
   }
   // File objects are only a hand-off from the canvas drop to the mounted node.
@@ -727,7 +744,7 @@ async function materializeResults(sourceId, runId, output, status) {
     for (const targetId of targets) {
       const target = nodes.value.find((node) => node.id === targetId)
       if (!target) continue
-      const targetPorts = nodeInputPorts(target.data.canvasType)
+      const targetPorts = activeInputPorts(target.data.canvasType, target.data.config)
       const usedPorts = new Set()
       for (const node of created) {
         const outputPort = nodeOutputPorts(node.data.canvasType)[0]
@@ -1037,7 +1054,7 @@ onUnmounted(() => {
       :saved-state="savedState"
       :theme="theme"
       :account="account"
-      :busy="agentBusy"
+      :busy="agentBusy || creatingCanvas"
       @rename="renameCanvas"
       @open-canvas="openCanvas"
       @create-canvas="createCanvas"
@@ -1163,6 +1180,10 @@ onUnmounted(() => {
       <ExecutionOutputPanel id="task-queue-panel" :class="{ 'forge3d-is-open': taskQueueOpen }" :executions="executions" :active-execution="run" :active-executions="activeExecutions" :loading="executionsLoading" />
     </section>
     <ModelEditor v-else-if="modelEditorNode" :node="modelEditorNode" @back="closeModelEditor" @update-config="updateNodeConfig(modelEditorNode.id, $event)" />
+    <div v-if="creatingCanvas" class="forge3d-create-mask" role="status" aria-live="polite" aria-busy="true" aria-label="Loading">
+      <span class="forge3d-create-spin" />
+      <span class="forge3d-create-label">Loading</span>
+    </div>
     <ImagePreviewOverlay :preview="imagePreview" @close="closeImagePreview" />
     <DebugPanel
       v-if="debugMode"
@@ -1182,5 +1203,33 @@ onUnmounted(() => {
 
 <style scoped>
 .forge3d-canvas-panel :deep(.forge3d-litegraph) { grid-row: 2; height: 100%; min-height: 0; }
+.forge3d-create-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 14px;
+  background: rgba(72, 76, 74, 0.62);
+}
+.forge3d-create-spin {
+  width: 54px;
+  height: 54px;
+  box-sizing: border-box;
+  border: 5px solid rgba(255, 255, 255, 0.22);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: forge3d-create-spin 0.7s linear infinite;
+}
+.forge3d-create-label {
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+@keyframes forge3d-create-spin { to { transform: rotate(360deg); } }
 </style>
 

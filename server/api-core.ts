@@ -17,6 +17,7 @@ import { latestNodeRuns } from './node-state.js'
 import { executionAssets } from './run-assets.js'
 import { assertProjectExecutionCapacity, cancelExecution, canvasExecutions, createExecution, executeExecution, executionById, executionDto, paginateAssets, resumeMeshyExecution, syncExecutionWithMeshy, syncExecutionWithTripo } from './executions.js'
 import { createInitialSession, createCanvas, createSession, duplicateCanvas } from './canvases.js'
+import { starterCanvasGraph, starterCanvasViewport } from '../src/starter-canvas.js'
 import { runDeepSeekAgent } from './deepseek.js'
 import { cancelAgentViaService, runAgentViaService } from './agent-client.js'
 import { tripoNodeTypes } from './tripo-mapping.js'
@@ -37,6 +38,16 @@ function json(body, status = 200) {
 
 async function parseJson(request) {
   return request.json().catch(() => ({}))
+}
+
+/** An empty create gets the common workflows. A graph the caller already sent is left as-is. */
+function withStarterGraph(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return input
+  const nodes = input.nodes
+  const edges = input.edges
+  if (!Array.isArray(nodes) || nodes.length || (edges != null && (!Array.isArray(edges) || edges.length))) return input
+  const starter = starterCanvasGraph()
+  return { ...input, nodes: starter.nodes, edges: starter.edges, viewport: starterCanvasViewport }
 }
 
 function meshyTaskRef(nodeRun) {
@@ -624,7 +635,7 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
     }
 
     if (method === 'POST' && parts[1] === 'projects' && parts.length === 2) {
-      const canvas = createCanvas(await parseJson(request))
+      const canvas = createCanvas(withStarterGraph(await parseJson(request)))
       state.canvases.push(canvas)
       state.sessions.push(createInitialSession(canvas))
       await store.persist(['canvases', 'sessions'])

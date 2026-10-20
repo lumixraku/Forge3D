@@ -252,16 +252,33 @@ export const canvasNodeSchema: CanvasNodeSchema[] = canvasNodeDefinitions.map((n
 
 export const canvasNodeSchemas = Object.fromEntries(canvasNodeSchema.map((node) => [node.type, node])) as Record<string, CanvasNodeSchema>
 
+// Gen HD Model has two exclusive ways in. Images takes any loose pictures.
+// Views takes the labeled front / back / left / right ports. Text stays in both.
+const modelInputModeParameter: NodeParameter = {
+  key: 'inputMode',
+  label: 'Mode',
+  control: 'segmented',
+  options: [
+    { value: 'images', label: 'Images' },
+    { value: 'views', label: 'Views' },
+  ],
+}
+
 export function nodeSchema(type: string, provider: CanvasProvider = 'tripo') {
   const schema = canvasNodeSchemas[type]
-  if (!schema || provider !== 'meshy') return schema
-  if (type === 'generate-model' || type === 'multiview-to-3d' || type === 'text-to-3d') {
-    return { ...schema, defaults: meshyModelDefaults, parameters: meshyModelParameters, effects: undefined }
+  if (!schema) return schema
+  let next = schema
+  if (provider === 'meshy' && (type === 'generate-model' || type === 'multiview-to-3d' || type === 'text-to-3d')) {
+    next = { ...schema, defaults: meshyModelDefaults, parameters: meshyModelParameters, effects: undefined }
+  } else if (provider === 'meshy' && type === 'rigging') {
+    next = { ...schema, defaults: { heightMeters: 1.7 }, parameters: meshyRigParameters, effects: undefined }
   }
-  if (type === 'rigging') {
-    return { ...schema, defaults: { heightMeters: 1.7 }, parameters: meshyRigParameters, effects: undefined }
+  if (type !== 'generate-model') return next
+  return {
+    ...next,
+    defaults: { ...next.defaults, inputMode: 'images' },
+    parameters: [modelInputModeParameter, ...next.parameters],
   }
-  return schema
 }
 
 export function nodeDefaults(type: string, provider: CanvasProvider = 'tripo') {

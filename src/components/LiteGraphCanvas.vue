@@ -1,5 +1,5 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { createGraphHost } from '../litegraph-canvas'
 import { createModelThumbnail } from '../model-thumbnail'
 
@@ -27,6 +27,11 @@ const canvasEl = ref(null)
 const mapEl = ref(null)
 const viewport = ref({ x: 0, y: 0, zoom: 1 })
 const frameButton = ref(null)
+const nodeActions = ref([])
+const uploadWells = ref([])
+const renameField = ref(null)
+const renameDraft = ref('')
+const renameInput = ref(null)
 const fileInput = ref(null)
 let uploadNodeId = ''
 let host = null
@@ -35,6 +40,32 @@ const consumedAssets = new WeakSet()
 
 function refreshFrameButton() {
   frameButton.value = host?.selectedFrameButton() || null
+  nodeActions.value = host?.actionChrome() || []
+  uploadWells.value = host?.uploadWells() || []
+  renameField.value = host?.renameField() || null
+}
+
+function commitRename() {
+  const field = renameField.value
+  if (!field) return
+  const name = renameDraft.value.trim()
+  const previous = field.value
+  const id = field.id
+  host?.closeRename()
+  if (name && name !== previous) emit('update-name', { id, name })
+}
+
+function cancelRename() {
+  host?.closeRename()
+}
+
+function onUploadWellDrop(event, well) {
+  const file = event.dataTransfer?.files?.[0]
+  if (file) uploadAsset(well.nodeId, file)
+}
+
+function onNodeAction(action) {
+  host?.runNodeAction(action.nodeId, action.id)
 }
 
 onMounted(() => {
@@ -67,6 +98,7 @@ onMounted(() => {
   host.setTheme(props.theme)
   host.setMode(props.canvasMode)
   host.sync(props.nodes, props.edges, props.nodeRuns, props.missingParameters)
+  refreshFrameButton()
   observer = new ResizeObserver(() => { host?.resize(); drawMinimap() })
   observer.observe(root.value)
   scanUploads()
@@ -84,6 +116,17 @@ watch(() => [props.nodes, props.edges, props.nodeRuns, props.missingParameters],
   refreshFrameButton()
   scanUploads()
 }, { deep: true })
+
+watch(() => renameField.value?.id, async (id) => {
+  if (!id) return
+  renameDraft.value = renameField.value.value
+  await nextTick()
+  const input = renameInput.value
+  if (!input) return
+  input.focus()
+  const end = input.value.length
+  input.setSelectionRange(end, end)
+})
 
 watch(() => props.theme, (theme) => { host?.setTheme(theme); drawMinimap() })
 watch(() => props.canvasMode, (mode) => host?.setMode(mode))
@@ -307,6 +350,59 @@ async function uploadAsset(id, file) {
         </span>
       </div>
     </div>
+    <div class="forge3d-node-actions" :style="{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})` }">
+      <button
+        v-for="well in uploadWells"
+        :key="well.key"
+        type="button"
+        class="forge3d-upload-well"
+        :style="{ left: `${well.x}px`, top: `${well.y}px`, width: `${well.w}px`, height: `${well.h}px` }"
+        @pointerdown.stop
+        @click.stop="onNodeAction({ nodeId: well.nodeId, id: 'upload' })"
+        @dragover.prevent.stop
+        @drop.prevent.stop="onUploadWellDrop($event, well)"
+      >
+        <strong>Drop or choose asset</strong>
+        <small>JPG, PNG, WEBP or 3D model · max 100 MB</small>
+      </button>
+      <button
+        v-for="action in nodeActions"
+        :key="action.key"
+        type="button"
+        class="forge3d-node-action"
+        :class="[action.kind === 'icon' ? 'forge3d-node-action-icon' : 'forge3d-node-action-text', action.icon === 'remove' ? 'forge3d-node-action-remove' : '']"
+        :style="{ left: `${action.x}px`, top: `${action.y}px`, width: `${action.w}px`, height: `${action.h}px` }"
+        :title="action.label"
+        :aria-label="action.label"
+        @pointerdown.stop
+        @click.stop="onNodeAction(action)"
+      >
+        <svg v-if="action.icon === 'replace'" viewBox="0 0 16 16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M13.2 8A5.2 5.2 0 1 1 11 3.6M13.2 2.2v3.2H10" /></svg>
+        <svg v-else-if="action.icon === 'remove'" viewBox="0 0 16 16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M3.2 4.2h9.6M6.2 4.2V3h3.6v1.2M4.4 4.2l.6 8.2h5.9l.6-8.2" /></svg>
+        <svg v-else-if="action.icon === 'download'" viewBox="0 0 16 16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M8 2.5v7M5.2 7.2 8 10l2.8-2.8M3.2 13.2h9.6" /></svg>
+        <svg v-else-if="action.icon === 'model'" viewBox="0 0 16 16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="m8 2.2 5 2.8v5.6l-5 2.8-5-2.8V5z" /><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M3 5.1 8 8l5-2.9M8 8v5.4" /></svg>
+        <span v-else>{{ action.label }}</span>
+      </button>
+      <form
+        v-if="renameField"
+        class="forge3d-node-rename"
+        :style="{ left: `${renameField.x}px`, top: `${renameField.y}px`, width: `${renameField.w}px`, height: `${renameField.h}px` }"
+        @submit.prevent="commitRename"
+      >
+        <input
+          ref="renameInput"
+          v-model="renameDraft"
+          aria-label="Node name"
+          spellcheck="false"
+          :style="{ left: `${renameField.textX}px`, width: `calc(100% - ${renameField.textX}px)`, color: renameField.color }"
+          @pointerdown.stop
+          @keydown.stop
+          @keydown.enter.prevent="commitRename"
+          @keydown.esc.prevent="cancelRename"
+          @blur="commitRename"
+        />
+      </form>
+    </div>
     <button
       v-if="frameButton"
       class="forge3d-frame-run"
@@ -338,11 +434,22 @@ async function uploadAsset(id, file) {
 .forge3d-frame-draw-layer { position: absolute; inset: 0; z-index: 4; pointer-events: none; transform-origin: 0 0; }
 .forge3d-frame-draw-rect { position: absolute; border-style: dashed; border-color: var(--acid); background: color-mix(in srgb, var(--acid) 5%, transparent); }
 .forge3d-frame-draw-size { position: absolute; bottom: 100%; left: 0; transform-origin: bottom left; border-radius: 5px; background: color-mix(in srgb, var(--acid) 16%, var(--bg-input)); padding: 3px 6px; font-family: var(--font-mono, monospace); font-size: 10px; font-weight: 600; line-height: 1; color: var(--text-primary); white-space: nowrap; }
+.forge3d-node-actions { position: absolute; inset: 0; z-index: 5; pointer-events: none; transform-origin: 0 0; }
+.forge3d-upload-well { position: absolute; pointer-events: auto; display: grid; place-content: center; gap: 4px; margin: 0; padding: 12px; border: 1.5px dashed var(--line-strong); border-radius: 8px; background: var(--bg-input); color: var(--text-primary); text-align: center; cursor: pointer; }
+.forge3d-upload-well:hover { border-color: var(--acid); background: color-mix(in srgb, var(--acid) 8%, var(--bg-input)); }
+.forge3d-upload-well strong { font: 600 12px/1.2 var(--font-sans, sans-serif); }
+.forge3d-upload-well small { font: 11px/1.3 var(--font-sans, sans-serif); color: var(--text-muted); }
+.forge3d-node-action { position: absolute; pointer-events: auto; display: grid; place-items: center; margin: 0; padding: 0; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-card); color: var(--text-primary); box-shadow: 0 1px 2px rgb(0 0 0 / 12%); cursor: pointer; }
+.forge3d-node-action:hover { background: var(--bg-input); border-color: var(--node-accent, var(--acid)); }
+.forge3d-node-action:focus-visible { outline: 2px solid var(--acid); outline-offset: 1px; }
+.forge3d-node-action-icon svg { width: 16px; height: 16px; }
+.forge3d-node-action-text { padding: 0 10px; font: 500 12px/1 var(--font-sans, sans-serif); white-space: nowrap; }
+.forge3d-node-action-remove:hover { color: #c24545; border-color: #c24545; }
 .forge3d-frame-run { position: absolute; z-index: 5; height: 22px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg-card); color: var(--acid); font: 600 10px/1 var(--font-mono, monospace); letter-spacing: .04em; text-transform: uppercase; }
 .forge3d-minimap { position: absolute; z-index: 6; right: 12px; bottom: 12px; width: 220px; height: 140px; border-radius: 8px; box-shadow: var(--shadow-md); cursor: pointer; touch-action: none; }
 .forge3d-litegraph-file { display: none; }
 .forge3d-canvas-mode-frame .forge3d-litegraph-surface { cursor: crosshair; }
-:deep(.graphdialog) { position: absolute; z-index: 20; display: flex; gap: 6px; align-items: center; padding: 8px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-card); color: var(--text-primary); }
-:deep(.graphdialog .value) { min-width: 180px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg-input); color: inherit; padding: 4px 6px; }
-:deep(.graphdialog button) { border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg-input); color: inherit; padding: 4px 8px; }
+.forge3d-node-rename { position: absolute; pointer-events: none; margin: 0; padding: 0; background: transparent; border: 0; }
+.forge3d-node-rename input { position: absolute; pointer-events: auto; top: 0; height: 100%; margin: 0; padding: 0; border: 0; background: transparent; font: 14px Arial; line-height: 14px; outline: none; caret-color: #fff; box-sizing: border-box; }
+.forge3d-node-rename input::selection { background: rgb(255 255 255 / 22%); }
 </style>

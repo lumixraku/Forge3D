@@ -1,6 +1,7 @@
 import { nextTick, ref } from 'vue'
 import { request } from '../api'
 import { defaultCanvasProvider } from '../canvas-schema'
+import { starterCanvasGraph, starterCanvasViewport } from '../starter-canvas'
 import { reconcileCanvasGraph, toCanvasGraph, toDomainCanvas } from '../canvas-graph'
 import { importPlacementOffset, validateImportedCanvas } from '../canvas-fragment'
 import { deleteWorkflowDraft, readWorkflowDraft, writeWorkflowDraft } from '../workflow-draft'
@@ -335,10 +336,15 @@ export function useCanvasDocument({
     }
   }
 
+  const creatingCanvas = ref(false)
+
   async function createCanvas() {
+    if (creatingCanvas.value) return
     const name = window.prompt('Name this canvas', 'New 3D canvas')?.trim()
     if (!name) return
+    creatingCanvas.value = true
     try {
+      const starter = starterCanvasGraph()
       const canvas = await request('/api/projects', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -346,14 +352,16 @@ export function useCanvasDocument({
           name,
           description: 'A new 3D production canvas ready to customize.',
           provider: defaultCanvasProvider,
-          nodes: [],
-          edges: [],
-          viewport: { x: 80, y: 160, zoom: 0.72 },
+          nodes: starter.nodes,
+          edges: starter.edges,
+          viewport: starterCanvasViewport,
         }),
       })
       await loadCanvass(canvas.id)
     } catch (caught) {
       error.value = caught.message
+    } finally {
+      creatingCanvas.value = false
     }
   }
 
@@ -427,6 +435,7 @@ export function useCanvasDocument({
     refreshCanvasFromServer,
     duplicateCanvas,
     deleteCanvas,
+    creatingCanvas,
     createCanvas,
     renameCanvas,
     setCanvasProvider,

@@ -35,6 +35,30 @@ export function nodeInputPorts(type: string): NodePort[] {
   return toPortList(nodeDefinition(type)?.inputs)
 }
 
+const namedViewPortIds = ['front', 'back', 'left', 'right']
+
+/** Images unless this Gen HD Model was explicitly set to the labeled-view mode. */
+export function modelInputMode(config?: Record<string, unknown> | null): 'images' | 'views' {
+  return config?.inputMode === 'views' ? 'views' : 'images'
+}
+
+/**
+ * A saved Gen HD Model with no mode follows the wires already on it.
+ * Named-view wires mean Views. Anything else, including a loose image, means Images.
+ */
+export function inferModelInputMode(config: Record<string, unknown> | undefined, targetPorts: string[]): 'images' | 'views' {
+  if (config?.inputMode === 'views' || config?.inputMode === 'images') return config.inputMode
+  return targetPorts.some((port) => namedViewPortIds.includes(port)) ? 'views' : 'images'
+}
+
+/** Ports drawn and wired for this node. Gen HD Model shows one image mode at a time. */
+export function activeInputPorts(type: string, config?: Record<string, unknown> | null): NodePort[] {
+  const ports = nodeInputPorts(type)
+  if (type !== 'generate-model') return ports
+  const hidden = new Set(modelInputMode(config) === 'views' ? ['image'] : namedViewPortIds)
+  return ports.filter((port) => !hidden.has(port.id))
+}
+
 export function nodeOutputPorts(type: string): NodePort[] {
   return toPortList(nodeDefinition(type)?.outputs)
 }
