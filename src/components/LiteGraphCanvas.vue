@@ -29,6 +29,7 @@ const viewport = ref({ x: 0, y: 0, zoom: 1 })
 const frameButton = ref(null)
 const nodeActions = ref([])
 const uploadWells = ref([])
+const hoveredNodeId = ref(null)
 const renameField = ref(null)
 const renameDraft = ref('')
 const renameInput = ref(null)
@@ -62,6 +63,12 @@ function cancelRename() {
 function onUploadWellDrop(event, well) {
   const file = event.dataTransfer?.files?.[0]
   if (file) uploadAsset(well.nodeId, file)
+}
+
+// Icon actions only show while the pointer is over their node. The listener
+// sits on the root so hovering the overlay buttons themselves still counts.
+function onRootPointerMove(event) {
+  hoveredNodeId.value = host?.nodeIdAt({ x: event.clientX, y: event.clientY }) || null
 }
 
 function onNodeAction(action) {
@@ -331,7 +338,7 @@ async function uploadAsset(id, file) {
 </script>
 
 <template>
-  <div ref="root" class="forge3d-litegraph forge3d-flow-canvas" :class="`forge3d-canvas-mode-${canvasMode}`">
+  <div ref="root" class="forge3d-litegraph forge3d-flow-canvas" :class="`forge3d-canvas-mode-${canvasMode}`" @pointermove="onRootPointerMove" @pointerleave="hoveredNodeId = null">
     <canvas ref="canvasEl" class="forge3d-litegraph-surface" />
     <div v-if="frameDrawRect" class="forge3d-frame-draw-layer" :style="{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})` }">
       <div
@@ -370,7 +377,7 @@ async function uploadAsset(id, file) {
         :key="action.key"
         type="button"
         class="forge3d-node-action"
-        :class="[action.kind === 'icon' ? 'forge3d-node-action-icon' : 'forge3d-node-action-text', action.icon === 'remove' ? 'forge3d-node-action-remove' : '']"
+        :class="[action.kind === 'icon' ? 'forge3d-node-action-icon' : 'forge3d-node-action-text', action.icon === 'remove' ? 'forge3d-node-action-remove' : '', { 'forge3d-node-action-hidden': action.kind === 'icon' && action.nodeId !== hoveredNodeId }]"
         :style="{ left: `${action.x}px`, top: `${action.y}px`, width: `${action.w}px`, height: `${action.h}px` }"
         :title="action.label"
         :aria-label="action.label"
@@ -445,7 +452,9 @@ async function uploadAsset(id, file) {
 .forge3d-node-action-icon svg { width: 16px; height: 16px; }
 .forge3d-node-action-text { padding: 0 10px; font: 500 12px/1 var(--font-sans, sans-serif); white-space: nowrap; }
 .forge3d-node-action-remove:hover { color: #c24545; border-color: #c24545; }
-.forge3d-frame-run { position: absolute; z-index: 5; height: 22px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg-card); color: var(--acid); font: 600 10px/1 var(--font-mono, monospace); letter-spacing: .04em; text-transform: uppercase; }
+.forge3d-node-action { transition: opacity .12s ease; }
+.forge3d-node-action-hidden:not(:focus-visible) { opacity: 0; pointer-events: none; }
+.forge3d-frame-run { position: absolute; z-index: 5; height: 22px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg-card); color: var(--acid); font: 600 12px/1 var(--font-sans, sans-serif); }
 .forge3d-minimap { position: absolute; z-index: 6; right: 12px; bottom: 12px; width: 220px; height: 140px; border-radius: 8px; box-shadow: var(--shadow-md); cursor: pointer; touch-action: none; }
 .forge3d-litegraph-file { display: none; }
 .forge3d-canvas-mode-frame .forge3d-litegraph-surface { cursor: crosshair; }

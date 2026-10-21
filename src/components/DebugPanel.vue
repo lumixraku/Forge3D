@@ -166,31 +166,31 @@ async function copyCanvasJson() {
 <template>
   <div class="forge:fixed forge:z-[60] forge:flex forge:flex-col forge:items-start forge:gap-2.5 forge:pointer-events-none forge:[&.forge3d-at-top]:flex-col-reverse forge:[&:not(.forge3d-at-left)]:items-end forge:[&>*]:pointer-events-auto forge:[&.forge3d-dragging_.forge3d-debug-ball]:cursor-grabbing forge:[&.forge3d-dragging_.forge3d-debug-ball]:transform-none" :class="{ 'forge3d-at-top': atTop, 'forge3d-at-left': atLeft, 'forge3d-dragging': dragging }" :style="dockStyle">
     <aside v-if="props.open" class="forge:w-[268px] forge:overflow-hidden forge:rounded-[10px] forge:border forge:border-line-strong forge:bg-bg-card forge:font-sans forge:shadow-popover" role="dialog" aria-label="Debug settings">
-      <header class="forge:flex forge:items-center forge:justify-between forge:border-b forge:border-line forge:px-3 forge:py-[9px] forge:font-mono forge:text-[10px] forge:font-semibold forge:tracking-[.08em] forge:text-text-secondary">
+      <header class="forge:flex forge:items-center forge:justify-between forge:border-b forge:border-line forge:px-3 forge:py-[9px] forge:font-mono forge:text-[12px] forge:font-semibold forge:tracking-[.08em] forge:text-text-secondary">
         <span>DEBUG</span>
         <button class="forge:border-0 forge:bg-transparent forge:text-[15px] forge:leading-none forge:text-text-muted forge:hover:text-text-primary" type="button" aria-label="Close debug panel" @click="emit('update:open', false)">×</button>
       </header>
 
-      <section class="forge:p-3 forge:[&_h3]:mb-2 forge:[&_h3]:mt-0 forge:[&_h3]:font-mono forge:[&_h3]:text-[9px] forge:[&_h3]:font-semibold forge:[&_h3]:uppercase forge:[&_h3]:tracking-[.07em] forge:[&_h3]:text-text-muted">
+      <section class="forge:p-3 forge:[&_h3]:mb-2 forge:[&_h3]:mt-0 forge:[&_h3]:font-mono forge:[&_h3]:text-[11px] forge:[&_h3]:font-semibold forge:[&_h3]:uppercase forge:[&_h3]:tracking-[.07em] forge:[&_h3]:text-text-muted">
         <h3>Active</h3>
-        <p class="forge:m-0 forge:flex forge:items-center forge:gap-[7px] forge:text-xs forge:text-text-primary forge:[&_i]:size-[7px] forge:[&_i]:rounded-full forge:[&_i]:bg-text-muted forge:[&.forge3d-tripo_i]:bg-acid forge:[&.forge3d-tripo_i]:shadow-[0_0_6px_var(--acid)] forge:[&.forge3d-meshy_i]:bg-acid forge:[&.forge3d-meshy_i]:shadow-[0_0_6px_var(--acid)] forge:[&_b]:ml-auto forge:[&_b]:font-mono forge:[&_b]:text-[9px] forge:[&_b]:font-medium forge:[&_b]:tracking-[.04em] forge:[&_b]:text-acid" :class="bizClass(props.activeProvider)">
+        <p class="forge:m-0 forge:flex forge:items-center forge:gap-[7px] forge:text-xs forge:text-text-primary forge:[&_i]:size-[7px] forge:[&_i]:rounded-full forge:[&_i]:bg-text-muted forge:[&.forge3d-tripo_i]:bg-acid forge:[&.forge3d-tripo_i]:shadow-[0_0_6px_var(--acid)] forge:[&.forge3d-meshy_i]:bg-acid forge:[&.forge3d-meshy_i]:shadow-[0_0_6px_var(--acid)] forge:[&_b]:ml-auto forge:[&_b]:font-mono forge:[&_b]:text-[11px] forge:[&_b]:font-medium forge:[&_b]:tracking-[.04em] forge:[&_b]:text-acid" :class="bizClass(props.activeProvider)">
           <i />
           <span>{{ PROVIDER_LABELS[props.activeProvider] }}</span>
           <b>spends credits</b>
         </p>
-        <p class="forge:mb-0 forge:mt-[7px] forge:text-[10px] forge:leading-[1.45] forge:text-text-muted">
+        <p class="forge:mb-0 forge:mt-[7px] forge:text-[12px] forge:leading-[1.45] forge:text-text-muted">
           {{ providerDescription }}
         </p>
-        <p v-if="props.error" class="forge:mb-0 forge:mt-[7px] forge:text-[10px] forge:leading-[1.45] forge:text-status-failed">{{ props.error }}</p>
+        <p v-if="props.error" class="forge:mb-0 forge:mt-[7px] forge:text-[12px] forge:leading-[1.45] forge:text-status-failed">{{ props.error }}</p>
       </section>
 
-      <section class="forge:border-t forge:border-line-subtle forge:p-3 forge:[&_h3]:mb-2 forge:[&_h3]:mt-0 forge:[&_h3]:font-mono forge:[&_h3]:text-[9px] forge:[&_h3]:font-semibold forge:[&_h3]:uppercase forge:[&_h3]:tracking-[.07em] forge:[&_h3]:text-text-muted">
+      <section class="forge:border-t forge:border-line-subtle forge:p-3 forge:[&_h3]:mb-2 forge:[&_h3]:mt-0 forge:[&_h3]:font-mono forge:[&_h3]:text-[11px] forge:[&_h3]:font-semibold forge:[&_h3]:uppercase forge:[&_h3]:tracking-[.07em] forge:[&_h3]:text-text-muted">
         <h3>Provider</h3>
         <div class="forge:grid forge:grid-cols-3 forge:gap-1.5">
           <button
             v-for="provider in providers"
             :key="provider.value"
-            class="forge:min-w-0 forge:rounded-md forge:border forge:border-line forge:bg-bg-input forge:px-1.5 forge:py-2 forge:text-[9px] forge:font-medium forge:text-text-secondary forge:transition-colors forge:hover:bg-bg-input-hover forge:disabled:cursor-not-allowed forge:disabled:opacity-40 forge:[&.forge3d-selected]:border-acid forge:[&.forge3d-selected]:bg-[color-mix(in_srgb,var(--acid)_10%,var(--bg-input))] forge:[&.forge3d-selected]:text-acid"
+            class="forge:min-w-0 forge:rounded-md forge:border forge:border-line forge:bg-bg-input forge:px-1.5 forge:py-2 forge:text-[11px] forge:font-medium forge:text-text-secondary forge:transition-colors forge:hover:bg-bg-input-hover forge:disabled:cursor-not-allowed forge:disabled:opacity-40 forge:[&.forge3d-selected]:border-acid forge:[&.forge3d-selected]:bg-[color-mix(in_srgb,var(--acid)_10%,var(--bg-input))] forge:[&.forge3d-selected]:text-acid"
             :class="{ 'forge3d-selected': provider.value === props.activeProvider }"
             :disabled="props.providerLocked || !provider.available || provider.value === props.activeProvider"
             type="button"
@@ -199,14 +199,14 @@ async function copyCanvasJson() {
             {{ provider.label }}
           </button>
         </div>
-        <small v-if="props.providerLocked" class="forge:mt-1.5 forge:block forge:text-[9px] forge:text-text-muted">Provider is locked after the first node is added.</small>
-        <small v-else class="forge:mt-1.5 forge:block forge:text-[9px] forge:text-text-muted">Unavailable providers need their API key configured.</small>
+        <small v-if="props.providerLocked" class="forge:mt-1.5 forge:block forge:text-[11px] forge:text-text-muted">Provider is locked after the first node is added.</small>
+        <small v-else class="forge:mt-1.5 forge:block forge:text-[11px] forge:text-text-muted">Unavailable providers need their API key configured.</small>
       </section>
 
-      <section class="forge:border-t forge:border-line-subtle forge:p-3 forge:[&_h3]:mb-2 forge:[&_h3]:mt-0 forge:[&_h3]:font-mono forge:[&_h3]:text-[9px] forge:[&_h3]:font-semibold forge:[&_h3]:uppercase forge:[&_h3]:tracking-[.07em] forge:[&_h3]:text-text-muted">
+      <section class="forge:border-t forge:border-line-subtle forge:p-3 forge:[&_h3]:mb-2 forge:[&_h3]:mt-0 forge:[&_h3]:font-mono forge:[&_h3]:text-[11px] forge:[&_h3]:font-semibold forge:[&_h3]:uppercase forge:[&_h3]:tracking-[.07em] forge:[&_h3]:text-text-muted">
         <h3>Canvas</h3>
         <button
-          class="forge:flex forge:w-full forge:flex-col forge:gap-px forge:rounded-md forge:border forge:border-line forge:bg-bg-input forge:px-[9px] forge:py-[7px] forge:text-left forge:hover:bg-bg-input-hover forge:[&_strong]:text-xs forge:[&_strong]:font-medium forge:[&_strong]:text-text-primary forge:[&_small]:text-[10px] forge:[&_small]:text-text-muted"
+          class="forge:flex forge:w-full forge:flex-col forge:gap-px forge:rounded-md forge:border forge:border-line forge:bg-bg-input forge:px-[9px] forge:py-[7px] forge:text-left forge:hover:bg-bg-input-hover forge:[&_strong]:text-xs forge:[&_strong]:font-medium forge:[&_strong]:text-text-primary forge:[&_small]:text-[12px] forge:[&_small]:text-text-muted"
           type="button"
           @click="copyCanvasJson"
         >
@@ -218,7 +218,7 @@ async function copyCanvasJson() {
 
     <button
       type="button"
-      class="forge3d-debug-ball forge:flex forge:size-[52px] forge:cursor-pointer forge:flex-col forge:items-center forge:justify-center forge:gap-0.5 forge:rounded-full forge:border forge:border-line-strong forge:bg-bg-card forge:font-mono forge:text-[9px] forge:font-semibold forge:tracking-[.04em] forge:text-text-secondary forge:shadow-md forge:transition-[transform,border-color,color] forge:hover:-translate-y-px forge:hover:border-acid forge:hover:text-text-primary forge:[&.forge3d-open]:border-acid forge:[&.forge3d-open]:text-text-primary forge:[&_i]:size-[7px] forge:[&_i]:rounded-full forge:[&_i]:bg-text-muted forge:[&.forge3d-tripo_i]:bg-acid forge:[&.forge3d-tripo_i]:shadow-[0_0_6px_var(--acid)] forge:[&.forge3d-tripo]:text-text-primary forge:[&.forge3d-meshy_i]:bg-acid forge:[&.forge3d-meshy_i]:shadow-[0_0_6px_var(--acid)] forge:[&.forge3d-meshy]:text-text-primary"
+      class="forge3d-debug-ball forge:flex forge:size-[52px] forge:cursor-pointer forge:flex-col forge:items-center forge:justify-center forge:gap-0.5 forge:rounded-full forge:border forge:border-line-strong forge:bg-bg-card forge:font-mono forge:text-[11px] forge:font-semibold forge:tracking-[.04em] forge:text-text-secondary forge:shadow-md forge:transition-[transform,border-color,color] forge:hover:-translate-y-px forge:hover:border-acid forge:hover:text-text-primary forge:[&.forge3d-open]:border-acid forge:[&.forge3d-open]:text-text-primary forge:[&_i]:size-[7px] forge:[&_i]:rounded-full forge:[&_i]:bg-text-muted forge:[&.forge3d-tripo_i]:bg-acid forge:[&.forge3d-tripo_i]:shadow-[0_0_6px_var(--acid)] forge:[&.forge3d-tripo]:text-text-primary forge:[&.forge3d-meshy_i]:bg-acid forge:[&.forge3d-meshy_i]:shadow-[0_0_6px_var(--acid)] forge:[&.forge3d-meshy]:text-text-primary"
       :class="[bizClass(props.activeProvider), { 'forge3d-open': props.open }]"
       :aria-expanded="props.open"
       :aria-label="`Debug settings · running on ${PROVIDER_LABELS[props.activeProvider]} · drag to move`"
