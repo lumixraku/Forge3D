@@ -30,6 +30,7 @@ const frameButton = ref(null)
 const nodeActions = ref([])
 const uploadWells = ref([])
 const hoveredNodeId = ref(null)
+const textFields = ref([])
 const renameField = ref(null)
 const renameDraft = ref('')
 const renameInput = ref(null)
@@ -43,6 +44,7 @@ function refreshFrameButton() {
   frameButton.value = host?.selectedFrameButton() || null
   nodeActions.value = host?.actionChrome() || []
   uploadWells.value = host?.uploadWells() || []
+  textFields.value = host?.textFields() || []
   renameField.value = host?.renameField() || null
 }
 
@@ -372,6 +374,21 @@ async function uploadAsset(id, file) {
         <strong>Drop or choose asset</strong>
         <small>JPG, PNG, WEBP or 3D model · max 100 MB</small>
       </button>
+      <textarea
+        v-for="field in textFields"
+        :key="field.key"
+        class="forge3d-node-textarea"
+        :style="{ left: `${field.x}px`, top: `${field.y}px`, width: `${field.w}px`, height: `${field.h}px` }"
+        :value="field.value"
+        :placeholder="field.placeholder"
+        :aria-label="field.label"
+        spellcheck="false"
+        @pointerdown.stop
+        @wheel.stop
+        @keydown.stop
+        @keyup.stop
+        @input="host?.commitText(field.nodeId, field.paramKey, $event.target.value)"
+      />
       <button
         v-for="action in nodeActions"
         :key="action.key"
@@ -453,6 +470,10 @@ async function uploadAsset(id, file) {
 .forge3d-node-action-text { padding: 0 10px; font: 500 12px/1 var(--font-sans, sans-serif); white-space: nowrap; }
 .forge3d-node-action-remove:hover { color: #c24545; border-color: #c24545; }
 .forge3d-node-action { transition: opacity .12s ease; }
+.forge3d-node-textarea { position: absolute; pointer-events: auto; margin: 0; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg-input); color: var(--text-primary); font: 12px/1.45 var(--font-sans, sans-serif); resize: none; outline: none; box-sizing: border-box; }
+.forge3d-node-textarea:hover { border-color: var(--text-muted); }
+.forge3d-node-textarea:focus { border-color: var(--acid); box-shadow: 0 0 0 2px color-mix(in srgb, var(--acid) 22%, transparent); }
+.forge3d-node-textarea::placeholder { color: var(--text-muted); }
 .forge3d-node-action-hidden:not(:focus-visible) { opacity: 0; pointer-events: none; }
 .forge3d-frame-run { position: absolute; z-index: 5; height: 22px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg-card); color: var(--acid); font: 600 12px/1 var(--font-sans, sans-serif); }
 .forge3d-minimap { position: absolute; z-index: 6; right: 12px; bottom: 12px; width: 220px; height: 140px; border-radius: 8px; box-shadow: var(--shadow-md); cursor: pointer; touch-action: none; }

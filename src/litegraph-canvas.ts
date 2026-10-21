@@ -25,6 +25,10 @@ const TITLE_TEXT_X = 12
 const ACTION_INSET = 10
 const ACTION_GAP = 6
 const ACTION_SIZE = 28
+const WIDGET_INSET = 10
+// Textarea parameters: a label line, then the DOM field.
+const TEXTAREA_LABEL = 18
+const TEXTAREA_HEIGHT = 72
 // Canvas text follows the app sans; stock LiteGraph falls back to Arial.
 const CANVAS_FONT = "'DM Sans', sans-serif"
 const measureText = (() => {
@@ -551,7 +555,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     const localY = y - node.pos[1]
     const width = node.size[0]
     for (const widget of node.widgets) {
-      if (!widget || widget.disabled) continue
+      if (!widget || widget.disabled || widget.forgeTextarea) continue
       const box = widget._box
       if (box) {
         if (localX >= box.x && localX <= box.x + box.w && localY >= box.y && localY <= box.y + box.h) return { node, widget }
@@ -591,6 +595,11 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       const localX = pos[0] - node.pos[0]
       const localY = pos[1] - node.pos[1]
       const width = node.size[0]
+      // A press on a textarea's label must not open LiteGraph's prompt dialog.
+      for (const widget of node.widgets) {
+        if (!widget?.forgeTextarea || widget.last_y == null) continue
+        if (localY >= widget.last_y && localY <= widget.last_y + TEXTAREA_LABEL + TEXTAREA_HEIGHT) return null
+      }
       for (const widget of node.widgets) {
         if (!widget || widget.type !== 'combo' || widget.disabled || widget.last_y == null) continue
         const height = widget.computeSize ? widget.computeSize(width)[1] : LiteGraph.NODE_WIDGET_HEIGHT
@@ -629,6 +638,17 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     ctx.lineCap = 'round'
     for (const widget of widgets) {
       const rowHeight = widget.computeSize ? widget.computeSize(width)[1] : height
+      if (widget.forgeTextarea) {
+        // The DOM field follows last_y. Tell the overlay when it first lands or moves.
+        if (widget.last_y !== y) queueMicrotask(publishViewport)
+        widget.last_y = y
+        ctx.globalAlpha = view.editor_alpha ?? 1
+        ctx.textAlign = 'left'
+        ctx.fillStyle = palette.label
+        ctx.fillText(widget.label || widget.name || '', inset + 2, y + TEXTAREA_LABEL / 2)
+        y += rowHeight + 4
+        continue
+      }
       widget.last_y = y
       const hot = hoverWidget?.node === node && hoverWidget.widget === widget
       ctx.globalAlpha = (view.editor_alpha ?? 1) * (widget.disabled ? 0.45 : 1)
@@ -1030,11 +1050,46 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
         const option = options.find((item: any) => String(item.label) === label)
         if (option) commit(option.value)
       }, { values: labels })
+    } else if (parameter.control === 'textarea') {
+      // Long text is a real DOM textarea laid over the node (see textFields).
+      // The canvas only reserves the room and paints the label above it.
+      const widget = created.addWidget('text', parameter.label, config[parameter.key] == null ? '' : String(config[parameter.key]), (value: string) => commit(value))
+      widget.forgeTextarea = { key: parameter.key, placeholder: parameter.placeholder || '' }
+      widget.computeSize = (width: number) => [width, TEXTAREA_LABEL + TEXTAREA_HEIGHT]
     } else {
-      created.addWidget('text', parameter.label, config[parameter.key] == null ? '' : String(config[parameter.key]), (value: string) => commit(value), {
-        multiline: parameter.control === 'textarea',
-      })
+      created.addWidget('text', parameter.label, config[parameter.key] == null ? '' : String(config[parameter.key]), (value: string) => commit(value))
     }
+  }
+
+  // Every textarea parameter on screen, in graph coordinates.
+  function textFields() {
+    const fields = []
+    for (const node of graph._nodes) {
+      if (node.flags?.collapsed || !node.widgets) continue
+      for (const widget of node.widgets) {
+        if (!widget.forgeTextarea || widget.last_y == null) continue
+        fields.push({
+          key: `${node.properties.forgeId}:${widget.forgeTextarea.key}`,
+          nodeId: node.properties.forgeId,
+          paramKey: widget.forgeTextarea.key,
+          label: widget.label || widget.name || '',
+          placeholder: widget.forgeTextarea.placeholder,
+          value: widget.value == null ? '' : String(widget.value),
+          x: node.pos[0] + WIDGET_INSET,
+          y: node.pos[1] + widget.last_y + TEXTAREA_LABEL,
+          w: node.size[0] - WIDGET_INSET * 2,
+          h: TEXTAREA_HEIGHT,
+        })
+      }
+    }
+    return fields
+  }
+
+  function commitText(nodeId: string, key: string, value: string) {
+    const node = byForgeId().get(nodeId)
+    const widget = node?.widgets?.find((item: any) => item.forgeTextarea?.key === key)
+    if (widget) widget.value = value
+    handlers.onParameter(nodeId, key, value)
   }
 
   function runAction(id: string, action: string) {
@@ -2041,6 +2096,8 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     selectedFrameButton,
     actionChrome,
     uploadWells,
+    textFields,
+    commitText,
     paintNodeActions,
     runNodeAction: runAction,
     destroy() {
