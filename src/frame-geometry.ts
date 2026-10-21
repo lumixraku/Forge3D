@@ -110,21 +110,17 @@ export function fitFrameNodes(nodes: GeometryNode[], insets: Insets, frameIds?: 
   return { nodes: nextNodes, changed }
 }
 
-// A drag snapshot carries its own measured size; fall back to the stored node.
-function draggedSize(draggedNode: GeometryNode, node: GeometryNode) {
-  return {
-    width: Number(draggedNode.dimensions?.width || draggedNode.width || node.dimensions?.width || node.width || DEFAULT_NODE_WIDTH),
-    height: Number(draggedNode.dimensions?.height || draggedNode.height || node.dimensions?.height || node.height || DEFAULT_NODE_HEIGHT),
-  }
+// A node belongs to a frame when its top-left corner sits inside that frame.
+// Clipping an edge is not enough. Bottom and right edges are exclusive, so a
+// node placed exactly beside a frame stays outside it.
+function cornerInside(position: Point, framePosition: Point, frameBox: { width: number; height: number }) {
+  return position.x >= framePosition.x && position.x < framePosition.x + frameBox.width
+    && position.y >= framePosition.y && position.y < framePosition.y + frameBox.height
 }
 
-function overlapArea(position: Point, size: { width: number; height: number }, framePosition: Point, frameBox: { width: number; height: number }) {
-  return Math.max(0, Math.min(position.x + size.width, framePosition.x + frameBox.width) - Math.max(position.x, framePosition.x))
-    * Math.max(0, Math.min(position.y + size.height, framePosition.y + frameBox.height) - Math.max(position.y, framePosition.y))
-}
-
-// Re-parent dropped nodes to whichever frame they overlap most, converting the
-// position into that frame's local space (or back to global when dropped out).
+// Re-parent dropped nodes to the frame under their top-left corner, converting
+// the position into that frame's local space (or back to global when dropped
+// out). Where frames overlap, the topmost one, latest in the list, wins.
 export function reparentDraggedNodes(nodes: GeometryNode[], draggedNodes: GeometryNode[] = []) {
   const nextNodes = [...nodes]
   const nodeMap = indexNodes(nextNodes)
@@ -137,22 +133,16 @@ export function reparentDraggedNodes(nodes: GeometryNode[], draggedNodes: Geomet
     if (!node || node.type === 'frame') continue
 
     const position = absoluteNodePosition(draggedNode, nodeMap)
-    const size = draggedSize(draggedNode, node)
     const oldParent = node.parentNode
-    const containingFrames = frames
+    const owner = frames
       .filter((frame) => frame.id !== node.id)
-      .map((frame) => {
-        const framePosition = absoluteNodePosition(frame, nodeMap)
-        const frameBox = frameSize(frame)
-        const overlap = overlapArea(position, size, framePosition, frameBox)
-        return { frame, framePosition, overlap }
-      })
-      .filter(({ overlap }) => overlap > 0)
-      .sort((left, right) => right.overlap - left.overlap)
-    const nextParent = containingFrames[0]?.frame || null
+      .map((frame) => ({ frame, framePosition: absoluteNodePosition(frame, nodeMap) }))
+      .filter(({ frame, framePosition }) => cornerInside(position, framePosition, frameSize(frame)))
+      .at(-1)
+    const nextParent = owner?.frame || null
 
     if (nextParent?.id === oldParent) continue
-    const nextParentPosition = nextParent ? containingFrames[0].framePosition : { x: 0, y: 0 }
+    const nextParentPosition = owner ? owner.framePosition : { x: 0, y: 0 }
     const nodeIndex = nextNodes.findIndex((item) => item.id === node.id)
     const updatedNode = {
       ...node,
@@ -184,16 +174,10 @@ export function adoptNodesCoveredByDraggedFrames(nodes: GeometryNode[], draggedN
   for (const node of nextNodes) {
     if (node.type === 'frame' || node.parentNode) continue
     const position = absoluteNodePosition(node, nodeMap)
-    const size = nodeSize(node)
-    const coveringFrames = draggedFrames
-      .map(({ dragged, frame }) => {
-        const framePosition = absoluteNodePosition(dragged, nodeMap)
-        const overlap = overlapArea(position, size, framePosition, frameSize(frame))
-        return { frame, framePosition, overlap }
-      })
-      .filter(({ overlap }) => overlap > 0)
-      .sort((left, right) => right.overlap - left.overlap)
-    const owner = coveringFrames[0]
+    const owner = draggedFrames
+      .map(({ dragged, frame }) => ({ frame, framePosition: absoluteNodePosition(dragged, nodeMap) }))
+      .filter(({ frame, framePosition }) => cornerInside(position, framePosition, frameSize(frame)))
+      .at(-1)
     if (!owner) continue
 
     const nodeIndex = nextNodes.findIndex((item) => item.id === node.id)
@@ -280,7 +264,7 @@ export function buildDrawnFrame(nodes: GeometryNode[], bounds: Bounds, { frameId
     // Frames are never nested, and a node another frame already owns stays put.
     if (node.type === 'frame' || node.parentNode) return { ...node, selected: false }
     const position = absoluteNodePosition(node, nodeMap)
-    if (overlapArea(position, nodeSize(node), framePosition, frameBox) <= 0) return { ...node, selected: false }
+    if (!cornerInside(position, framePosition, frameBox)) return { ...node, selected: false }
     return {
       ...node,
       parentNode: frameId,
