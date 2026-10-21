@@ -1227,6 +1227,16 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       group.size = [node.width || 900, node.height || 600]
       group.color = FRAME_COLOR
       group.forgeId = node.id
+      // Stock LiteGraph grabs every node the group box overlaps when a drag
+      // starts, so a pasted section on top of the original carried the
+      // original's nodes away. A section moves its own children only.
+      group.recomputeInsideNodes = function(this: any) {
+        const live = byForgeId()
+        this._nodes = flowNodes
+          .filter((flow) => flow.parentNode === this.forgeId)
+          .map((flow) => live.get(flow.id))
+          .filter(Boolean)
+      }
       graph.add(group)
     }
     for (const node of nodes) {

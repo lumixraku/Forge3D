@@ -39,23 +39,45 @@ test('refits a frame the user resized by hand once its children change', () => {
   assert.equal(fitted.nodes[0].width, 290)
 })
 
-test('re-parents a dragged node to the frame it overlaps most', () => {
+test('re-parents a dragged node to the frame under its top-left corner', () => {
   const nodes = [
     frame('a', { x: 0, y: 0 }, 400, 400),
-    frame('b', { x: 300, y: 0 }, 400, 400),
-    node('n', { x: 250, y: 50 }, { width: 100, height: 100 }),
+    frame('b', { x: 500, y: 0 }, 400, 400),
+    node('n', { x: 250, y: 50 }, { width: 300, height: 100 }),
   ]
 
+  // The node's body reaches into b, but its corner is in a.
   const intoA = reparentDraggedNodes(nodes, [nodes[2]])
   assert.equal(intoA.changed, true)
   assert.equal(intoA.nodes[2].parentNode, 'a')
   assert.deepEqual(intoA.nodes[2].position, { x: 250, y: 50 })
 
-  // Nudged right, the node overlaps b more than a, so b takes it over.
-  const dragged = { ...nodes[2], position: { x: 320, y: 50 } }
+  const dragged = { ...nodes[2], position: { x: 520, y: 50 } }
   const intoB = reparentDraggedNodes([nodes[0], nodes[1], dragged], [dragged])
   assert.equal(intoB.nodes[2].parentNode, 'b')
   assert.deepEqual(intoB.nodes[2].position, { x: 20, y: 50 })
+})
+
+test('a node whose edge clips a frame but whose corner is outside stays a root node', () => {
+  const nodes = [frame('f', { x: 300, y: 300 }, 400, 400), node('n', { x: 100, y: 100 }, { width: 300, height: 300 })]
+
+  const { nodes: next, changed } = reparentDraggedNodes(nodes, [nodes[1]])
+
+  assert.equal(changed, false)
+  assert.equal(next[1].parentNode, undefined)
+})
+
+test('where frames overlap, the topmost frame takes the node', () => {
+  const nodes = [
+    frame('under', { x: 0, y: 0 }, 600, 600),
+    frame('over', { x: 100, y: 100 }, 600, 600),
+    node('n', { x: 200, y: 200 }, { width: 100, height: 100 }),
+  ]
+
+  const { nodes: next } = reparentDraggedNodes(nodes, [nodes[2]])
+
+  assert.equal(next[2].parentNode, 'over')
+  assert.deepEqual(next[2].position, { x: 100, y: 100 })
 })
 
 test('drops a node out of its frame back into global coordinates', () => {
@@ -78,6 +100,16 @@ test('moving a frame over a root node adopts it in local coordinates', () => {
   assert.equal(changed, true)
   assert.equal(next[1].parentNode, 'f')
   assert.deepEqual(next[1].position, { x: 50, y: 50 })
+})
+
+test('moving a frame so it only clips a root node leaves that node alone', () => {
+  const nodes = [frame('f', { x: 0, y: 0 }, 400, 400), node('n', { x: 450, y: 150 }, { width: 100, height: 100 })]
+  const movedFrame = { ...nodes[0], position: { x: 500, y: 100 } }
+
+  const { nodes: next, changed } = adoptNodesCoveredByDraggedFrames([movedFrame, nodes[1]], [movedFrame])
+
+  assert.equal(changed, false)
+  assert.equal(next[1].parentNode, undefined)
 })
 
 test('moving a frame keeps its existing children in their local positions', () => {
@@ -132,13 +164,19 @@ test('builds a drawn frame at the drawn rectangle and adopts what it overlaps', 
   assert.equal(rest.some((item) => item.selected), false)
 })
 
-test('a drawn frame adopts a one pixel overlap but not an edge touch', () => {
-  const nodes = [node('overlap', { x: 899, y: 100 }), node('touching', { x: 900, y: 300 })]
+test('a drawn frame adopts nodes by their top-left corner, not by overlap', () => {
+  const nodes = [
+    node('inside', { x: 899, y: 100 }),
+    node('touching', { x: 900, y: 300 }),
+    node('clipped', { x: -100, y: 100 }),
+  ]
 
-  const [, overlapping, touching] = buildDrawnFrame(nodes, { left: 0, top: 0, right: 900, bottom: 900 }, { frameId: 'f' })
+  const [, inside, touching, clipped] = buildDrawnFrame(nodes, { left: 0, top: 0, right: 900, bottom: 900 }, { frameId: 'f' })
 
-  assert.equal(overlapping.parentNode, 'f')
+  assert.equal(inside.parentNode, 'f')
   assert.equal(touching.parentNode, undefined)
+  // Its body reaches 160px into the frame, but its corner is outside.
+  assert.equal(clipped.parentNode, undefined)
 })
 
 test('a drawn frame never nests frames or steals another frame owned child', () => {
