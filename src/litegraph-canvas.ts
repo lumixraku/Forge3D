@@ -25,10 +25,12 @@ const TITLE_TEXT_X = 12
 const ACTION_INSET = 10
 const ACTION_GAP = 6
 const ACTION_SIZE = 28
+// Canvas text follows the app sans; stock LiteGraph falls back to Arial.
+const CANVAS_FONT = "'DM Sans', sans-serif"
 const measureText = (() => {
   const canvas = document.createElement('canvas')
   const context = canvas.getContext('2d')
-  return (label: string, font = '12px sans-serif') => {
+  return (label: string, font = `12px ${CANVAS_FONT}`) => {
     if (!context) return label.length * 7
     context.font = font
     return context.measureText(label).width
@@ -72,7 +74,7 @@ const WIDGET_PALETTE = {
     hoverOutline: '#8b998f',
     pressed: '#465048',
     caret: '#c5cfc8',
-    trackOff: '#1a201e',
+    trackOff: '#4a564f',
     trackOn: '#8aaa2a',
     knob: '#f4f7f4',
   },
@@ -126,7 +128,7 @@ function ensureNodeType() {
       const drawHeight = image.naturalHeight * scale
       ctx.drawImage(image, x + (width - drawWidth) / 2, y + (height - drawHeight) / 2, drawWidth, drawHeight)
     } else {
-      ctx.font = '12px sans-serif'
+      ctx.font = `12px ${CANVAS_FONT}`
       ctx.fillStyle = light ? '#8a968e' : '#8d9892'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
@@ -137,7 +139,7 @@ function ensureNodeType() {
   ForgeNode.prototype.onDrawForeground = function(this: any, ctx: CanvasRenderingContext2D) {
     this.graph?._forgeHost?.paintNodeActions(this, ctx)
     if (!this.properties.missing || this.flags?.collapsed) return
-    ctx.font = '11px sans-serif'
+    ctx.font = `11px ${CANVAS_FONT}`
     ctx.fillStyle = '#ef5b5b'
     ctx.fillText(String(this.properties.missing), 12, this.size[1] - (this.previewImage ? PREVIEW_HEIGHT + 4 : 8))
   }
@@ -620,7 +622,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     const labelX = inset + 16
     let y = posY + 2
     ctx.save()
-    ctx.font = '12px sans-serif'
+    ctx.font = `12px ${CANVAS_FONT}`
     ctx.textBaseline = 'middle'
     ctx.lineWidth = 1
     ctx.lineJoin = 'round'
@@ -1812,6 +1814,13 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     requestAnimationFrame(step)
   }
 
+  // Which Forge node sits under a screen point. Drives hover-only node chrome.
+  function nodeIdAt(point: { x: number; y: number }) {
+    const flow = screenToFlowCoordinate(point)
+    const node = graph.getNodeOnPos(flow.x, flow.y, view.visible_nodes, 5)
+    return (node?.properties?.forgeId as string) || null
+  }
+
   function findNode(id: string) {
     const live = byForgeId().get(id) || graph._groups.find((group: any) => group.forgeId === id)
     if (!live) return null
@@ -1854,7 +1863,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     if (!buttons.length) return
     const palette = theme === 'light' ? WIDGET_PALETTE.light : WIDGET_PALETTE.dark
     ctx.save()
-    ctx.font = '12px sans-serif'
+    ctx.font = `12px ${CANVAS_FONT}`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.lineWidth = 1
@@ -1977,6 +1986,8 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   }
 
   view.node_title_color = '#fff'
+  view.title_text_font = `14px ${CANVAS_FONT}`
+  view.inner_text_font = `12px ${CANVAS_FONT}`
   LiteGraph.NODE_SELECTED_TITLE_COLOR = '#fff'
 
   const hostApi = {
@@ -2017,11 +2028,15 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       LiteGraph.CONNECTING_LINK_COLOR = color
       view.clear_background_color = next === 'light' ? '#e7ece8' : '#121614'
       view.background_image = next === 'light' ? null : LGraphCanvas.DEFAULT_BACKGROUND_IMAGE
+      // Node bodies take their color when built. Repaint the live ones too, or
+      // a theme switch leaves light bodies under dark widgets.
+      for (const node of graph._nodes) node.bgcolor = next === 'light' ? '#f4f7f4' : '#222826'
       view.setDirty(true, true)
     },
     fitView,
     centerOn,
     screenToFlowCoordinate,
+    nodeIdAt,
     findNode,
     selectedFrameButton,
     actionChrome,

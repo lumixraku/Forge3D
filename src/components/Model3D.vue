@@ -357,8 +357,6 @@ onBeforeUnmount(() => {
 .forge3d-model-load strong {
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 .forge3d-model-load p {
   margin: 0;
