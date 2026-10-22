@@ -61,3 +61,51 @@ test('a task the visitor key cannot read falls back to the built-in reader', asy
   }))
   assert.deepEqual(await next.getMeshyTask('task-1'), { id: 'task-1', via: 'built-in' })
 })
+
+test('Meshy calls carry the visitor key when set, and the built-in key otherwise', async (t) => {
+  const seen = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (url, options = {}) => {
+    if (new URL(url).hostname === 'meshy.test') seen.push(options.headers?.authorization)
+    const reply = (body) => new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } })
+    if (options.method === 'POST') return reply({ result: 'task_1' })
+    return reply({ id: 'task_1', status: 'SUCCEEDED', progress: 100, thumbnail_url: 'https://cdn/p.png', model_urls: { glb: 'https://cdn/m.glb' } })
+  }
+  t.after(() => { globalThis.fetch = originalFetch })
+
+  const meshyPorts = (apiKey) => {
+    const env = { MESHY_API_KEY: apiKey, MESHY_BASE_URL: 'https://meshy.test' }
+    return { createMeshyProvider: createMeshyRunner(env), submitMeshyTask: createMeshySubmitter(env), getMeshyTask: createMeshyTaskReader(env) }
+  }
+  const state = {
+    canvases: [{ id: 'canvas-1', provider: 'meshy', revision: 1, nodes: [{ id: 'gen', type: 'generate-model', name: 'Gen', config: { prompt: 'a shark' } }], edges: [] }],
+    sessions: [], turns: [], agentTraces: [], runs: [],
+    accounts: [{ id: 'demo-user', name: 'Demo User', balance: 1000 }], creditLedger: [],
+  }
+  const base = { agentServiceUrl: '', deepseek: {}, createTripoProvider: null, getTripoTask: null, readAsset: null, uploadAsset: null, ...meshyPorts('built-in') }
+  const background = []
+  const handle = createApi({
+    createContext: (request) => ({
+      store: { state, persist: async () => {}, reload: async () => {}, removeCanvas: async () => {} },
+      config: applyUserKeys(base, readUserKeys(request), meshyPorts),
+      waitUntil: (promise) => background.push(promise),
+      recoverAgentTurns: false,
+    }),
+  })
+  const run = (cookie) => handle(new Request('https://forge.test/api/projects/canvas-1/executions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) },
+    body: JSON.stringify({ entryNodeId: 'gen' }),
+  }))
+
+  assert.equal((await run('forge3d_meshy_key=msy-visitor')).status, 202)
+  await Promise.all(background.splice(0))
+  assert.ok(seen.length > 0)
+  assert.ok(seen.every((header) => header === 'Bearer msy-visitor'), `expected only the visitor key, saw ${seen}`)
+
+  seen.length = 0
+  assert.equal((await run('')).status, 202)
+  await Promise.all(background.splice(0))
+  assert.ok(seen.length > 0)
+  assert.ok(seen.every((header) => header === 'Bearer built-in'), `expected only the built-in key, saw ${seen}`)
+})
