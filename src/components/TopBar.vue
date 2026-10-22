@@ -13,6 +13,7 @@ const props = defineProps<{
   editorName?: string
   canEdit?: boolean
   account?: { name: string; balance: number } | null
+  usingOwnKeys?: boolean
 }>()
 const emit = defineEmits<{
   rename: [name: string]
@@ -23,6 +24,7 @@ const emit = defineEmits<{
   'set-theme': [theme: string]
   'update:canvasView': [view: string]
   'update:switcherOpen': [open: boolean]
+  'open-api-keys': []
 }>()
 
 const renaming = ref(false)
@@ -163,6 +165,7 @@ onUnmounted(() => window.removeEventListener('pointerdown', dismissSwitcher, tru
       <div class="forge:flex forge:h-9 forge:gap-1 forge:rounded-full forge:border-0 forge:bg-bg-input-hover forge:p-1 forge3d-bare forge3d-flat forge:max-[1200px]:hidden forge:[&_button]:h-7 forge:[&_button]:min-w-11 forge:[&_button]:rounded forge:[&_button]:border-0 forge:[&_button]:bg-transparent forge:[&_button]:px-[7px] forge:[&_button]:text-[10px] forge:[&_button]:font-medium forge:[&_button]:text-text-muted forge:[&_button]:transition-colors forge:[&_button]:hover:bg-bg-input-hover forge:[&_button]:hover:text-text-primary forge:[&_button.forge3d-active]:bg-bg-active forge:[&_button.forge3d-active]:text-acid" aria-label="Theme">
         <button v-for="option in ['light', 'dark', 'system']" :key="option" :class="{ 'forge3d-active': theme === option }" :aria-pressed="theme === option" @click="emit('set-theme', option)">{{ option[0].toUpperCase() + option.slice(1) }}</button>
       </div>
+      <button type="button" class="forge:flex forge:h-9 forge:items-center forge:gap-1.5 forge:whitespace-nowrap forge:border forge:border-line-strong forge:bg-bg-input forge:px-3 forge:text-[12px] forge:text-text-secondary forge:hover:text-acid" :title="usingOwnKeys ? 'Using your own API keys' : 'Using the demo API keys'" @click="emit('open-api-keys')"><i class="forge:size-[7px] forge:rounded-full" :class="usingOwnKeys ? 'forge:bg-acid' : 'forge:bg-text-muted'" aria-hidden="true" />{{ usingOwnKeys ? 'Your keys' : 'API keys' }}</button>
       <div v-if="account" class="forge:flex forge:h-9 forge:items-center forge:gap-2 forge:whitespace-nowrap forge:rounded-[9px] forge:border forge:border-line-strong forge:bg-bg-input forge:py-0 forge:pl-[5px] forge:pr-[10px] forge:max-[760px]:pr-[7px]" :title="`${account.name} · ${account.balance} credits`">
         <span class="forge:grid forge:size-[26px] forge:place-items-center forge:rounded-[7px] forge:bg-acid forge:font-mono forge:text-[12px] forge:font-semibold forge:leading-none forge:text-text-inverse" aria-hidden="true">{{ account.name.slice(0, 1).toUpperCase() }}</span>
         <span class="forge:max-w-[120px] forge:truncate forge:text-[12px] forge:font-semibold forge:leading-none forge:max-[760px]:hidden">{{ account.name }}</span>
