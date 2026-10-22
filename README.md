@@ -4,6 +4,10 @@
 
 Forge3D is a visual 3D canvas for AI generation workflows. Describe a goal in natural language or edit the canvas directly, then connect image input, model generation, processing, and export steps into a reusable workflow.
 
+[![Watch the 27-second Forge3D demo: from a reference image to a downloadable 3D model](assets/demo-video-poster.jpg)](assets/forge3d-shark-demo.mp4)
+
+▶ [Watch the demo video (27 s)](assets/forge3d-shark-demo.mp4)
+
 ![Forge3D canvas: four reference views feed Multi-view to 3D, then Asset Preview and Export](assets/canvas-overview.jpg)
 
 ## Screenshots
