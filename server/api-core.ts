@@ -1034,7 +1034,9 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
   return async function handle(request, runtime = {}) {
     try {
       const context = await createContext(request, runtime)
-      await recoverAgentTurns(context)
+      // Interrupted turns resume on the deployment's own key, never on the key of
+      // whichever visitor's request happened to arrive first.
+      await recoverAgentTurns(context.builtInConfig ? { ...context, config: context.builtInConfig } : context)
       return await route(request, context)
     } catch (error) {
       if (!error.statusCode) console.error(error)

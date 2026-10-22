@@ -5,6 +5,7 @@ import CanvasContextMenu from './components/CanvasContextMenu.vue'
 import CanvasToolbar from './components/CanvasToolbar.vue'
 import ChatPanel from './components/ChatPanel.vue'
 import ImagePreviewOverlay from './components/ImagePreviewOverlay.vue'
+import ApiKeysDialog from './components/ApiKeysDialog.vue'
 import DebugPanel from './components/DebugPanel.vue'
 import ExecutionOutputPanel from './components/ExecutionOutputPanel.vue'
 import RunLogPanel from './components/RunLogPanel.vue'
@@ -22,6 +23,7 @@ import { useTheme } from './composables/useTheme'
 import { useCanvasDocument } from './composables/useCanvasDocument'
 import { useCanvasRun } from './composables/useCanvasRun'
 import { useDebugSettings } from './composables/useDebugSettings'
+import { useApiKeys } from './composables/useApiKeys'
 import { request } from './api'
 import { readClipboardFragment } from './canvas-fragment'
 import { edgeDefaults, nodePresentation } from './canvas-graph'
@@ -83,6 +85,7 @@ function screenToFlowCoordinate(point) { return graphCanvas.value?.screenToFlowC
 function updateNodeInternals() {}
 function findNode(id) { return graphCanvas.value?.findNode(id) || null }
 const { theme, resolvedTheme, setTheme } = useTheme()
+const { deepseekKey, meshyKey, usingOwnKeys, apiKeysOpen, saveApiKeys, dismissApiKeys } = useApiKeys()
 const {
   clientId, canEdit, editorName, acquireEditLease, markEditActivity, configureIdleRelease,
   applyPresenceEvent, canvasOpened, releasePresence,
@@ -1079,6 +1082,8 @@ onUnmounted(() => {
       @import-file="importCanvasFile"
       @set-theme="setTheme"
       @update:canvas-view="canvasView = $event"
+      :using-own-keys="usingOwnKeys"
+      @open-api-keys="apiKeysOpen = true"
     />
 
     <div v-if="canvasMenu" class="forge:fixed forge:z-40 forge:grid forge:w-[164px] forge:gap-[3px] forge:rounded-lg forge:border forge:border-line-strong forge:bg-bg-input forge:p-[5px] forge:shadow-popover" :style="{ left: `${canvasMenu.left}px`, top: `${canvasMenu.top}px` }" @pointerdown.stop>
@@ -1203,6 +1208,7 @@ onUnmounted(() => {
       <span class="forge3d-create-label">Loading</span>
     </div>
     <ImagePreviewOverlay :preview="imagePreview" @close="closeImagePreview" />
+    <ApiKeysDialog :open="apiKeysOpen" :deepseek-key="deepseekKey" :meshy-key="meshyKey" @save="saveApiKeys" @dismiss="dismissApiKeys" />
     <DebugPanel
       v-if="debugMode"
       v-model:open="debugPanelOpen"

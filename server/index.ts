@@ -8,6 +8,7 @@ import { createPostgresStore } from './postgres-store.js'
 import { createTripoRunner, createTripoTaskReader } from './tripo-run.js'
 import { createMeshyRunner, createMeshySubmitter, createMeshyTaskReader } from './meshy-run.js'
 import { createMeshyLocalReader } from './meshy-local-file.js'
+import { applyUserKeys, readUserKeys } from './user-keys.js'
 import { persistUploadedAsset, readAsset as readAssetFromDisk } from './tripo-assets.js'
 import { createApi } from './api-core.js'
 import { listenOnAvailablePort } from './listen.js'
@@ -78,7 +79,18 @@ const context = {
 
 const configuredSseIdleTimeout = Number(process.env.SSE_IDLE_TIMEOUT_MS)
 const handle = createApi({
-  createContext: () => context,
+  // Same store for every request; only the config picks up a visitor's own keys.
+  createContext: (request) => {
+    const config = applyUserKeys(context.config, readUserKeys(request), (apiKey) => {
+      const keyed = { ...process.env, MESHY_API_KEY: apiKey }
+      return {
+        createMeshyProvider: createMeshyRunner(keyed, { readLocal: createMeshyLocalReader(readAsset) }),
+        getMeshyTask: createMeshyTaskReader(keyed),
+        submitMeshyTask: createMeshySubmitter(keyed),
+      }
+    })
+    return config === context.config ? context : { ...context, config, builtInConfig: context.config }
+  },
   ...(Number.isFinite(configuredSseIdleTimeout) && configuredSseIdleTimeout > 0 ? { sseIdleTimeoutMs: configuredSseIdleTimeout } : {}),
 })
 

@@ -12,6 +12,7 @@ import { migrateCanvasRefs, migrateTurns } from './server/migrations.js'
 import { createApi } from './server/api-core.js'
 import { defaultAccount } from './server/credits.js'
 import { createMeshyRunner, createMeshySubmitter, createMeshyTaskReader } from './server/meshy-run.js'
+import { applyUserKeys, readUserKeys } from './server/user-keys.js'
 
 const collections = ['canvases', 'sessions', 'runs', 'turns', 'agentTraces', 'accounts', 'creditLedger']
 
@@ -95,6 +96,24 @@ function readWorkerReference(env) {
 const handle = createApi({
   async createContext(request, { env, ctx }) {
     const state = await loadState(env)
+    const builtInConfig = {
+      agentServiceUrl: env.AGENT_SERVICE_URL,
+      deepseek: {
+        apiKey: env.DEEPSEEK_API_KEY,
+        baseUrl: env.DEEPSEEK_BASE_URL,
+        model: env.DEEPSEEK_MODEL,
+      },
+      // Tripo still needs the local asset cache. Meshy reads public URLs, data
+      // URIs, and files from the asset binding.
+      createTripoProvider: null,
+      createMeshyProvider: createMeshyRunner(env, { readLocal: readWorkerReference(env), pollBudgetMs: 0 }),
+      getMeshyTask: createMeshyTaskReader(env),
+      submitMeshyTask: createMeshySubmitter(env),
+      resumeMeshyRuns: true,
+      getTripoTask: null,
+      readAsset: null,
+      uploadAsset: null,
+    }
     const context = {
       store: {
         state,
@@ -111,24 +130,16 @@ const handle = createApi({
         // collection write the shared core already performs.
         removeCanvas: async () => {},
       },
-      config: {
-        agentServiceUrl: env.AGENT_SERVICE_URL,
-        deepseek: {
-          apiKey: env.DEEPSEEK_API_KEY,
-          baseUrl: env.DEEPSEEK_BASE_URL,
-          model: env.DEEPSEEK_MODEL,
-        },
-        // Tripo still needs the local asset cache. Meshy reads public URLs, data
-        // URIs, and files from the asset binding.
-        createTripoProvider: null,
-        createMeshyProvider: createMeshyRunner(env, { readLocal: readWorkerReference(env), pollBudgetMs: 0 }),
-        getMeshyTask: createMeshyTaskReader(env),
-        submitMeshyTask: createMeshySubmitter(env),
-        resumeMeshyRuns: true,
-        getTripoTask: null,
-        readAsset: null,
-        uploadAsset: null,
-      },
+      // A visitor's own keys (from the API keys dialog) win over the Worker secrets.
+      config: applyUserKeys(builtInConfig, readUserKeys(request), (apiKey) => {
+        const keyed = { ...env, MESHY_API_KEY: apiKey }
+        return {
+          createMeshyProvider: createMeshyRunner(keyed, { readLocal: readWorkerReference(env), pollBudgetMs: 0 }),
+          getMeshyTask: createMeshyTaskReader(keyed),
+          submitMeshyTask: createMeshySubmitter(keyed),
+        }
+      }),
+      builtInConfig,
       waitUntil: (promise) => ctx.waitUntil(Promise.resolve(promise).catch(() => {})),
       recoverAgentTurns: !initialized,
     }
