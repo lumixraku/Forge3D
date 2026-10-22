@@ -31,6 +31,10 @@ const TEXTAREA_LABEL = 18
 const TEXTAREA_HEIGHT = 72
 // Canvas text follows the app sans; stock LiteGraph falls back to Arial.
 const CANVAS_FONT = "'DM Sans', sans-serif"
+// Missing-input notice: a tinted strip between the parameters and the actions.
+const NOTICE_PAD = 8
+const NOTICE_LINE = 16
+const NOTICE_GAP = 6
 const measureText = (() => {
   const canvas = document.createElement('canvas')
   const context = canvas.getContext('2d')
@@ -142,10 +146,28 @@ function ensureNodeType() {
   }
   ForgeNode.prototype.onDrawForeground = function(this: any, ctx: CanvasRenderingContext2D) {
     this.graph?._forgeHost?.paintNodeActions(this, ctx)
-    if (!this.properties.missing || this.flags?.collapsed) return
-    ctx.font = `11px ${CANVAS_FONT}`
-    ctx.fillStyle = '#ef5b5b'
-    ctx.fillText(String(this.properties.missing), 12, this.size[1] - (this.previewImage ? PREVIEW_HEIGHT + 4 : 8))
+    if (!this.noticeLines?.length || this.flags?.collapsed) return
+    const light = this.bgcolor === '#f4f7f4'
+    const x = WIDGET_INSET
+    const w = this.size[0] - WIDGET_INSET * 2
+    const h = noticeBoxHeight(this.noticeLines.length)
+    ctx.save()
+    ctx.beginPath()
+    if (ctx.roundRect) ctx.roundRect(x, this.noticeY, w, h, 6)
+    else ctx.rect(x, this.noticeY, w, h)
+    ctx.fillStyle = light ? 'rgba(200, 52, 52, 0.08)' : 'rgba(239, 91, 91, 0.12)'
+    ctx.fill()
+    ctx.lineWidth = 1
+    ctx.strokeStyle = light ? 'rgba(200, 52, 52, 0.35)' : 'rgba(239, 91, 91, 0.4)'
+    ctx.stroke()
+    ctx.font = `12px ${CANVAS_FONT}`
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = light ? '#b42a2a' : '#ff9b9b'
+    this.noticeLines.forEach((line: string, index: number) => {
+      ctx.fillText(line, x + NOTICE_PAD, this.noticeY + NOTICE_PAD / 2 + NOTICE_LINE * (index + 0.5) + 1)
+    })
+    ctx.restore()
   }
   ForgeNode.prototype.onDblClick = function(this: any, event: MouseEvent, pos: number[]) {
     this.graph?._forgeHost?.onNodeDoubleClick(this, event, pos)
@@ -222,7 +244,8 @@ function structureKey(nodes: any[], edges: any[]) {
       widgets: widgetPlan(node).map((parameter: any) => parameter.key),
       actions: actionPlan(node).map((action: any) => action.id),
       preview: previewSlot(node),
-      missing: Boolean(node._missing),
+      // The notice text sets the node height, so a new message rebuilds the node.
+      missing: node._missing || '',
     })),
     edges: edges.map((edge) => ({
       source: edge.source,
@@ -313,6 +336,28 @@ function actionBandHeight(actions: { id: string; label: string }[], width: numbe
   const texts = actions.filter((action) => !actionIcon(action.id))
   const rows = packActions(texts, width, 'text').length + packActions(icons, width, 'icon').length
   return rows ? rows * ACTION_SIZE + (rows - 1) * ACTION_GAP + 12 : 0
+}
+
+function noticeBoxHeight(lines: number) {
+  return lines * NOTICE_LINE + NOTICE_PAD
+}
+
+// Word-wrap the notice to the strip's inner width.
+function wrapNotice(text: string, nodeWidth: number) {
+  if (!text) return []
+  const width = nodeWidth - WIDGET_INSET * 2 - NOTICE_PAD * 2
+  const font = `12px ${CANVAS_FONT}`
+  const lines: string[] = []
+  let line = ''
+  for (const word of text.split(/\s+/)) {
+    const next = line ? `${line} ${word}` : word
+    if (line && measureText(next, font) > width) {
+      lines.push(line)
+      line = word
+    } else line = next
+  }
+  if (line) lines.push(line)
+  return lines
 }
 
 function canOpenModel(node: any) {
@@ -971,7 +1016,8 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     return nodes.map((node) => ({
       ...node,
       _run: nodeRuns[node.id],
-      _missing: missing[node.id]?.length ? `Missing ${missing[node.id].join(', ')}` : '',
+      // The node title already names the node: "Gen HD Model requires X" reads "Needs X" here.
+      _missing: missing[node.id]?.length ? missing[node.id].map((message) => message.replace(/^.+? requires /, 'Needs ')).join(' ') : '',
     }))
   }
 
@@ -996,7 +1042,6 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     const created = LiteGraph.createNode(NODE_TYPE)
     created.properties.forgeId = node.id
     created.properties.canvasType = node.data?.canvasType
-    created.properties.missing = node._missing || ''
     created.title = node.data?.label || node.data?.canvasType || 'Node'
     created.color = toneOf(node)
     created.bgcolor = theme === 'light' ? '#f4f7f4' : '#222826'
@@ -1016,13 +1061,19 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     for (const parameter of widgetPlan(node)) addParameterWidget(created, node, parameter)
     const size = created.computeSize()
     size[0] = Math.max(250, size[0])
+    // The notice takes its own room under the parameters. Actions and the
+    // preview are anchored to the bottom, so they stay clear of it.
+    created.noticeLines = wrapNotice(node._missing || '', size[0])
+    if (created.noticeLines.length) {
+      created.noticeY = size[1]
+      size[1] += noticeBoxHeight(created.noticeLines.length) + NOTICE_GAP
+    }
     created.previewSlot = previewSlot(node)
     created.uploadWell = node.data?.canvasType === 'reference-image' && !created.previewSlot
     const actions = actionPlan(node).filter((action: { id: string }) => !(created.uploadWell && (action.id === 'upload' || action.id === 'clear')))
     const band = actionBandHeight(actions, size[0], Boolean(created.previewSlot))
     if (band) size[1] += band
     if (created.previewSlot || created.uploadWell) size[1] += PREVIEW_HEIGHT
-    if (node._missing) size[1] += 16
     created.setSize(size)
     graph.add(created)
     attachPreview(created, previewSource(node))
@@ -1281,7 +1332,6 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
         node.title = flow.data?.label || node.title
         node.color = toneOf(flow)
         node.boxcolor = flow._missing ? '#ef5b5b' : node.color
-        node.properties.missing = flow._missing || ''
         const url = previewSource(flow)
         if (url !== node.previewUrl) attachPreview(node, url)
         writeWidgetValues(node, flow)
