@@ -981,9 +981,12 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     publishViewport()
   }
   const onGestureEnd = () => { pinchStart = 0 }
-  canvas.addEventListener('gesturestart', onGestureStart, { passive: false })
-  canvas.addEventListener('gesturechange', onGestureChange, { passive: false })
-  canvas.addEventListener('gestureend', onGestureEnd)
+  // Listen on the canvas root, not the bitmap: node buttons, upload wells and
+  // the minimap sit above the bitmap, and a pinch over them must still zoom.
+  const wheelTarget = canvas.parentElement || canvas
+  wheelTarget.addEventListener('gesturestart', onGestureStart, { passive: false })
+  wheelTarget.addEventListener('gesturechange', onGestureChange, { passive: false })
+  wheelTarget.addEventListener('gestureend', onGestureEnd)
   canvas.removeEventListener('mousewheel', view._mousewheel_callback)
   canvas.removeEventListener('DOMMouseScroll', view._mousewheel_callback)
   view._mousewheel_callback = (event: WheelEvent) => {
@@ -1010,7 +1013,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     view.setDirty(true, true)
     publishViewport()
   }
-  canvas.addEventListener('wheel', view._mousewheel_callback, { passive: false })
+  wheelTarget.addEventListener('wheel', view._mousewheel_callback, { passive: false })
 
   function remember(nodes = flowNodes, edges = flowEdges) {
     lastStructure = structureKey(nodes, edges)
@@ -2183,10 +2186,10 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       canvas.removeEventListener('mousemove', view._mousemove_callback)
       canvas.removeEventListener('mouseup', view._mouseup_callback, true)
       canvas.removeEventListener('pointerleave', clearLinkHover)
-      canvas.removeEventListener('wheel', view._mousewheel_callback)
-      canvas.removeEventListener('gesturestart', onGestureStart)
-      canvas.removeEventListener('gesturechange', onGestureChange)
-      canvas.removeEventListener('gestureend', onGestureEnd)
+      wheelTarget.removeEventListener('wheel', view._mousewheel_callback)
+      wheelTarget.removeEventListener('gesturestart', onGestureStart)
+      wheelTarget.removeEventListener('gesturechange', onGestureChange)
+      wheelTarget.removeEventListener('gestureend', onGestureEnd)
       view.stopRendering()
       view.unbindEvents()
       clearGraph()

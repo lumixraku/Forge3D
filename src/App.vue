@@ -1003,7 +1003,8 @@ function preventNativePinchZoom(event: Event) {
 }
 
 function preventPageTrackpadPinchZoom(event: WheelEvent) {
-  if (event.ctrlKey && !(event.target instanceof Element && event.target.closest('.forge3d-flow-canvas'))) event.preventDefault()
+  // Pinch (ctrl+wheel) never zooms the page. The canvas zooms itself from its own listener.
+  if (event.ctrlKey) event.preventDefault()
 }
 
 async function releaseOnBlur() {
@@ -1031,6 +1032,7 @@ onMounted(async () => {
   window.addEventListener('pagehide', releaseOnBlur)
   document.addEventListener('visibilitychange', flushWhenHidden)
   document.addEventListener('gesturestart', preventNativePinchZoom, { passive: false })
+  document.addEventListener('gesturechange', preventNativePinchZoom, { passive: false })
   document.addEventListener('wheel', preventPageTrackpadPinchZoom, { capture: true, passive: false })
   try {
     await Promise.all([loadCanvass(), loadAccount()])
@@ -1048,6 +1050,7 @@ onUnmounted(() => {
   window.removeEventListener('pagehide', releaseOnBlur)
   document.removeEventListener('visibilitychange', flushWhenHidden)
   document.removeEventListener('gesturestart', preventNativePinchZoom)
+  document.removeEventListener('gesturechange', preventNativePinchZoom)
   document.removeEventListener('wheel', preventPageTrackpadPinchZoom, true)
 })
 </script>
