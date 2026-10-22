@@ -13,7 +13,7 @@ The repository is both a working demo and a reference implementation. This docum
 
 Chat requires a DeepSeek API key. Canvas execution is intentionally simulated: no external image-generation, mesh-generation, retopology, rigging, texture, or export service is called.
 
-![Forge3D Canvas Studio](../assets/forge3d-canvas-studio.png)
+![Forge3D canvas: four reference views feed Multi-view to 3D, then Asset Preview and Export](../assets/canvas-overview.jpg)
 
 ## Product Goals
 

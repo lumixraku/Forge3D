@@ -4,6 +4,24 @@
 
 Forge3D is a visual 3D canvas for AI generation workflows. Describe a goal in natural language or edit the canvas directly, then connect image input, model generation, processing, and export steps into a reusable workflow.
 
+![Forge3D canvas: four reference views feed Multi-view to 3D, then Asset Preview and Export](assets/canvas-overview.jpg)
+
+## Screenshots
+
+Nodes show their inputs, parameters, previews, and run actions directly on the canvas. Cascading parameters such as Mesh Type → Meshy Model → Geometry Resolution appear under the control that owns them.
+
+![A Multi-view to 3D node with its parameters, next to an Asset Preview of the generated model](assets/canvas-node-detail.jpg)
+
+The task list slides in from the right with each run's status, progress, and downloadable outputs. Its handle stays on the panel's left edge.
+
+![The task list open beside the canvas, showing completed workflow runs and their GLB outputs](assets/canvas-task-queue.jpg)
+
+## Canvas controls
+
+- Pinch or Ctrl + scroll zooms the canvas, including over node buttons and the minimap. The page itself never zooms.
+- Two-finger drag pans. Move mode drags to pan; Select mode drags empty space to box-select.
+- Drop a link on empty canvas to add a node. Fit and Auto layout are in the canvas toolbar.
+
 ## Features
 
 - Create, connect, duplicate, and organize workflow nodes on an infinite canvas.

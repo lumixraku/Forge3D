@@ -5,18 +5,18 @@ import { applyNodeParameter } from './canvas-schema'
 
 const NODE_TYPE = 'forge/node'
 const PORT_COLOR: Record<string, string> = {
-  image: '#64a2c8',
-  text: '#e6c34a',
-  model: '#8d62f0',
-  any: '#9aa39c',
+  image: '#7fb3d5',
+  text: '#f2c14e',
+  model: '#a98ae8',
+  any: '#b3a184',
 }
 const TONE_COLOR: Record<string, string> = {
-  cyan: '#0f6e72',
-  amber: '#8a5a14',
-  violet: '#5b3d8a',
-  green: '#1d6b3c',
-  rose: '#8a3148',
-  slate: '#3c4a52',
+  cyan: '#2fa8a0',
+  amber: '#d99a3f',
+  violet: '#9b82d6',
+  green: '#5aa15f',
+  rose: '#e08a96',
+  slate: '#8f9aa0',
 }
 const PREVIEW_HEIGHT = 148
 // Stock title text starts at NODE_TITLE_HEIGHT (30) to clear a status dot we
@@ -30,7 +30,7 @@ const WIDGET_INSET = 10
 const TEXTAREA_LABEL = 18
 const TEXTAREA_HEIGHT = 72
 // Canvas text follows the app sans; stock LiteGraph falls back to Arial.
-const CANVAS_FONT = "'DM Sans', sans-serif"
+const CANVAS_FONT = "'Nunito', 'PingFang SC', sans-serif"
 // Missing-input notice: a tinted strip between the parameters and the actions.
 const NOTICE_PAD = 8
 const NOTICE_LINE = 16
@@ -45,46 +45,49 @@ const measureText = (() => {
   }
 })()
 // Section fill and title stay this sage green. Selection is a separate stroke.
-const FRAME_COLOR = '#6d8f78'
+const FRAME_COLOR = '#8cc99b'
 const FRAME_TITLE_BAND = 36
 // Same greens as --acid. LiteGraph's #9A9 reads as white on the light canvas,
 // and a selected node repaints every attached link #FFF.
 const LINK_COLOR: Record<string, string> = {
-  light: '#789800',
-  dark: '#d7ff56',
+  light: '#5aa15f',
+  dark: '#5aa15f',
 }
-const RUNNING_LINK_COLOR = '#d6ff55'
+const LINK_HOVER_COLOR = '#2f7d43'
+const RUNNING_LINK_COLOR = '#9bd94f'
+const NODE_BODY_COLOR = '#fffdf7'
+const NODE_INK = '#794f27'
 // Parameter rows share one left edge, one right edge, and the same corner.
 // Action buttons are not parameters: they size to the label and share a row.
 // LiteGraph's own widgets are capsules with arrows that shove the labels out of line.
 const WIDGET_PALETTE = {
   light: {
-    field: '#ffffff',
-    button: '#f4f7f4',
-    text: '#1c2416',
-    label: '#3c4640',
-    outline: '#c9d1cb',
-    hover: '#d5e2d8',
-    hoverOutline: '#5f7368',
-    pressed: '#e3ebe4',
-    caret: '#5c675f',
-    trackOff: '#d5ddd6',
-    trackOn: '#789800',
-    knob: '#ffffff',
+    field: '#fffdf7',
+    button: '#f6efdf',
+    text: '#794f27',
+    label: '#96795a',
+    outline: '#e6dcc8',
+    hover: '#f2e7d2',
+    hoverOutline: '#c9b48c',
+    pressed: '#ece0c9',
+    caret: '#a38a68',
+    trackOff: '#ddd1b9',
+    trackOn: '#19b8aa',
+    knob: '#fffdf7',
   },
   dark: {
-    field: '#2a312d',
-    button: '#323a35',
-    text: '#e7ece8',
-    label: '#b7c0ba',
-    outline: '#4a564f',
-    hover: '#3c4741',
-    hoverOutline: '#8b998f',
-    pressed: '#465048',
-    caret: '#c5cfc8',
-    trackOff: '#4a564f',
-    trackOn: '#8aaa2a',
-    knob: '#f4f7f4',
+    field: '#fffdf7',
+    button: '#f6efdf',
+    text: '#794f27',
+    label: '#96795a',
+    outline: '#e6dcc8',
+    hover: '#f2e7d2',
+    hoverOutline: '#c9b48c',
+    pressed: '#ece0c9',
+    caret: '#a38a68',
+    trackOff: '#ddd1b9',
+    trackOn: '#19b8aa',
+    knob: '#fffdf7',
   },
 }
 
@@ -120,10 +123,10 @@ function ensureNodeType() {
     ctx.beginPath()
     if (ctx.roundRect) ctx.roundRect(x, y, width, height, 6)
     else ctx.rect(x, y, width, height)
-    ctx.fillStyle = light ? '#e7eeea' : '#1a201e'
+    ctx.fillStyle = '#f4eedd'
     ctx.fill()
     ctx.lineWidth = 1
-    ctx.strokeStyle = light ? '#c5d0c8' : '#3a4440'
+    ctx.strokeStyle = '#e6dcc8'
     ctx.stroke()
     const image = this.previewImage as HTMLImageElement | undefined
     if (image?.complete && image.naturalWidth > 0) {
@@ -137,7 +140,7 @@ function ensureNodeType() {
       ctx.drawImage(image, x + (width - drawWidth) / 2, y + (height - drawHeight) / 2, drawWidth, drawHeight)
     } else {
       ctx.font = `12px ${CANVAS_FONT}`
-      ctx.fillStyle = light ? '#8a968e' : '#8d9892'
+      ctx.fillStyle = '#b3a184'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
       ctx.fillText('Preview', x + width / 2, y + height / 2)
@@ -155,15 +158,15 @@ function ensureNodeType() {
     ctx.beginPath()
     if (ctx.roundRect) ctx.roundRect(x, this.noticeY, w, h, 6)
     else ctx.rect(x, this.noticeY, w, h)
-    ctx.fillStyle = light ? 'rgba(200, 52, 52, 0.08)' : 'rgba(239, 91, 91, 0.12)'
+    ctx.fillStyle = 'rgba(224, 90, 90, 0.10)'
     ctx.fill()
     ctx.lineWidth = 1
-    ctx.strokeStyle = light ? 'rgba(200, 52, 52, 0.35)' : 'rgba(239, 91, 91, 0.4)'
+    ctx.strokeStyle = 'rgba(224, 90, 90, 0.38)'
     ctx.stroke()
     ctx.font = `12px ${CANVAS_FONT}`
     ctx.textAlign = 'left'
     ctx.textBaseline = 'middle'
-    ctx.fillStyle = light ? '#b42a2a' : '#ff9b9b'
+    ctx.fillStyle = '#c24b3a'
     this.noticeLines.forEach((line: string, index: number) => {
       ctx.fillText(line, x + NOTICE_PAD, this.noticeY + NOTICE_PAD / 2 + NOTICE_LINE * (index + 0.5) + 1)
     })
@@ -404,7 +407,8 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   graph.config.links_ontop = true
   const view = new LGraphCanvas(canvas, graph)
   view.background_image = LGraphCanvas.DEFAULT_BACKGROUND_IMAGE
-  view.clear_background_color = '#121614'
+  view.clear_background_color = '#d3ecdb'
+  view.round_radius = 16
   view.show_info = false
   // LiteGraph strokes a debug rectangle from graph (0, 0) out to the bitmap
   // size. On the light canvas that is a stray dark frame, and a different
@@ -532,9 +536,9 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     const width = view.connections_width
     if (hovered) {
       view.connections_width = width + 2
-      args[5] = theme === 'light' ? '#3f5c00' : '#ffffff'
+      args[5] = LINK_HOVER_COLOR
       ctx.save()
-      ctx.shadowColor = theme === 'light' ? 'rgba(63, 92, 0, 0.45)' : 'rgba(255, 255, 255, 0.75)'
+      ctx.shadowColor = 'rgba(47, 125, 67, 0.45)'
       ctx.shadowBlur = 6
     }
     try {
@@ -566,7 +570,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     ctx.lineJoin = 'round'
     ctx.shadowColor = RUNNING_LINK_COLOR
     ctx.shadowBlur = 9
-    ctx.strokeStyle = '#f4ffd0'
+    ctx.strokeStyle = '#f2ffd6'
     ctx.lineWidth = 3.5
     ctx.beginPath()
     for (let step = 0; step <= steps; step += 1) {
@@ -977,9 +981,12 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     publishViewport()
   }
   const onGestureEnd = () => { pinchStart = 0 }
-  canvas.addEventListener('gesturestart', onGestureStart, { passive: false })
-  canvas.addEventListener('gesturechange', onGestureChange, { passive: false })
-  canvas.addEventListener('gestureend', onGestureEnd)
+  // Listen on the canvas root, not the bitmap: node buttons, upload wells and
+  // the minimap sit above the bitmap, and a pinch over them must still zoom.
+  const wheelTarget = canvas.parentElement || canvas
+  wheelTarget.addEventListener('gesturestart', onGestureStart, { passive: false })
+  wheelTarget.addEventListener('gesturechange', onGestureChange, { passive: false })
+  wheelTarget.addEventListener('gestureend', onGestureEnd)
   canvas.removeEventListener('mousewheel', view._mousewheel_callback)
   canvas.removeEventListener('DOMMouseScroll', view._mousewheel_callback)
   view._mousewheel_callback = (event: WheelEvent) => {
@@ -1006,7 +1013,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     view.setDirty(true, true)
     publishViewport()
   }
-  canvas.addEventListener('wheel', view._mousewheel_callback, { passive: false })
+  wheelTarget.addEventListener('wheel', view._mousewheel_callback, { passive: false })
 
   function remember(nodes = flowNodes, edges = flowEdges) {
     lastStructure = structureKey(nodes, edges)
@@ -1044,7 +1051,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     created.properties.canvasType = node.data?.canvasType
     created.title = node.data?.label || node.data?.canvasType || 'Node'
     created.color = toneOf(node)
-    created.bgcolor = theme === 'light' ? '#f4f7f4' : '#222826'
+    created.bgcolor = NODE_BODY_COLOR
     created.boxcolor = node._missing ? '#ef5b5b' : created.color
     const position = absolutePosition(node, byId)
     created.pos = [position.x, position.y]
@@ -1976,7 +1983,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   function paintNodeActions(node: any, ctx: CanvasRenderingContext2D) {
     const buttons = localActions(node)
     if (!buttons.length) return
-    const palette = theme === 'light' ? WIDGET_PALETTE.light : WIDGET_PALETTE.dark
+    const palette = WIDGET_PALETTE.light
     ctx.save()
     ctx.font = `12px ${CANVAS_FONT}`
     ctx.textAlign = 'center'
@@ -1984,14 +1991,24 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     ctx.lineWidth = 1
     for (const button of buttons) {
       const hot = hoverActionKey === button.key
+      const primary = button.id === 'run' || button.id === 'downstream' || button.id === 'approve'
+      const radius = button.w < 60 ? button.w / 2 : button.h / 2
+      // Clear the node body first, then the pill's own drop shadow and face.
+      ctx.fillStyle = NODE_BODY_COLOR
+      ctx.fillRect(button.x - 2, button.y - 2, button.w + 4, button.h + 6)
       ctx.beginPath()
-      if (ctx.roundRect) ctx.roundRect(button.x, button.y, button.w, button.h, 8)
-      else ctx.rect(button.x, button.y, button.w, button.h)
-      ctx.fillStyle = hot ? palette.hover : palette.field
+      if (ctx.roundRect) ctx.roundRect(button.x, button.y + 1, button.w, button.h, radius)
+      else ctx.rect(button.x, button.y + 1, button.w, button.h)
+      ctx.fillStyle = '#d6c6a6'
       ctx.fill()
-      ctx.strokeStyle = hot ? palette.hoverOutline : palette.outline
+      ctx.beginPath()
+      if (ctx.roundRect) ctx.roundRect(button.x, button.y, button.w, button.h, radius)
+      else ctx.rect(button.x, button.y, button.w, button.h)
+      ctx.fillStyle = primary ? '#19b8aa' : (hot ? palette.hover : palette.field)
+      ctx.fill()
+      ctx.strokeStyle = primary ? '#12a294' : (hot ? palette.hoverOutline : palette.outline)
       ctx.stroke()
-      ctx.fillStyle = palette.text
+      ctx.fillStyle = primary ? '#ffffff' : palette.text
       ctx.fillText(button.label, button.x + button.w / 2, button.y + button.h / 2)
     }
     ctx.restore()
@@ -2101,9 +2118,10 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   }
 
   view.node_title_color = '#fff'
-  view.title_text_font = `14px ${CANVAS_FONT}`
+  view.title_text_font = `15px ${CANVAS_FONT}`
   view.inner_text_font = `12px ${CANVAS_FONT}`
   LiteGraph.NODE_SELECTED_TITLE_COLOR = '#fff'
+  LiteGraph.NODE_TEXT_COLOR = NODE_INK
 
   const hostApi = {
     sync,
@@ -2141,11 +2159,11 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       const color = LINK_COLOR[next] || LINK_COLOR.dark
       view.default_link_color = color
       LiteGraph.CONNECTING_LINK_COLOR = color
-      view.clear_background_color = next === 'light' ? '#e7ece8' : '#121614'
+      view.clear_background_color = '#d3ecdb'
       view.background_image = next === 'light' ? null : LGraphCanvas.DEFAULT_BACKGROUND_IMAGE
       // Node bodies take their color when built. Repaint the live ones too, or
       // a theme switch leaves light bodies under dark widgets.
-      for (const node of graph._nodes) node.bgcolor = next === 'light' ? '#f4f7f4' : '#222826'
+      for (const node of graph._nodes) node.bgcolor = NODE_BODY_COLOR
       view.setDirty(true, true)
     },
     fitView,
@@ -2168,10 +2186,10 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       canvas.removeEventListener('mousemove', view._mousemove_callback)
       canvas.removeEventListener('mouseup', view._mouseup_callback, true)
       canvas.removeEventListener('pointerleave', clearLinkHover)
-      canvas.removeEventListener('wheel', view._mousewheel_callback)
-      canvas.removeEventListener('gesturestart', onGestureStart)
-      canvas.removeEventListener('gesturechange', onGestureChange)
-      canvas.removeEventListener('gestureend', onGestureEnd)
+      wheelTarget.removeEventListener('wheel', view._mousewheel_callback)
+      wheelTarget.removeEventListener('gesturestart', onGestureStart)
+      wheelTarget.removeEventListener('gesturechange', onGestureChange)
+      wheelTarget.removeEventListener('gestureend', onGestureEnd)
       view.stopRendering()
       view.unbindEvents()
       clearGraph()

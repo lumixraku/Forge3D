@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss" prefix(forge);
 @import '@vue-flow/core/dist/style.css';
 @import '@vue-flow/core/dist/theme-default.css';
@@ -45,38 +45,43 @@
 
 @layer base {
   :root {
-    --bg-primary: #0d0f0f;
-    --bg-secondary: #101212;
-    --bg-tertiary: #111313;
-    --bg-panel: #141616;
-    --bg-card: #141716;
-    --bg-input: #171a19;
-    --bg-input-hover: #202421;
-    --bg-active: #252a27;
-    --bg-overlay: rgba(5, 7, 6, .88);
+    --bg-primary: #d3ecdb;
+    --bg-secondary: #fbf7ec;
+    --bg-tertiary: #fdfaf3;
+    --bg-panel: #fbf7ec;
+    --bg-card: #fffdf7;
+    --bg-input: #fffdf7;
+    --bg-input-hover: #f5eddc;
+    --bg-active: #efe4cd;
+    --bg-overlay: rgba(120, 110, 92, .55);
 
-    --text-primary: #ecece8;
-    --text-secondary: #a9aea9;
-    --text-muted: #858b87;
-    --text-inverse: #10120e;
+    --text-primary: #794f27;
+    --text-secondary: #8c7a5e;
+    --text-muted: #9f927d;
+    --text-inverse: #fffaf0;
 
-    --line: #292d2c;
-    --line-strong: #343938;
-    --line-subtle: #303532;
+    --line: #e2d8c3;
+    --line-strong: #d6c6a6;
+    --line-subtle: #ece5d7;
 
-    --acid: #d7ff56;
-    --acid-dim: #789800;
+    --acid: #19b8aa;
+    --acid-dim: #12897e;
 
-    --status-running: #f0ba62;
-    --status-failed: #ef8290;
+    --status-running: #f0a63c;
+    --status-failed: #e05a5a;
 
-    --font-sans: 'DM Sans', sans-serif;
+    /* Island surfaces: warm cream, brown ink, teal accent, toy-block shadows. */
+    --island-mint: #d3ecdb;
+    --island-cream: #fbf7ec;
+    --island-ink: #794f27;
+    --island-teal: #19b8aa;
+    --font-sans: 'Nunito', ui-rounded, 'PingFang SC', 'Microsoft YaHei', sans-serif;
     --font-mono: 'IBM Plex Mono', monospace;
 
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, .12);
-    --shadow-md: 0 4px 12px rgba(0, 0, 0, .18);
-    --shadow-lg: 0 12px 32px rgba(0, 0, 0, .25);
-    --shadow-popover: 0 18px 36px rgba(0, 0, 0, .38);
+    --shadow-sm: 0 2px 4px rgba(126, 92, 54, .08);
+    --shadow-md: 0 4px 10px rgba(126, 92, 54, .10);
+    --shadow-lg: 0 8px 22px rgba(126, 92, 54, .14);
+    --shadow-popover: 0 14px 30px rgba(126, 92, 54, .20);
 
     color: var(--text-primary);
     background: var(--bg-primary);
@@ -85,32 +90,27 @@
   }
 
   :root[data-theme='light'] {
-    --bg-primary: #eef1ee;
-    --bg-secondary: #f5f7f5;
-    --bg-tertiary: #fafbfa;
-    --bg-panel: #fafbfa;
-    --bg-card: #fff;
-    --bg-input: #fff;
-    --bg-input-hover: #f1f4f1;
-    --bg-active: #fff;
-    --bg-overlay: rgba(238, 241, 238, .88);
+    --bg-primary: #d3ecdb;
+    --bg-secondary: #fbf7ec;
+    --bg-tertiary: #fdfaf3;
+    --bg-panel: #fbf7ec;
+    --bg-card: #fffdf7;
+    --bg-input: #fffdf7;
+    --bg-input-hover: #f5eddc;
+    --bg-active: #efe4cd;
+    --bg-overlay: rgba(120, 110, 92, .55);
 
-    --text-primary: #202522;
-    --text-secondary: #505853;
-    --text-muted: #69716c;
-    --text-inverse: #fff;
+    --text-primary: #794f27;
+    --text-secondary: #8c7a5e;
+    --text-muted: #95886f;
+    --text-inverse: #fffaf0;
 
-    --line: #d4d9d5;
-    --line-strong: #cbd1cd;
-    --line-subtle: #dce1dd;
+    --line: #e2d8c3;
+    --line-strong: #d6c6a6;
+    --line-subtle: #ece5d7;
 
-    --acid: #789800;
-    --acid-dim: #789800;
-
-    --shadow-sm: 0 1px 2px rgba(38, 48, 41, .06);
-    --shadow-md: 0 4px 12px rgba(38, 48, 41, .08);
-    --shadow-lg: 0 12px 32px rgba(38, 48, 41, .10);
-    --shadow-popover: 0 18px 36px rgba(38, 48, 41, .16);
+    --acid: #19b8aa;
+    --acid-dim: #12897e;
   }
 
   * { box-sizing: border-box; }
@@ -122,4 +122,17 @@
   button { cursor: pointer; }
 
   button:disabled { cursor: not-allowed; opacity: .45; }
+
+  /* Toy-block buttons: a pill resting on its own solid shadow, lifting on
+     hover and pressing down on click. Paragraph controls opt out. */
+  button:not(:disabled):not(.forge3d-flat):not(.forge3d-bare) {
+    border-radius: 999px;
+    transition: transform .16s ease, box-shadow .16s ease, background-color .16s ease, border-color .16s ease, color .16s ease;
+    box-shadow: 0 3px 0 0 var(--line-strong);
+  }
+  button:not(:disabled):not(.forge3d-flat):not(.forge3d-bare):hover { transform: translateY(-1px); box-shadow: 0 4px 0 0 var(--line-strong); }
+  button:not(:disabled):not(.forge3d-flat):not(.forge3d-bare):active { transform: translateY(2px); box-shadow: 0 1px 0 0 var(--line-strong); }
+  button.forge3d-flat { border-radius: 9px; }
+
+  ::selection { background: color-mix(in srgb, var(--acid) 30%, transparent); }
 }
