@@ -1985,7 +1985,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     if (!buttons.length) return
     const palette = WIDGET_PALETTE.light
     ctx.save()
-    ctx.font = `600 12px ${CANVAS_FONT}`
+    ctx.font = `12px ${CANVAS_FONT}`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.lineWidth = 1
@@ -2118,7 +2118,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   }
 
   view.node_title_color = '#fff'
-  view.title_text_font = `600 15px ${CANVAS_FONT}`
+  view.title_text_font = `15px ${CANVAS_FONT}`
   view.inner_text_font = `12px ${CANVAS_FONT}`
   LiteGraph.NODE_SELECTED_TITLE_COLOR = '#fff'
   LiteGraph.NODE_TEXT_COLOR = NODE_INK
