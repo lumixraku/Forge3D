@@ -55,7 +55,10 @@ export function useCanvasDocument({
   // missing slots back so the document the server holds matches the screen.
   function repairResultSlots(canvas) {
     const repair = reconcileResultSlots({ nodes: canvas.nodes || [], edges: canvas.edges || [], provider: canvas.provider })
-    if (!repair.added.length && !repair.removed.length) return canvas
+    // Slots and their wiring are both part of the shape a run fills in, so a
+    // canvas whose wires were re-homed is written back too.
+    const rewired = JSON.stringify(repair.canvas.edges) !== JSON.stringify(canvas.edges || [])
+    if (!repair.added.length && !repair.removed.length && !rewired) return canvas
     canvas.nodes = repair.canvas.nodes
     canvas.edges = repair.canvas.edges
     workflowDirty.value = true

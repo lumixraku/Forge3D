@@ -1,4 +1,4 @@
-import { nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
+import { activeInputPorts, nodeInputPorts, nodeOutputPorts } from './canvas-nodes'
 import { normalizeNodeConfig, nodeRole } from './canvas-schema'
 import { isResultType, resultSpecs, type ResultSpec } from './canvas-results'
 
@@ -295,10 +295,16 @@ export function reconcileResultSlots(canvas: SlotCanvas, { filled = new Map<stri
     const stageType = typeById(stageId)
     for (const slot of slots) {
       const slotType = typeOf(slot, shape) || ''
-      const source = nodeOutputPorts(stageType).find((port) => {
-        const forward = outputPortOf(slotType)
-        return forward && (port.type === forward.type || port.type === 'any' || forward.type === 'any')
-      })
+      // A multi-view stage has one output port per view: each view's slot reads
+      // its own port, so Front, Back, Left and Right are four separate wires
+      // rather than four wires off the first port.
+      const view = generatedOf(slot, shape).view as string | undefined
+      const ports = nodeOutputPorts(stageType)
+      const source = (view && ports.find((port) => port.id === view))
+        || ports.find((port) => {
+          const forward = outputPortOf(slotType)
+          return forward && (port.type === forward.type || port.type === 'any' || forward.type === 'any')
+        })
       const target = outputPortOf(slotType)
       // Export carries no output of its own: its file slot only displays the
       // export, so there is nothing to wire it to.
@@ -323,24 +329,85 @@ export function reconcileResultSlots(canvas: SlotCanvas, { filled = new Map<stri
     if (!targetType) continue
     const pair = mediaPair(typeById(sourceId), targetType)
     if (!pair) continue
+    // The edge kept its own target port: a labeled view feeds that same port
+    // downstream, so the four views reach four different inputs.
+    const targetPort = nodeInputPorts(targetType).find((port) => port.id === edge.target!.port)
+    const collects = Boolean(targetPort?.multiple)
     // A single-value port takes one slot; the rest of the batch stays on the
     // stage's other slots unless the target collects a list.
-    const collects = Boolean(nodeInputPorts(targetType).find((port) => port.id === pair.targetPort)?.multiple)
-    const usable = collects ? slots : slots.slice(0, 1)
+    const viewSlots = slots.filter((slot) => generatedOf(slot, shape).view)
+    // Only ports the downstream actually shows can be a target: a mode that hides
+    // the labeled view ports takes the views on its image input instead.
+    // Views keep one wire each; a plain image port takes the first so a value
+    // is not wired twice into the same input.
+    // A list port takes every slot; otherwise every view gets its own wire and a
+    // plain image output contributes only its first slot.
+    const usable = collects ? slots : viewSlots.length ? viewSlots : slots.slice(0, 1)
     for (const slot of usable) {
       const slotType = typeOf(slot, shape) || ''
-      // A slot forwards a value of its own kind on its first output port, onto
-      // whichever of the downstream node's inputs accepts that kind.
       const output = outputPortOf(slotType)
-      const target = nodeInputPorts(targetType).find((port) => port.id === output?.id)
-        || nodeInputPorts(targetType).find((port) => port.id === pair.targetPort && (port.type === output?.type || port.type === 'any'))
-        || nodeInputPorts(targetType).find((port) => output && (port.type === output.type || port.type === 'any'))
-      if (!output || !target) continue
-      nextEdges.push(slotLink(slot.id, targetId, output.id, target.id, shape))
+      if (!output) continue
+      const view = generatedOf(slot, shape).view as string | undefined
+      // A downstream in `images` mode has no labeled view ports, so its single
+      // Image input collects the views instead of dropping them.
+      const inputs = activeInputPorts(targetType, configOf(byId.get(targetId)!, shape))
+      const viewPort = view && inputs.find((port) => port.id === view && (port.type === output.type || port.type === 'any'))
+      // A downstream in `images` mode has no labeled view ports: it takes the
+      // media on its image input, one wire per view unless the port collects.
+      const openInput = viewPort || inputs.find((port) => port.id === output.id && (port.type === output.type || port.type === 'any'))
+        || inputs.find((port) => port.type === output.type || port.type === 'any')
+      const target = viewPort
+        || (targetPort && (targetPort.type === output.type || targetPort.type === 'any') ? targetPort : null)
+        || openInput
+      if (!target) continue
+      // One wire per (slot, target port): two views on the same list port stay two wires.
+      const id = `edge-${slot.id}-${targetId}-${target.id}`
+      if (connected.has(id)) continue
+      connected.add(id)
+      nextEdges.push(slotLink(slot.id, targetId, output.id, target.id, shape, id))
     }
   }
+  // A stage -> slot wire is enough to know where the media goes: the slot is the
+  // stage's output now, so a downstream node that no longer has a wire (because a
+  // previous repair re-homed it away) still gets one through the slot.
+  for (const [stageId, slots] of wanted) {
+    const stageType = typeById(stageId)
+    if (!stageType || !slots.length) continue
+    const downstream = nodes.filter((node) => {
+      const type = typeOf(node, shape) || ''
+      return !isResultType(type) && node.id !== stageId && mediaPair(stageType, type)
+    })
+    for (const node of downstream) {
+      const type = typeOf(node, shape) || ''
+      // Only a node with no incoming wire at all is filled in; a node that is
+      // already fed (by a slot, a reference, a frame) is left as the user wired it.
+      if (linked.some((edge) => edge.target?.nodeId === node.id)) continue
+      const config = configOf(node, shape)
+      const inputs = activeInputPorts(type, config)
+      for (const slot of slots) {
+        const slotType = typeOf(slot, shape) || ''
+        const output = outputPortOf(slotType)
+        if (!output) continue
+        const view = generatedOf(slot, shape).view as string | undefined
+        const target = (view && inputs.find((port) => port.id === view && (port.type === output.type || port.type === 'any')))
+          || inputs.find((port) => port.id === output.id && (port.type === output.type || port.type === 'any'))
+          || inputs.find((port) => port.type === output.type || port.type === 'any')
+        if (!target) continue
+        const id = `edge-${slot.id}-${node.id}-${target.id}`
+        if (connected.has(id)) continue
+        connected.add(id)
+        nextEdges.push(slotLink(slot.id, node.id, output.id, target.id, shape, id))
+      }
+    }
+  }
+
   for (const edge of slotEdges) {
     if (dropped.has(edge.source!.nodeId) || dropped.has(edge.target!.nodeId)) continue
+    // A stage -> slot wire is drawn above, from the slot's own view. Keeping a
+    // stored one would leave every view wired to whichever port it had before.
+    const slot = byId.get(edge.target!.nodeId)
+    const slotStage = slot && stageOf(slot, shape)
+    if (slotStage && nodeRole(typeById(slotStage)) === 'execution') continue
     nextEdges.push(edge)
   }
   canvas.nodes = [...nodes.filter((node) => !dropped.has(node.id)), ...added]
