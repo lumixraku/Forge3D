@@ -8,7 +8,7 @@ Forge3D is a visual 3D canvas for AI generation workflows. Describe a goal in na
 
 ▶ [Watch the demo video (27 s)](assets/forge3d-shark-demo.mp4)
 
-![Forge3D canvas: four reference views feed Multi-view to 3D, then Asset Preview and Export](assets/canvas-overview.jpg)
+![Forge3D canvas: the Image to 3D and Text to 3D sections, with grouped top bar buttons and the canvas tools in the bottom bar](assets/canvas-overview.jpg)
 
 ## Screenshots
 
@@ -24,7 +24,7 @@ The task list slides in from the right with each run's status, progress, and dow
 
 - Pinch or Ctrl + scroll zooms the canvas, including over node buttons and the minimap. The page itself never zooms.
 - Two-finger drag pans. Move mode drags to pan; Select mode drags empty space to box-select.
-- Drop a link on empty canvas to add a node. Fit and Auto layout are in the canvas toolbar.
+- Drop a link on empty canvas to add a node. Select, Move, Add node, Section, Fit, and Auto layout sit in the bottom bar next to the run status.
 
 ## Features
 

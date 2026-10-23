@@ -316,19 +316,36 @@ function actionIcon(id: string) {
   return ''
 }
 
+// Run and Run downstream share one capsule: a play segment with the "Run"
+// label, then an icon-only fast-forward segment butted against it.
+const RUN_GROUP_TAIL = 30
+function actionWidth(action: { id: string; label: string }, inner: number, kind: 'icon' | 'text') {
+  if (kind === 'icon') return ACTION_SIZE
+  if (action.id === 'run') return Math.ceil(measureText('Run') + 37)
+  if (action.id === 'downstream') return RUN_GROUP_TAIL
+  return Math.min(inner, Math.max(ACTION_SIZE, Math.ceil(measureText(action.label) + 20)))
+}
+
 function packActions(actions: { id: string; label: string }[], width: number, kind: 'icon' | 'text') {
   const inner = Math.max(40, width - ACTION_INSET * 2)
-  const rows: { id: string; label: string; kind: 'icon' | 'text'; w: number }[][] = []
-  let row: { id: string; label: string; kind: 'icon' | 'text'; w: number }[] = []
+  const rows: { id: string; label: string; kind: 'icon' | 'text'; w: number; joined: boolean }[][] = []
+  let row: { id: string; label: string; kind: 'icon' | 'text'; w: number; joined: boolean }[] = []
   let used = 0
   for (const action of actions) {
-    const w = kind === 'icon' ? ACTION_SIZE : Math.min(inner, Math.max(ACTION_SIZE, Math.ceil(measureText(action.label) + 20)))
+    const w = actionWidth(action, inner, kind)
+    // The fast-forward half never wraps away from its play half.
+    const joined = action.id === 'downstream' && row[row.length - 1]?.id === 'run'
+    if (joined) {
+      row.push({ ...action, kind, w, joined })
+      used += w
+      continue
+    }
     if (row.length && used + ACTION_GAP + w > inner) {
       rows.push(row)
       row = []
       used = 0
     }
-    row.push({ ...action, kind, w })
+    row.push({ ...action, kind, w, joined })
     used += w + ACTION_GAP
   }
   if (row.length) rows.push(row)
@@ -514,6 +531,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       ctx.strokeRect(box.x, box.y, box.w, box.h)
     }
     ctx.restore()
+    paintActionTooltip(ctx)
   }
   let flowEdges: any[] = []
   const images = new Map<string, HTMLImageElement>()
@@ -894,6 +912,10 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   const clearLinkHover = () => {
     setHoverLink(null)
     setHoverWidget(null)
+    if (hoverActionKey) {
+      hoverActionKey = null
+      view.setDirty(true, true)
+    }
   }
   canvas.addEventListener('pointerleave', clearLinkHover)
 
@@ -1954,7 +1976,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   // in the node's own coordinates. A DOM button kept its own position and
   // stayed where the node used to be.
   function localActions(node: any) {
-    const buttons: { key: string; nodeId: string; id: string; label: string; x: number; y: number; w: number; h: number }[] = []
+    const buttons: { key: string; nodeId: string; id: string; label: string; x: number; y: number; w: number; h: number; joined?: boolean }[] = []
     if (node.flags?.collapsed) return buttons
     const flow = flowNodes.find((item) => item.id === node.properties.forgeId)
     if (!flow) return buttons
@@ -1972,7 +1994,8 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     for (const row of textRows) {
       let x = ACTION_INSET
       for (const item of row) {
-        buttons.push({ key: `${flow.id}:${item.id}`, nodeId: flow.id, id: item.id, label: item.label, x, y, w: item.w, h: ACTION_SIZE })
+        if (item.joined) x -= ACTION_GAP
+        buttons.push({ key: `${flow.id}:${item.id}`, nodeId: flow.id, id: item.id, label: item.label, x, y, w: item.w, h: ACTION_SIZE, joined: item.joined })
         x += item.w + ACTION_GAP
       }
       y += ACTION_SIZE + ACTION_GAP
@@ -1993,25 +2016,99 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     for (const button of buttons) {
       const hot = hoverActionKey === button.key
       const primary = button.id === 'run' || button.id === 'downstream' || button.id === 'approve'
-      const radius = button.w < 60 ? button.w / 2 : button.h / 2
+      const full = button.w < 60 ? button.w / 2 : button.h / 2
+      // A joined pair is one capsule: the play half rounds its left end, the
+      // fast-forward half rounds its right end.
+      const head = button.id === 'run' && buttons.some((item) => item.joined && item.nodeId === button.nodeId)
+      const radius: number | number[] = head ? [button.h / 2, 0, 0, button.h / 2] : button.joined ? [0, button.h / 2, button.h / 2, 0] : full
+      const shape = (top: number) => {
+        ctx.beginPath()
+        if (ctx.roundRect) ctx.roundRect(button.x, top, button.w, button.h, radius)
+        else ctx.rect(button.x, top, button.w, button.h)
+      }
       // Clear the node body first, then the pill's own drop shadow and face.
       ctx.fillStyle = NODE_BODY_COLOR
-      ctx.fillRect(button.x - 2, button.y - 2, button.w + 4, button.h + 6)
-      ctx.beginPath()
-      if (ctx.roundRect) ctx.roundRect(button.x, button.y + 1, button.w, button.h, radius)
-      else ctx.rect(button.x, button.y + 1, button.w, button.h)
+      ctx.fillRect(button.x - (button.joined ? 0 : 2), button.y - 2, button.w + (head || button.joined ? 2 : 4), button.h + 6)
+      shape(button.y + 1)
       ctx.fillStyle = '#d6c6a6'
       ctx.fill()
-      ctx.beginPath()
-      if (ctx.roundRect) ctx.roundRect(button.x, button.y, button.w, button.h, radius)
-      else ctx.rect(button.x, button.y, button.w, button.h)
-      ctx.fillStyle = primary ? '#19b8aa' : (hot ? palette.hover : palette.field)
+      shape(button.y)
+      ctx.fillStyle = primary ? (hot ? '#2cc7b9' : '#19b8aa') : (hot ? palette.hover : palette.field)
       ctx.fill()
       ctx.strokeStyle = primary ? '#12a294' : (hot ? palette.hoverOutline : palette.outline)
       ctx.stroke()
       ctx.fillStyle = primary ? '#ffffff' : palette.text
-      ctx.fillText(button.label, button.x + button.w / 2, button.y + button.h / 2)
+      const midY = button.y + button.h / 2
+      if (button.joined) {
+        // Divider between the two halves, then a fast-forward glyph.
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)'
+        ctx.beginPath()
+        ctx.moveTo(button.x + 0.5, button.y + 6)
+        ctx.lineTo(button.x + 0.5, button.y + button.h - 6)
+        ctx.stroke()
+        const cx = button.x + button.w / 2 - 1
+        for (const dx of [-5, 1]) {
+          ctx.beginPath()
+          ctx.moveTo(cx + dx, midY - 4.5)
+          ctx.lineTo(cx + dx + 6, midY)
+          ctx.lineTo(cx + dx, midY + 4.5)
+          ctx.closePath()
+          ctx.fill()
+        }
+      } else if (button.id === 'run') {
+        const px = button.x + 12
+        ctx.beginPath()
+        ctx.moveTo(px, midY - 5)
+        ctx.lineTo(px + 8, midY)
+        ctx.lineTo(px, midY + 5)
+        ctx.closePath()
+        ctx.fill()
+        ctx.textAlign = 'left'
+        ctx.fillText(button.label, px + 13, midY)
+        ctx.textAlign = 'center'
+      } else {
+        ctx.fillText(button.label, button.x + button.w / 2, midY)
+      }
     }
+    ctx.restore()
+  }
+
+  // Canvas tooltip for the hovered node action, held at screen size.
+  const ACTION_TIPS: Record<string, string> = { run: 'Run this node', downstream: 'Run downstream' }
+  function paintActionTooltip(ctx: CanvasRenderingContext2D) {
+    if (!hoverActionKey) return
+    const split = hoverActionKey.lastIndexOf(':')
+    const node = byForgeId().get(hoverActionKey.slice(0, split))
+    const button = node && localActions(node).find((item) => item.key === hoverActionKey)
+    const tip = button && ACTION_TIPS[button.id]
+    if (!node || !button || !tip) return
+    const scale = view.ds.scale || 1
+    ctx.save()
+    ctx.translate(node.pos[0] + button.x + button.w / 2, node.pos[1] + button.y + button.h + 6 / scale)
+    ctx.scale(1 / scale, 1 / scale)
+    ctx.font = `12px ${CANVAS_FONT}`
+    const w = Math.ceil(ctx.measureText(tip).width) + 16
+    const h = 24
+    ctx.beginPath()
+    if (ctx.roundRect) ctx.roundRect(-w / 2, 4, w, h, 8)
+    else ctx.rect(-w / 2, 4, w, h)
+    ctx.fillStyle = NODE_INK
+    ctx.shadowColor = 'rgba(126, 92, 54, 0.25)'
+    ctx.shadowBlur = 8
+    ctx.shadowOffsetY = 2
+    ctx.fill()
+    ctx.shadowColor = 'transparent'
+    // Little pointer up toward the button.
+    ctx.beginPath()
+    ctx.moveTo(-5, 5)
+    ctx.lineTo(0, 0)
+    ctx.lineTo(5, 5)
+    ctx.closePath()
+    ctx.fill()
+    ctx.fillStyle = '#fffaf0'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(tip, 0, 4 + h / 2)
     ctx.restore()
   }
 
