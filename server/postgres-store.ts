@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
 import pg from 'pg'
 import { migrateCanvas, migrateCanvasRefs, migrateTurns } from './store.js'
+import { recordToValues, rowToRecord, tableColumns } from './tables.js'
 import { assetContentType, assetDirectory, assetExtension, assetUrlPrefix, isAssetFileName } from './tripo-assets.js'
 
 const { Pool } = pg
@@ -11,10 +12,21 @@ const collections = ['canvases', 'sessions', 'runs', 'turns', 'agentTraces', 'ac
 const root = path.dirname(fileURLToPath(import.meta.url))
 const seedDirectory = path.join(root, 'seed')
 const migrationDirectory = path.join(root, 'migrations')
+const LEGACY_OWNER_ID = 'demo-user'
 
-// PostgreSQL stores each domain record as JSONB. The application still owns the
-// domain shape and migrations, while the database provides durable transactions,
-// indexing, and multi-process visibility.
+// One table per domain (migrations/004_typed_tables.sql); the column layout is
+// shared with the D1 Worker store in ./tables.ts.
+function selectAll(collection) {
+  const { table, orderBy } = tableColumns[collection]
+  return `SELECT * FROM ${table} ORDER BY ${orderBy}`
+}
+
+function insertStatement(collection) {
+  const { table, columns } = tableColumns[collection]
+  const placeholders = columns.map(([, , kind], index) => `$${index + 1}${kind === 'json' ? '::jsonb' : ''}`)
+  return `INSERT INTO ${table} (${columns.map(([column]) => column).join(', ')}) VALUES (${placeholders.join(', ')})`
+}
+
 export async function createPostgresStore({ connectionString = process.env.DATABASE_URL } = {}) {
   if (!connectionString) throw new Error('DATABASE_URL is required for the PostgreSQL store')
   const pool = new Pool({ connectionString })
@@ -30,10 +42,10 @@ export async function createPostgresStore({ connectionString = process.env.DATAB
   const persistQueues = new Map()
 
   async function loadOrSeed(collection) {
-    const result = await pool.query('SELECT document FROM forge3d_documents WHERE collection = $1 ORDER BY updated_at, document_id', [collection])
-    if (result.rows.length) return result.rows.map((row) => row.document)
+    const result = await pool.query(selectAll(collection))
+    if (result.rows.length) return result.rows.map((row) => rowToRecord(collection, row, false))
     const contents = await readFile(path.join(seedDirectory, `${collection}.json`), 'utf8')
-    const seeded = JSON.parse(contents)
+    const seeded = JSON.parse(contents).map((document) => (collection === 'canvases' ? { ...document, ownerId: document.ownerId || LEGACY_OWNER_ID } : document))
     await persistCollection(collection, seeded)
     return seeded
   }
@@ -42,13 +54,9 @@ export async function createPostgresStore({ connectionString = process.env.DATAB
     const client = await pool.connect()
     try {
       await client.query('BEGIN')
-      await client.query('DELETE FROM forge3d_documents WHERE collection = $1', [collection])
-      for (const document of documents) {
-        await client.query(
-          'INSERT INTO forge3d_documents (collection, document_id, document) VALUES ($1, $2, $3::jsonb)',
-          [collection, document.id, JSON.stringify(document)],
-        )
-      }
+      await client.query(`DELETE FROM ${tableColumns[collection].table}`)
+      const insert = insertStatement(collection)
+      for (const document of documents) await client.query(insert, recordToValues(collection, document))
       await client.query('COMMIT')
     } catch (error) {
       await client.query('ROLLBACK')
@@ -65,13 +73,13 @@ export async function createPostgresStore({ connectionString = process.env.DATAB
   }
 
   async function reload(collection) {
-    const result = await pool.query('SELECT document FROM forge3d_documents WHERE collection = $1 ORDER BY updated_at, document_id', [collection])
-    state[collection] = result.rows.map((row) => row.document)
+    const result = await pool.query(selectAll(collection))
+    state[collection] = result.rows.map((row) => rowToRecord(collection, row, false))
     return state[collection]
   }
 
   async function removeCanvas(canvasId) {
-    await pool.query('DELETE FROM forge3d_documents WHERE collection = $1 AND document_id = $2', ['canvases', canvasId])
+    await pool.query('DELETE FROM canvases WHERE id = $1', [canvasId])
   }
 
   async function importAssets() {

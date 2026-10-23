@@ -22,6 +22,7 @@ export function replaceCanvasDocument(project, input, canvasId, updatedAt) {
     createdAt: project.createdAt,
     revision: project.revision + 1,
     updatedAt,
+    ...(project.ownerId ? { ownerId: project.ownerId } : {}),
   }
 }
 
@@ -32,5 +33,6 @@ export function applyAgentCanvas(project, canvas) {
     description: project.description,
     provider: project.provider,
     createdAt: project.createdAt,
+    ...(project.ownerId ? { ownerId: project.ownerId } : {}),
   }
 }

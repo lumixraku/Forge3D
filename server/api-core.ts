@@ -24,7 +24,8 @@ import { tripoNodeTypes } from './tripo-mapping.js'
 import { meshyNodeTypes } from './meshy-mapping.js'
 import { applyAgentCanvas, projectDto, replaceCanvasDocument } from './projects.js'
 import { appendAgentTrace, checkpointAgentTrace, createAgentTrace, sanitizeAgentError } from './agent-traces.js'
-import { accountDto, EXECUTION_CREDIT_COST, reserveExecutionCredits, settleExecutionCredits } from './credits.js'
+import { accountDto, ensureVisitorAccount, EXECUTION_CREDIT_COST, reserveExecutionCredits, settleExecutionCredits } from './credits.js'
+import { readVisitor, visitorCookie } from './visitor.js'
 
 const AGENT_COLLECTIONS = ['canvases', 'sessions', 'turns', 'agentTraces']
 const CREDIT_COLLECTIONS = ['runs', 'accounts', 'creditLedger']
@@ -308,12 +309,13 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
     const { state } = store
     const pending = await mutateCredits(async () => {
       await store.reload(['accounts', 'creditLedger'])
+      ensureVisitorAccount(state, canvas.ownerId)
       const existing = options.idempotencyKey && state.runs.find((run) => run.canvasId === canvas.id && run.idempotencyKey === options.idempotencyKey)
       if (existing) return { run: existing, duplicate: true }
       if (options.enforceActiveTaskLimit) assertProjectExecutionCapacity(state.runs, canvas.id)
       const created = createExecution(state.runs, canvas, node, mode, options)
       try {
-        reserveExecutionCredits(state, created.run)
+        reserveExecutionCredits(state, created.run, undefined, canvas.ownerId)
         await store.persist(CREDIT_COLLECTIONS)
         return created
       } catch (error) {
@@ -398,7 +400,7 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
           model: config.deepseek.model,
           message: turn.selection ? `${turn.message}\n\nThe user selected: ${turn.selection.selected_option_ids.map((optionId) => turn.request.options.find((option) => option.id === optionId)?.label || optionId).join(', ')}. Continue the turn using this selection.` : turn.message,
           canvas,
-          account: { ...accountDto(state), executionCost: EXECUTION_CREDIT_COST },
+          account: { ...accountDto(state, canvas.ownerId), executionCost: EXECUTION_CREDIT_COST },
           executions: canvasExecutions(state.runs, canvas.id),
           history: session.messages || [],
           checkpoint: ['tool_complete', 'waiting_for_user'].includes(trace?.checkpoint?.phase) ? trace.checkpoint : undefined,
@@ -571,14 +573,25 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
     const url = new URL(request.url)
     const parts = url.pathname.split('/').filter(Boolean)
     const method = request.method
-    const canvasById = (id) => state.canvases.find((canvas) => canvas.id === id)
-    const sessionById = (id) => state.sessions.find((session) => session.id === id)
-    const turnById = (id) => state.turns.find((turn) => turn.id === id)
+    // Every lookup is scoped to the requesting visitor: anything on a canvas they
+    // do not own answers 404, exactly as if it did not exist.
+    const { visitorId } = context
+    const ownsCanvas = (canvas) => canvas.ownerId === visitorId
+    const ownedCanvasIndex = (id) => state.canvases.findIndex((canvas) => canvas.id === id && ownsCanvas(canvas))
+    const canvasById = (id) => state.canvases.find((canvas) => canvas.id === id && ownsCanvas(canvas))
+    const sessionById = (id) => state.sessions.find((session) => session.id === id && canvasById(session.canvasId))
+    const turnById = (id) => state.turns.find((turn) => turn.id === id && canvasById(turn.canvasId))
+    const ownedExecution = (id) => {
+      const execution = executionById(state.runs, id)
+      return execution && canvasById(execution.canvasId) ? execution : null
+    }
 
     if (parts[0] !== 'api') return json({ error: 'Not found' }, 404)
 
     if (method === 'GET' && parts[1] === 'account' && parts.length === 2) {
-      return json({ ...accountDto(state), executionCost: EXECUTION_CREDIT_COST })
+      const { account, created } = ensureVisitorAccount(state, visitorId)
+      if (created) await store.persist(['accounts'])
+      return json({ ...account, executionCost: EXECUTION_CREDIT_COST })
     }
 
     if (method === 'GET' && parts[1] === 'turns' && parts[3] === 'trace' && parts.length === 4) {
@@ -626,16 +639,16 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
     }
 
     if (method === 'GET' && parts[1] === 'executions' && parts[2] && parts[3] === 'nodes' && parts[4] && (parts[5] === 'model' || parts[5] === 'preview') && parts.length === 6) {
-      const execution = executionById(state.runs, parts[2])
+      const execution = ownedExecution(parts[2])
       return streamMeshyAsset(request, config, execution && findMeshyTask(state.runs, execution, parts[4]), parts[5])
     }
 
     if (method === 'GET' && parts[1] === 'projects' && parts.length === 2) {
-      return json(state.canvases.map(projectDto))
+      return json(state.canvases.filter(ownsCanvas).map(projectDto))
     }
 
     if (method === 'POST' && parts[1] === 'projects' && parts.length === 2) {
-      const canvas = createCanvas(withStarterGraph(await parseJson(request)))
+      const canvas = createCanvas({ ...withStarterGraph(await parseJson(request)), ownerId: visitorId })
       state.canvases.push(canvas)
       state.sessions.push(createInitialSession(canvas))
       await store.persist(['canvases', 'sessions'])
@@ -649,7 +662,7 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
     }
 
     if (method === 'PATCH' && parts[1] === 'projects' && parts.length === 3) {
-      const index = state.canvases.findIndex((canvas) => canvas.id === parts[2])
+      const index = ownedCanvasIndex(parts[2])
       if (index < 0) return json({ error: 'Project not found' }, 404)
       const input = await parseJson(request)
       if (typeof input.name === 'string' && !input.name.trim()) return json({ error: 'Project name is required' }, 400)
@@ -666,7 +679,7 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
     }
 
     if (method === 'DELETE' && parts[1] === 'projects' && parts.length === 3) {
-      const index = state.canvases.findIndex((canvas) => canvas.id === parts[2])
+      const index = ownedCanvasIndex(parts[2])
       if (index < 0) return json({ error: 'Project not found' }, 404)
       state.canvases.splice(index, 1)
       state.sessions = state.sessions.filter((session) => session.canvasId !== parts[2])
@@ -681,7 +694,7 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
     if (method === 'POST' && parts[1] === 'projects' && parts[3] === 'duplicate' && parts.length === 4) {
       const source = canvasById(parts[2])
       if (!source) return json({ error: 'Project not found' }, 404)
-      const canvas = duplicateCanvas(source)
+      const canvas = duplicateCanvas({ ...source, ownerId: visitorId })
       const now = canvas.createdAt
       state.canvases.push(canvas)
       state.sessions.push({ id: `session-${randomUUID()}`, canvasId: canvas.id, createdAt: now, updatedAt: now, messages: [{ id: `msg-${randomUUID()}`, role: 'assistant', content: 'This canvas was duplicated and can now evolve independently.', createdAt: now }] })
@@ -696,7 +709,7 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
     }
 
     if (method === 'PUT' && parts[1] === 'canvases' && parts.length === 3) {
-      const index = state.canvases.findIndex((canvas) => canvas.id === parts[2])
+      const index = ownedCanvasIndex(parts[2])
       if (index < 0) return json({ error: 'Canvas not found' }, 404)
       const input = await parseJson(request)
       if (!Number.isInteger(input.baseRevision)) return json({ error: 'baseRevision is required' }, 400)
@@ -931,7 +944,7 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
     }
 
     if (method === 'GET' && parts[1] === 'executions' && parts.length === 3) {
-      const execution = executionById(state.runs, parts[2])
+      const execution = ownedExecution(parts[2])
       if (!execution) return json({ error: 'Execution not found' }, 404)
       const before = JSON.stringify(execution)
       await syncExecutionWithTripo(execution, config.getTripoTask)
@@ -967,7 +980,7 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
     if (method === 'GET' && parts[1] === 'tripo' && parts[2] === 'tasks' && parts[3] && parts[4] === 'download' && parts.length === 5) {
       if (!config.getTripoTask) return json({ error: 'Tripo is not configured.' }, 503)
       const taskId = parts[3]
-      const ownsTask = state.runs.some((run) => Object.values(run.nodeRuns || {}).some((nodeRun) => nodeRun.tripoTaskId === taskId || nodeRun.output?.tripoTaskId === taskId))
+      const ownsTask = state.runs.some((run) => canvasById(run.canvasId) && Object.values(run.nodeRuns || {}).some((nodeRun) => nodeRun.tripoTaskId === taskId || nodeRun.output?.tripoTaskId === taskId))
       if (!ownsTask) return json({ error: 'Tripo task not found' }, 404)
       const task = await config.getTripoTask(taskId)
       const downloadUrl = task?.output?.model_url
@@ -977,7 +990,7 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
     }
 
     if (method === 'POST' && parts[1] === 'executions' && parts[2] && parts[3] === 'cancel' && parts.length === 4) {
-      const execution = executionById(state.runs, parts[2])
+      const execution = ownedExecution(parts[2])
       if (!execution) return json({ error: 'Execution not found' }, 404)
       cancelExecution(execution)
       await settlePaidExecution(store, execution)
@@ -1033,11 +1046,14 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
 
   return async function handle(request, runtime = {}) {
     try {
+      const { visitorId, isNew } = readVisitor(request)
       const context = await createContext(request, runtime)
       // Interrupted turns resume on the deployment's own key, never on the key of
       // whichever visitor's request happened to arrive first.
       await recoverAgentTurns(context.builtInConfig ? { ...context, config: context.builtInConfig } : context)
-      return await route(request, context)
+      const response = await route(request, { ...context, visitorId })
+      if (isNew) response.headers.append('set-cookie', visitorCookie(visitorId, request))
+      return response
     } catch (error) {
       if (!error.statusCode) console.error(error)
       return json({ error: error.message, ...(error.code ? { code: error.code } : {}), ...(error.limit !== undefined ? { limit: error.limit } : {}), ...(error.activeTaskCount !== undefined ? { activeTaskCount: error.activeTaskCount } : {}) }, error.statusCode || 500)
