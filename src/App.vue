@@ -51,12 +51,7 @@ const savedState = ref('Saved')
 // an Agent turn never invalidate or block one another.
 const agentToken = ref(0)
 const canvasRunToken = ref(0)
-const account = ref(null)
 let restoreSuccessfulResults = async () => {}
-
-async function loadAccount() {
-  account.value = await request('/api/account')
-}
 
 // Canvas chrome: menus, overlays and the two view/mode switches.
 const contextMenu = ref(null)
@@ -218,7 +213,7 @@ const {
   // An Agent turn cannot wait out the debounce: the server reads the canvas.
   saveCanvas: () => saveCanvas({ immediate: true }),
   onCanvasEvent: applyPresenceEvent,
-  onCanvasDocumentEvent: () => Promise.all([refreshCanvasFromServer(), loadAccount()]),
+  onCanvasDocumentEvent: () => refreshCanvasFromServer(),
   // A canvas edit pushed while the event channel was down is missed too, so pick
   // the document back up alongside the turns.
   onReconnect: () => refreshCanvasFromServer(),
@@ -247,7 +242,6 @@ const { isRunning, runDetails, runSummary, runCanvas, cancelRun, executions, exe
   // A run cannot wait out the debounce: creating it reads the saved canvas.
   saveCanvas: () => saveCanvas({ immediate: true }),
   materializeResults: (sourceId, runId, output, status) => materializeResults(sourceId, runId, output, status),
-  onAccountChanged: loadAccount,
 })
 restoreSuccessfulResults = restoreResults
 
@@ -1038,7 +1032,7 @@ onMounted(async () => {
   document.addEventListener('gesturechange', preventNativePinchZoom, { passive: false })
   document.addEventListener('wheel', preventPageTrackpadPinchZoom, { capture: true, passive: false })
   try {
-    await Promise.all([loadCanvass(), loadAccount()])
+    await loadCanvass()
   } catch (caught) {
     error.value = caught.message
   }
@@ -1073,7 +1067,6 @@ onUnmounted(() => {
       :canvas-view="canvasView"
       :saved-state="savedState"
       :theme="theme"
-      :account="account"
       :busy="agentBusy || creatingCanvas || openingCanvas"
       @rename="renameCanvas"
       @open-canvas="openCanvas"
@@ -1109,28 +1102,7 @@ onUnmounted(() => {
         @retry="retryMessage"
       />
 
-      <section class="forge3d-canvas-panel forge:relative forge:grid forge:min-h-0 forge:min-w-0 forge:grid-rows-[62px_minmax(0,1fr)_auto_27px] forge:overflow-hidden forge:bg-bg-secondary forge:transition-colors forge:duration-200" @pointerdown.capture="selectCanvasEdge" @pointerdown="closeContextMenu">
-        <CanvasToolbar
-          :canvas-view="canvasView"
-          :canvas-mode="canvasMode"
-          :node-count="nodes.length"
-          :edge-count="edges.length"
-          :selected-count="selectedCount"
-          :asset-library="assetLibrary"
-          :has-canvas="Boolean(activeCanvas)"
-          :is-running="isRunning"
-          :menu-open="toolbarMenuOpen"
-          :catalog="catalogForMenu()"
-          :categories="nodeCategories"
-          @update:canvas-view="canvasView = $event"
-          @update:canvas-mode="canvasMode = $event"
-          @toggle-menu="nodeMenuContext = null; nodeMenuOpen = !nodeMenuOpen"
-          @select-node-type="selectNodeType"
-          @drag-node-type="startNodeDrag($event.event, $event.type)"
-          @toggle-frame-mode="toggleFrameMode"
-          @fit-view="fitCanvasView"
-          @auto-layout="arrangeCanvas"
-        />
+      <section class="forge3d-canvas-panel forge:relative forge:grid forge:min-h-0 forge:min-w-0 forge:grid-rows-[minmax(0,1fr)_auto_40px] forge:overflow-hidden forge:bg-bg-secondary forge:transition-colors forge:duration-200" @pointerdown.capture="selectCanvasEdge" @pointerdown="closeContextMenu">
         <CanvasContextMenu
           v-if="nodeMenuOpen && nodeMenuContext"
           ref="contextMenu"
@@ -1194,9 +1166,29 @@ onUnmounted(() => {
         />
         <AssetLibraryView v-if="canvasView === 'assets'" :rails="assetRails" :total="assetLibrary.total" :loading="assetsLoading" :canvas-node-ids="canvasNodeIds" @preview="openImagePreview" @open-model-editor="openModelEditor" />
         <RunLogPanel v-if="runDetails && runSummaryOpen" :details="runDetails" @close="runSummaryOpen = false" />
-        <footer class="forge:row-start-4 forge:flex forge:min-h-0 forge:items-center forge:justify-between forge:border-t forge:border-line forge:px-[13px] forge:font-mono forge:text-[10px] forge:font-medium forge:leading-none forge:text-text-muted"><div class="forge:flex forge:h-full forge:items-center forge:gap-[9px] forge:whitespace-nowrap"><span class="forge:flex forge:h-full forge:items-center forge:gap-[7px]"><i class="forge:size-[7px] forge:rounded-full forge:bg-acid forge:shadow-[0_0_9px_color-mix(in_srgb,var(--acid)_60%,transparent)]" />{{ runSummary }}</span><button v-if="runDetails" class="forge:flex forge:h-[19px] forge:items-center forge:gap-[5px] forge:rounded forge:border forge:border-line-strong forge:bg-bg-input forge:px-[7px] forge:font-mono forge:text-[10px] forge:font-semibold forge:text-acid forge:transition-colors forge:hover:bg-bg-input-hover" type="button" :aria-expanded="runSummaryOpen" @click="runSummaryOpen = !runSummaryOpen">{{ runSummaryOpen ? 'Hide logs' : 'Logs' }} <b class="forge:text-[11px] forge:font-medium">{{ runSummaryOpen ? '↓' : '↑' }}</b></button></div><span class="forge:overflow-hidden forge:text-ellipsis forge:whitespace-nowrap forge:max-[760px]:hidden">Move mode drags to pan · Select mode drags empty space to box-select · Two-finger drag pans · Pinch to zoom · Drop a link on empty canvas to add a node</span></footer>
+        <CanvasToolbar
+          :canvas-view="canvasView"
+          :canvas-mode="canvasMode"
+          :node-count="nodes.length"
+          :edge-count="edges.length"
+          :selected-count="selectedCount"
+          :asset-library="assetLibrary"
+          :has-canvas="Boolean(activeCanvas)"
+          :is-running="isRunning"
+          :menu-open="toolbarMenuOpen"
+          :catalog="catalogForMenu()"
+          :categories="nodeCategories"
+          @update:canvas-view="canvasView = $event"
+          @update:canvas-mode="canvasMode = $event"
+          @toggle-menu="nodeMenuContext = null; nodeMenuOpen = !nodeMenuOpen"
+          @select-node-type="selectNodeType"
+          @drag-node-type="startNodeDrag($event.event, $event.type)"
+          @toggle-frame-mode="toggleFrameMode"
+          @fit-view="fitCanvasView"
+          @auto-layout="arrangeCanvas"
+        ><span class="forge:flex forge:h-full forge:items-center forge:gap-[7px]"><i class="forge:size-[7px] forge:rounded-full forge:bg-acid forge:shadow-[0_0_9px_color-mix(in_srgb,var(--acid)_60%,transparent)]" />{{ runSummary }}</span><button v-if="runDetails" class="forge:flex forge:h-[19px] forge:items-center forge:gap-[5px] forge:rounded forge:border forge:border-line-strong forge:bg-bg-input forge:px-[7px] forge:font-mono forge:text-[10px] forge:font-semibold forge:text-acid forge:transition-colors forge:hover:bg-bg-input-hover" type="button" :aria-expanded="runSummaryOpen" @click="runSummaryOpen = !runSummaryOpen">{{ runSummaryOpen ? 'Hide logs' : 'Logs' }} <b class="forge:text-[11px] forge:font-medium">{{ runSummaryOpen ? '↓' : '↑' }}</b></button></CanvasToolbar>
       </section>
-      <button class="forge:absolute forge:right-0 forge:top-[76px] forge:z-[21] forge:flex forge:h-[42px] forge:w-9 forge:items-center forge:justify-center forge:gap-[3px] forge:rounded-l-[21px] forge:rounded-r-none forge:border forge:border-r-0 forge:border-line forge:bg-bg-card forge:font-mono forge:text-[11px] forge:font-semibold forge:text-acid forge:shadow-[-5px_4px_14px_rgba(20,26,22,.1)] forge:transition-[right] forge:duration-200 forge:has-[+_.forge3d-is-open]:right-[300px] forge:max-[1200px]:has-[+_.forge3d-is-open]:right-[270px] forge:max-[760px]:has-[+_.forge3d-is-open]:right-[min(300px,90vw)]" type="button" :aria-expanded="taskQueueOpen" aria-controls="task-queue-panel" @click="taskQueueOpen = !taskQueueOpen">
+      <button class="forge:absolute forge:right-0 forge:top-[14px] forge:z-[21] forge:flex forge:h-[42px] forge:w-9 forge:items-center forge:justify-center forge:gap-[3px] forge:rounded-l-[21px] forge:rounded-r-none forge:border forge:border-r-0 forge:border-line forge:bg-bg-card forge:font-mono forge:text-[11px] forge:font-semibold forge:text-acid forge:shadow-[-5px_4px_14px_rgba(20,26,22,.1)] forge:transition-[right] forge:duration-200 forge:has-[+_.forge3d-is-open]:right-[300px] forge:max-[1200px]:has-[+_.forge3d-is-open]:right-[270px] forge:max-[760px]:has-[+_.forge3d-is-open]:right-[min(300px,90vw)]" type="button" :aria-expanded="taskQueueOpen" aria-controls="task-queue-panel" @click="taskQueueOpen = !taskQueueOpen">
         <span aria-hidden="true">{{ taskQueueOpen ? '→' : '←' }}</span>
         <b class="forge:text-[11px] forge:text-text-secondary">{{ executions.length + (run?.id && !executions.some((execution) => execution.id === run.id) ? 1 : 0) }}</b>
       </button>

@@ -13,7 +13,7 @@ function onCanvas(nodeId: string) {
 </script>
 
 <template>
-  <div class="forge:row-start-2 forge:flex forge:min-h-0 forge:flex-col forge:gap-[22px] forge:overflow-y-auto forge:bg-bg-primary forge:px-5 forge:pb-[26px] forge:pt-[22px]">
+  <div class="forge:row-start-1 forge:flex forge:min-h-0 forge:flex-col forge:gap-[22px] forge:overflow-y-auto forge:bg-bg-primary forge:px-5 forge:pb-[26px] forge:pt-[22px]">
     <div v-if="loading && !total" class="forge:m-auto forge:grid forge:max-w-[340px] forge:gap-1.5 forge:text-center">
       <strong class="forge:font-mono forge:text-xs forge:font-semibold forge:text-text-secondary">Loading assets…</strong>
       <span class="forge:text-xs forge:leading-normal forge:text-text-muted">Reading this canvas's run history.</span>
