@@ -11,6 +11,18 @@ const collections = ['canvases', 'sessions', 'runs', 'turns', 'agentTraces', 'ac
 const root = path.dirname(fileURLToPath(import.meta.url))
 const seedDirectory = path.join(root, 'seed')
 const migrationDirectory = path.join(root, 'migrations')
+// Canvases from before visitor ownership belonged to the one shared account.
+const LEGACY_OWNER_ID = 'demo-user'
+
+// Ownership is a real column (owner_id) so it can be indexed and queried; the
+// in-memory canvas carries the same value as `ownerId`.
+function withOwner(collection, row) {
+  return collection === 'canvases' ? { ...row.document, ownerId: row.owner_id || LEGACY_OWNER_ID } : row.document
+}
+
+function ownerOf(collection, document) {
+  return collection === 'canvases' ? document.ownerId || LEGACY_OWNER_ID : null
+}
 
 // PostgreSQL stores each domain record as JSONB. The application still owns the
 // domain shape and migrations, while the database provides durable transactions,
@@ -30,10 +42,10 @@ export async function createPostgresStore({ connectionString = process.env.DATAB
   const persistQueues = new Map()
 
   async function loadOrSeed(collection) {
-    const result = await pool.query('SELECT document FROM forge3d_documents WHERE collection = $1 ORDER BY updated_at, document_id', [collection])
-    if (result.rows.length) return result.rows.map((row) => row.document)
+    const result = await pool.query('SELECT document, owner_id FROM forge3d_documents WHERE collection = $1 ORDER BY updated_at, document_id', [collection])
+    if (result.rows.length) return result.rows.map((row) => withOwner(collection, row))
     const contents = await readFile(path.join(seedDirectory, `${collection}.json`), 'utf8')
-    const seeded = JSON.parse(contents)
+    const seeded = JSON.parse(contents).map((document) => (collection === 'canvases' ? { ...document, ownerId: ownerOf(collection, document) } : document))
     await persistCollection(collection, seeded)
     return seeded
   }
@@ -45,8 +57,8 @@ export async function createPostgresStore({ connectionString = process.env.DATAB
       await client.query('DELETE FROM forge3d_documents WHERE collection = $1', [collection])
       for (const document of documents) {
         await client.query(
-          'INSERT INTO forge3d_documents (collection, document_id, document) VALUES ($1, $2, $3::jsonb)',
-          [collection, document.id, JSON.stringify(document)],
+          'INSERT INTO forge3d_documents (collection, document_id, document, owner_id) VALUES ($1, $2, $3::jsonb, $4)',
+          [collection, document.id, JSON.stringify(document), ownerOf(collection, document)],
         )
       }
       await client.query('COMMIT')
@@ -65,8 +77,8 @@ export async function createPostgresStore({ connectionString = process.env.DATAB
   }
 
   async function reload(collection) {
-    const result = await pool.query('SELECT document FROM forge3d_documents WHERE collection = $1 ORDER BY updated_at, document_id', [collection])
-    state[collection] = result.rows.map((row) => row.document)
+    const result = await pool.query('SELECT document, owner_id FROM forge3d_documents WHERE collection = $1 ORDER BY updated_at, document_id', [collection])
+    state[collection] = result.rows.map((row) => withOwner(collection, row))
     return state[collection]
   }
 
