@@ -1,6 +1,6 @@
 // Cloudflare Worker binding for the shared API (see server/api-core.ts).
-// Everything runtime-specific lives here: the D1-backed store, the legacy
-// collection migrations, and serving the built assets. The route table and turn
+// Everything runtime-specific lives here: the D1-backed store and serving the
+// built assets. The route table and turn
 // execution are shared with the Node dev server, so the two cannot drift apart.
 //
 // Tripo and the on-disk asset cache stay Node-only. Meshy is fetch-only: the
@@ -8,75 +8,37 @@
 // result. `waitUntil` ends 30 seconds after the response, which is shorter than
 // a Meshy generation.
 
-import { migrateCanvasRefs, migrateTurns } from './server/migrations.js'
 import { createApi } from './server/api-core.js'
-import { defaultAccount } from './server/credits.js'
 import { createMeshyRunner, createMeshySubmitter, createMeshyTaskReader } from './server/meshy-run.js'
 import { applyUserKeys, readUserKeys } from './server/user-keys.js'
 
 const collections = ['canvases', 'sessions', 'runs', 'turns', 'agentTraces', 'accounts', 'creditLedger']
 
+// One row per document in forge3d_documents (migrations/0002_documents.sql),
+// the same layout as the local PostgreSQL store. A canvas's owner is stored in
+// the owner_id column and handed to the core as `ownerId`.
 async function readCollection(env, collection) {
-  const value = await env.DB.prepare('SELECT value FROM app_state WHERE collection = ?1').bind(collection).first('value')
-  return value ? JSON.parse(value) : []
-}
-
-async function collectionExists(env, collection) {
-  return Boolean(await env.DB.prepare('SELECT 1 AS present FROM app_state WHERE collection = ?1').bind(collection).first('present'))
+  const { results } = await env.DB.prepare('SELECT document, owner_id FROM forge3d_documents WHERE collection = ?1 ORDER BY updated_at, document_id').bind(collection).all()
+  return results.map((row) => {
+    const document = JSON.parse(row.document)
+    return collection === 'canvases' ? { ...document, ownerId: row.owner_id } : document
+  })
 }
 
 async function writeCollections(env, state, names = collections) {
-  const statements = names.map((name) => env.DB.prepare('INSERT INTO app_state (collection, value, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(collection) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at').bind(name, JSON.stringify(state[name]), new Date().toISOString()))
+  const now = new Date().toISOString()
+  const statements = names.flatMap((name) => [
+    env.DB.prepare('DELETE FROM forge3d_documents WHERE collection = ?1').bind(name),
+    ...state[name].map((document) => env.DB.prepare('INSERT INTO forge3d_documents (collection, document_id, document, owner_id, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)')
+      .bind(name, document.id, JSON.stringify(document), name === 'canvases' ? document.ownerId : null, now)),
+  ])
+  // A D1 batch is one transaction, so a reader never sees a half-written collection.
   await env.DB.batch(statements)
 }
 
-// The workflow -> canvas rename (263b56e) renamed these collections but shipped
-// no data migration, so a database written before it still holds the rows under
-// the old names. Read-only: the old row is left in place as a backup.
-const renamedCollections = [['canvases', 'workflows'], ['turns', 'tasks']]
-
 async function loadState(env) {
-  const [values, hasSessions, hasThreads, present] = await Promise.all([
-    Promise.all(collections.map((name) => readCollection(env, name))),
-    collectionExists(env, 'sessions'),
-    collectionExists(env, 'threads'),
-    Promise.all(renamedCollections.map(([name]) => collectionExists(env, name))),
-  ])
-  const state = Object.fromEntries(collections.map((name, index) => [name, values[index]]))
-  if (!state.accounts.length) {
-    state.accounts = [defaultAccount()]
-    await writeCollections(env, state, ['accounts'])
-  }
-  const seeded = []
-  for (const [index, [name, legacyName]] of renamedCollections.entries()) {
-    if (present[index]) continue
-    const legacy = await readCollection(env, legacyName)
-    if (!legacy.length) continue
-    state[name] = legacy
-    seeded.push(name)
-  }
-  if (seeded.length) await writeCollections(env, state, seeded)
-  if (!hasSessions) {
-    const legacy = hasThreads ? await readCollection(env, 'threads') : await readCollection(env, 'conversations')
-    if (legacy.length) {
-      state.sessions = legacy
-      await writeCollections(env, state, ['sessions'])
-    }
-  }
-  // Rows that point at a canvas still carry `workflowId` from the same rename.
-  const rewritten = ['sessions', 'runs', 'turns'].filter((name) => {
-    const migrated = migrateCanvasRefs(state[name])
-    if (!migrated.some((record, index) => record !== state[name][index])) return false
-    state[name] = migrated
-    return true
-  })
-  if (rewritten.length) await writeCollections(env, state, rewritten)
-  const migratedTurns = migrateTurns(state.turns)
-  if (migratedTurns.some((turn, index) => turn !== state.turns[index])) {
-    state.turns = migratedTurns
-    await writeCollections(env, state, ['turns'])
-  }
-  return state
+  const values = await Promise.all(collections.map((name) => readCollection(env, name)))
+  return Object.fromEntries(collections.map((name, index) => [name, values[index]]))
 }
 
 let initialized = false
@@ -126,9 +88,9 @@ const handle = createApi({
             state[name] = values[index]
           })
         },
-        // Canvases live inside the collection row, so removing one is just the
-        // collection write the shared core already performs.
-        removeCanvas: async () => {},
+        removeCanvas: async (canvasId) => {
+          await env.DB.prepare('DELETE FROM forge3d_documents WHERE collection = ?1 AND document_id = ?2').bind('canvases', canvasId).run()
+        },
       },
       // A visitor's own keys (from the API keys dialog) win over the Worker secrets.
       config: applyUserKeys(builtInConfig, readUserKeys(request), (apiKey) => {
