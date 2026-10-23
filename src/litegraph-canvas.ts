@@ -44,8 +44,9 @@ const measureText = (() => {
     return context.measureText(label).width
   }
 })()
-// Section fill and title stay this sage green. Selection is a separate stroke.
-const FRAME_COLOR = '#8cc99b'
+// Section fill and title are warm island sand, so they read apart from the
+// mint canvas and the green selection stroke.
+const FRAME_COLOR = '#c9a46a'
 const FRAME_TITLE_BAND = 36
 // Same greens as --acid. LiteGraph's #9A9 reads as white on the light canvas,
 // and a selected node repaints every attached link #FFF.

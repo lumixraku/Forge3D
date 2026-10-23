@@ -214,7 +214,7 @@ function drawMinimap() {
     const y = oy + (box.y - top) * scale
     const width = Math.max(1, box.width * scale)
     const height = Math.max(1, box.height * scale)
-    ctx.fillStyle = box.frame ? 'rgba(109, 143, 120, 0.85)' : 'rgba(60, 74, 82, 0.7)'
+    ctx.fillStyle = box.frame ? 'rgba(201, 164, 106, 0.55)' : 'rgba(60, 74, 82, 0.7)'
     ctx.fillRect(x, y, width, height)
     if (box.selected) {
       ctx.strokeStyle = acid
@@ -456,8 +456,8 @@ async function uploadAsset(id, file) {
 .forge3d-litegraph-surface { display: block; width: 100%; height: 100%; outline: none; }
 .forge3d-litegraph :deep(canvas) { display: block; }
 .forge3d-frame-draw-layer { position: absolute; inset: 0; z-index: 4; pointer-events: none; transform-origin: 0 0; }
-.forge3d-frame-draw-rect { position: absolute; border-style: dashed; border-color: var(--acid); background: color-mix(in srgb, var(--acid) 5%, transparent); }
-.forge3d-frame-draw-size { position: absolute; bottom: 100%; left: 0; transform-origin: bottom left; border-radius: 5px; background: color-mix(in srgb, var(--acid) 16%, var(--bg-input)); padding: 3px 6px; font-family: var(--font-mono, monospace); font-size: 10px; font-weight: 600; line-height: 1; color: var(--text-primary); white-space: nowrap; }
+.forge3d-frame-draw-rect { position: absolute; border-style: dashed; border-color: #c9a46a; background: color-mix(in srgb, #c9a46a 8%, transparent); }
+.forge3d-frame-draw-size { position: absolute; bottom: 100%; left: 0; transform-origin: bottom left; border-radius: 5px; background: color-mix(in srgb, #c9a46a 18%, var(--bg-input)); padding: 3px 6px; font-family: var(--font-mono, monospace); font-size: 10px; font-weight: 600; line-height: 1; color: var(--text-primary); white-space: nowrap; }
 .forge3d-node-actions { position: absolute; inset: 0; z-index: 5; pointer-events: none; transform-origin: 0 0; }
 .forge3d-upload-well { position: absolute; pointer-events: auto; display: grid; place-content: center; gap: 4px; margin: 0; padding: 12px; border: 1.5px dashed var(--line-strong); border-radius: 8px; background: var(--bg-input); color: var(--text-primary); text-align: center; cursor: pointer; }
 .forge3d-upload-well:hover { border-color: var(--acid); background: color-mix(in srgb, var(--acid) 8%, var(--bg-input)); }
