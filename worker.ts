@@ -11,27 +11,27 @@
 import { createApi } from './server/api-core.js'
 import { createMeshyRunner, createMeshySubmitter, createMeshyTaskReader } from './server/meshy-run.js'
 import { applyUserKeys, readUserKeys } from './server/user-keys.js'
+import { recordToValues, rowToRecord, tableColumns } from './server/tables.js'
 
 const collections = ['canvases', 'sessions', 'runs', 'turns', 'agentTraces', 'accounts', 'creditLedger']
 
-// One row per document in forge3d_documents (migrations/0002_documents.sql),
-// the same layout as the local PostgreSQL store. A canvas's owner is stored in
-// the owner_id column and handed to the core as `ownerId`.
+// One table per domain (migrations/0003_typed_tables.sql), the same layout as
+// the local PostgreSQL store; the column mapping is shared in server/tables.ts.
 async function readCollection(env, collection) {
-  const { results } = await env.DB.prepare('SELECT document, owner_id FROM forge3d_documents WHERE collection = ?1 ORDER BY updated_at, document_id').bind(collection).all()
-  return results.map((row) => {
-    const document = JSON.parse(row.document)
-    return collection === 'canvases' ? { ...document, ownerId: row.owner_id } : document
-  })
+  const { table, orderBy } = tableColumns[collection]
+  const { results } = await env.DB.prepare(`SELECT * FROM ${table} ORDER BY ${orderBy}`).all()
+  return results.map((row) => rowToRecord(collection, row, true))
 }
 
 async function writeCollections(env, state, names = collections) {
-  const now = new Date().toISOString()
-  const statements = names.flatMap((name) => [
-    env.DB.prepare('DELETE FROM forge3d_documents WHERE collection = ?1').bind(name),
-    ...state[name].map((document) => env.DB.prepare('INSERT INTO forge3d_documents (collection, document_id, document, owner_id, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)')
-      .bind(name, document.id, JSON.stringify(document), name === 'canvases' ? document.ownerId : null, now)),
-  ])
+  const statements = names.flatMap((name) => {
+    const { table, columns } = tableColumns[name]
+    const insert = `INSERT INTO ${table} (${columns.map(([column]) => column).join(', ')}) VALUES (${columns.map((_, index) => `?${index + 1}`).join(', ')})`
+    return [
+      env.DB.prepare(`DELETE FROM ${table}`),
+      ...state[name].map((record) => env.DB.prepare(insert).bind(...recordToValues(name, record, { boolAsInt: true }))),
+    ]
+  })
   // A D1 batch is one transaction, so a reader never sees a half-written collection.
   await env.DB.batch(statements)
 }
@@ -89,7 +89,7 @@ const handle = createApi({
           })
         },
         removeCanvas: async (canvasId) => {
-          await env.DB.prepare('DELETE FROM forge3d_documents WHERE collection = ?1 AND document_id = ?2').bind('canvases', canvasId).run()
+          await env.DB.prepare('DELETE FROM canvases WHERE id = ?1').bind(canvasId).run()
         },
       },
       // A visitor's own keys (from the API keys dialog) win over the Worker secrets.
