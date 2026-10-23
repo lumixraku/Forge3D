@@ -3,6 +3,7 @@ import { request } from '../api'
 import { defaultCanvasProvider } from '../canvas-schema'
 import { starterCanvasGraph, starterCanvasViewport } from '../starter-canvas'
 import { reconcileCanvasGraph, toCanvasGraph, toDomainCanvas } from '../canvas-graph'
+import { reconcileResultSlots } from '../canvas-result-slots'
 import { importPlacementOffset, validateImportedCanvas } from '../canvas-fragment'
 import { deleteWorkflowDraft, readWorkflowDraft, writeWorkflowDraft } from '../workflow-draft'
 
@@ -49,8 +50,21 @@ export function useCanvasDocument({
   let savePromise = null
   let openToken = 0
 
+  // Every stage owns its result slots, so a canvas stored before they existed
+  // (or edited by the Agent) is repaired on the way in. The repair writes the
+  // missing slots back so the document the server holds matches the screen.
+  function repairResultSlots(canvas) {
+    const repair = reconcileResultSlots({ nodes: canvas.nodes || [], edges: canvas.edges || [], provider: canvas.provider })
+    if (!repair.added.length && !repair.removed.length) return canvas
+    canvas.nodes = repair.canvas.nodes
+    canvas.edges = repair.canvas.edges
+    workflowDirty.value = true
+    return canvas
+  }
+
   async function toCanvas(canvas, { repairFrames = true, reconcile = false, suppressLayout = false } = {}) {
     hydrating.value = true
+    repairResultSlots(canvas)
     const graph = toCanvasGraph(canvas)
     if (suppressLayout) suppressFrameFit(true)
     if (reconcile) {

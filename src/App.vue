@@ -30,6 +30,7 @@ import { edgeDefaults, nodePresentation } from './canvas-graph'
 import { applyNodeParameter, defaultCanvasProvider } from './canvas-schema'
 import { activeInputPorts, canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, compatibleUpstreamNodeTypes, hasModelEditor, isExecutableNodeType, missingParametersByNode, nodeCatalog, nodeCategories, nodeDefaults, nodeOutputPorts, outputPortsOf } from './canvas-nodes'
 import { resultArtifacts } from './run-results'
+import { reconcileResultSlots } from './canvas-result-slots'
 
 const ModelEditor = defineAsyncComponent(() => import('./components/ModelEditor.vue'))
 
@@ -241,7 +242,7 @@ const { isRunning, runDetails, runSummary, runCanvas, cancelRun, executions, exe
   runToken: canvasRunToken,
   // A run cannot wait out the debounce: creating it reads the saved canvas.
   saveCanvas: () => saveCanvas({ immediate: true }),
-  materializeResults: (sourceId, runId, output, status) => materializeResults(sourceId, runId, output, status),
+  materializeResults: (sourceId, runId, output, status) => fillResults(sourceId, runId, output, status),
 })
 restoreSuccessfulResults = restoreResults
 
@@ -398,6 +399,7 @@ function updateNodeConfig(id, config) {
   const previous = new Set((node.data.inputPorts || []).map((port) => port.id))
   const portsChanged = inputPorts.length !== previous.size || inputPorts.some((port) => !previous.has(port.id))
   node.data = { ...node.data, config, inputPorts }
+  syncResultSlots()
   // The other mode's wires are not inputs anymore. Drop them so a later save
   // cannot retarget a loose image onto Front, or a labeled view onto Image.
   if (portsChanged) {
@@ -632,6 +634,7 @@ function addNode(type, sourceId, position, { initialAsset } = {}) {
   }
   const node = buildCanvasNode(type, { position: position || nodePosition(sourceId), selected: true, initialAsset })
   nodes.value = [...nodes.value.map((item) => ({ ...item, selected: false })), node]
+  syncResultSlots()
   closeContextMenu()
   saveCanvas()
   nextTick(() => {
@@ -649,6 +652,7 @@ function addUpstreamNode(type, targetId, position) {
   if (!target || !activeCanvas.value || !nodePresentation[type] || !canConnectNodeTypes(type, target.data.canvasType)) return
   const node = buildCanvasNode(type, { position: position || upstreamNodePosition(targetId), selected: true })
   nodes.value = [...nodes.value.map((item) => ({ ...item, selected: false })), node]
+  syncResultSlots()
   closeContextMenu()
   nextTick(() => {
     addConnection({ source: node.id, sourceHandle: 'output', target: target.id, targetHandle: 'input' })
@@ -657,116 +661,38 @@ function addUpstreamNode(type, targetId, position) {
   focusNode(node.id)
 }
 
-// A run's artifacts are separate result nodes to the right of the stage that made
-// them: one image node per candidate or view, one model node, one file node. A
-// rerun replaces its previous result nodes wholesale — the old ones go, and any
-// edges that left them are re-homed onto the fresh batch so the chain keeps working.
-const RESULT_COLUMN_GAP = 340
-
-// Every node downstream of a stage, however many hops away, read along the edges.
-// Used to make room for a stage's result nodes without covering the chain after it.
-function downstreamIds(sourceId) {
-  const ids = new Set()
-  const queue = [sourceId]
-  while (queue.length) {
-    const current = queue.shift()
-    for (const edge of edges.value) {
-      if (edge.source !== current || ids.has(edge.target)) continue
-      ids.add(edge.target)
-      queue.push(edge.target)
-    }
-  }
-  ids.delete(sourceId)
-  return ids
+// A stage owns a fixed set of result nodes from the moment it is created (see
+// canvas-result-slots.ts), so a run only fills them in. Nothing is created,
+// removed or moved here: what the workflow looks like before a run is what it
+// looks like after.
+function slotIdsOf(stageId) {
+  return nodes.value.filter((node) => node.data?.generatedAssets?.resultOf?.sourceId === stageId)
 }
 
-async function materializeResults(sourceId, runId, output, status) {
-  const source = nodes.value.find((node) => node.id === sourceId)
-  if (!source || !runId || status !== 'succeeded') return
-  // Idempotent: polling delivers the same succeeded output repeatedly.
-  if (nodes.value.some((node) => node.data?.generatedAssets?.resultOf?.runId === runId && node.data?.generatedAssets?.resultOf?.sourceId === sourceId)) return
-  const artifacts = resultArtifacts(source.data.canvasType, output, { runId, sourceId }, { allowEmpty: status === 'succeeded' })
-  if (!artifacts.length) return
-
-  const previous = nodes.value.filter((node) => node.data?.generatedAssets?.resultOf?.sourceId === sourceId)
-  const previousIds = new Set(previous.map((node) => node.id))
-  // The result nodes stand in front of the stage's downstream: the stage's own
-  // outgoing edges (first run) and any edges that left the replaced results
-  // (rerun) are both re-homed onto the fresh batch.
-  const direct = edges.value.filter((edge) => edge.source === sourceId && !previousIds.has(edge.target))
-  const carried = edges.value.filter((edge) => previousIds.has(edge.source))
-  const replacedEdgeIds = new Set([...direct, ...carried].map((edge) => edge.id))
-  const targets = [...new Set([...direct, ...carried].map((edge) => edge.target))]
-  // The result row occupies the gap to the right of the stage, so everything after
-  // it moves over by the difference in width — nothing on a rerun, since the row
-  // replaces the old one in place.
-  const shift = (artifacts.length - previous.length) * RESULT_COLUMN_GAP
-  if (shift) {
-    const moved = new Set([...downstreamIds(sourceId)].filter((id) => !previousIds.has(id)))
-    nodes.value = nodes.value.map((node) => (moved.has(node.id) ? { ...node, position: { ...node.position, x: node.position.x + shift } } : node))
-  }
-
-  const origin = { x: source.position.x + RESULT_COLUMN_GAP, y: source.position.y }
-  const taken = new Set()
-  const created = artifacts.map((artifact, index) => {
-    const id = nextNodeId(artifact.type, taken)
-    taken.add(id)
-    return buildCanvasNode(artifact.type, {
-      id,
-      position: { x: origin.x + index * RESULT_COLUMN_GAP, y: origin.y },
-      parentNode: source.parentNode,
-      generatedAssets: artifact.generatedAssets,
-    })
+function fillResults(stageId, runId, output, status) {
+  const stage = nodes.value.find((node) => node.id === stageId)
+  if (!stage || !runId || status !== 'succeeded') return
+  const specs = resultSpecs(stage.data.canvasType, stage.data.config)
+  if (!specs.length) return
+  const artifacts = resultArtifacts(stage.data.canvasType, output, { runId, sourceId: stageId }, { allowEmpty: status === 'succeeded' })
+  const filled = new Map(specs.map((spec, index) => [spec.slot, artifacts[index] || null]))
+  nodes.value = nodes.value.map((node) => {
+    if (node.data?.generatedAssets?.resultOf?.sourceId !== stageId) return node
+    const spec = specs.find((candidate) => candidate.slot === node.data.generatedAssets.slot)
+    if (!spec) return node
+    const artifact = filled.get(spec.slot)
+    return { ...node, data: { ...node.data, generatedAssets: { ...(artifact?.generatedAssets || {}), resultOf: { runId, sourceId: stageId }, slot: spec.slot, ...(spec.view ? { view: spec.view } : {}) } } }
   })
+  saveCanvas()
+}
 
-  nodes.value = [...nodes.value.filter((node) => !previousIds.has(node.id)), ...created]
-  edges.value = edges.value.filter((edge) => !previousIds.has(edge.source) && !previousIds.has(edge.target) && !replacedEdgeIds.has(edge.id))
-  await nextTick()
-  {
-    // These edges are created by the run system, not by a user drag. Add them
-    // as one graph update so a transient handle/render state cannot discard the
-    // result row after the run has already succeeded.
-    const resultEdges = created
-      .filter((node) => canConnectNodeTypes(source.data.canvasType, node.data.canvasType))
-      .map((node) => ({
-        id: `edge-${sourceId}-${node.id}-${Date.now().toString(36)}`,
-        source: sourceId,
-        target: node.id,
-        sourceHandle: 'output',
-        targetHandle: 'input',
-        ...edgeDefaults,
-      }))
-    edges.value = [...edges.value, ...resultEdges]
-    // Each downstream target is fed by the result nodes: a multi-view result lands
-    // on its namesake port, and a `multiple` target port collects them all.
-    for (const targetId of targets) {
-      const target = nodes.value.find((node) => node.id === targetId)
-      if (!target) continue
-      const targetPorts = activeInputPorts(target.data.canvasType, target.data.config)
-      const usedPorts = new Set()
-      for (const node of created) {
-        const outputPort = nodeOutputPorts(node.data.canvasType)[0]
-        if (!outputPort) continue
-        const view = node.data.generatedAssets?.view
-        const portTaken = (portId) => edges.value.some((edge) => edge.target === targetId && (edge.data?.logicalConnections || []).some((pair) => pair.targetPort === portId))
-        const port = (view && targetPorts.find((candidate) => candidate.id === view && (candidate.multiple || !portTaken(candidate.id))))
-          || targetPorts.find((candidate) => canConnectPorts(node.data.canvasType, outputPort.id, target.data.canvasType, candidate.id) && (candidate.multiple || (!usedPorts.has(candidate.id) && !portTaken(candidate.id))))
-        if (!port || (!port.multiple && usedPorts.has(port.id))) continue
-        usedPorts.add(port.id)
-        if (edges.value.some((edge) => edge.source === node.id && edge.target === targetId)) continue
-        edges.value = [...edges.value, {
-          id: `edge-${node.id}-${targetId}-${Date.now().toString(36)}`,
-          source: node.id,
-          target: targetId,
-          sourceHandle: 'output',
-          targetHandle: 'input',
-          data: { logicalConnections: [{ sourcePort: outputPort.id, targetPort: port.id }] },
-          ...edgeDefaults,
-        }]
-      }
-    }
-    saveCanvas()
-  }
+// The slots follow a stage's Images count: changing it adds or removes result
+// nodes on the spot, so the canvas always shows what the stage can produce.
+function syncResultSlots() {
+  const repair = reconcileResultSlots({ nodes: nodes.value, edges: edges.value, provider: activeCanvas.value?.provider })
+  if (!repair.added.length && !repair.removed.length) return
+  nodes.value = repair.canvas.nodes
+  edges.value = repair.canvas.edges
 }
 
 function catalogForMenu() {

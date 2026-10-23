@@ -1,5 +1,6 @@
-import { isExecutableNodeType } from '../src/canvas-schema.js'
+import { isExecutableNodeType, isResultNodeType } from '../src/canvas-schema.js'
 import { validateCanvasGraph } from '../src/canvas-nodes.js'
+import { stagesOnlyEdges } from '../src/result-traversal.js'
 import { downstreamCanvas, executeNode, executionNodes } from './mock-runs.js'
 import { randomUUID } from './ids.js'
 import { recordNodeExecution } from './run-log.js'
@@ -258,6 +259,12 @@ function refuse(issues) {
   throw error
 }
 
+// Which stage a result slot belongs to, read from the canvas that holds it.
+function slotStageOf(canvas) {
+  const byId = new Map(canvas.nodes.map((node) => [node.id, node]))
+  return (nodeId) => byId.get(nodeId)?.generatedAssets?.resultOf?.sourceId || null
+}
+
 export function createExecution(runs, canvas, entryNode, mode = 'downstream', { nodeIds = null, idempotencyKey = null, parameters = null } = {}) {
   if (!['node', 'downstream'].includes(mode)) {
     const error = new Error('Invalid execution mode')
@@ -273,9 +280,13 @@ export function createExecution(runs, canvas, entryNode, mode = 'downstream', { 
     throw error
   }
   refuse(validateCanvasGraph(canvas.nodes, canvas.edges || []))
+  // Result nodes are transparent to the plan: a stage's dependencies are the
+  // stages behind its result slots, and its outgoing edges continue at whatever
+  // those slots feed. The canvas keeps the slots; the run does not execute them.
+  const planCanvas = { ...canvas, edges: stagesOnlyEdges(canvas.nodes, canvas.edges || [], isResultNodeType, slotStageOf(canvas)) }
   const executionCanvas = mode === 'downstream'
-    ? downstreamCanvas(canvas, entryNode.id)
-    : { ...structuredClone(canvas), nodes: [structuredClone(entryNode)], edges: [] }
+    ? downstreamCanvas(planCanvas, entryNode.id)
+    : { ...structuredClone(planCanvas), nodes: [structuredClone(entryNode)], edges: [] }
   const nodes = executionNodes(executionCanvas)
   const plannedNodeIds = nodes.map((node) => node.id)
   if (nodeIds !== null && (!Array.isArray(nodeIds) || !nodeIds.length || nodeIds.some((nodeId) => typeof nodeId !== 'string'))) {
@@ -344,6 +355,33 @@ export function createExecution(runs, canvas, entryNode, mode = 'downstream', { 
   return { run, executionCanvas, nodes }
 }
 
+
+const SLOT_VIEWS = ['front', 'back', 'left', 'right']
+
+// What one result slot holds after a stage ran. A slot names which of the
+// stage's results it is (`generatedAssets.slot`), so the output is picked apart
+// the same way resultArtifacts() does on the client: one slot per view, one per
+// candidate image, one model, one export file.
+function slotOutput(slot, output, runId) {
+  const origin = { sourceId: slot.generatedAssets.resultOf.sourceId, runId }
+  const base = { ...slot.generatedAssets, resultOf: origin }
+  const previews = Array.isArray(output.previews) ? output.previews.filter((preview) => typeof preview === 'string' && preview) : []
+  const viewPreviews = output.viewPreviews && typeof output.viewPreviews === 'object' ? output.viewPreviews : {}
+  const spec = slot.generatedAssets.slot || ''
+
+  if (slot.type === 'generated-export') {
+    const downloads = Array.isArray(output.outputs) ? output.outputs : output.downloadUrl ? [{ downloadUrl: output.downloadUrl, filename: output.filename, format: output.format }] : []
+    return { ...base, preview: output.preview, modelUrl: output.modelUrl, outputs: downloads }
+  }
+  if (slot.type === 'generated-model') return { ...base, preview: output.preview, modelUrl: output.modelUrl }
+
+  const view = viewPreviews[slot.generatedAssets.view] || (spec.startsWith('view:') ? viewPreviews[spec.slice(5)] : null)
+  if (typeof view === 'string' && view) return { ...base, preview: view }
+  const index = Number(spec.startsWith('image:') ? spec.slice(6) : 0)
+  const preview = previews[index] || (index === 0 ? output.preview : null)
+  return preview ? { ...base, preview } : base
+}
+
 export async function executeExecution(runs, run, canvas, executionCanvas, nodes, entryNode, onUpdate = async () => {}, { createProvider = null } = {}) {
   run.status = 'running'
   await onUpdate()
@@ -370,9 +408,36 @@ export async function executeExecution(runs, run, canvas, executionCanvas, nodes
   // or mesh would be invisible to it.
   const provider = createProvider ? createProvider({ context, run, onUpdate, canvas }) : null
   const nodeIds = new Set(nodes.map((node) => node.id))
-  const dependencies = new Map(nodes.map((node) => [node.id, new Set()]))
-  for (const edge of executionCanvas.edges || []) {
-    if (nodeIds.has(edge.source?.nodeId) && nodeIds.has(edge.target?.nodeId)) dependencies.get(edge.target.nodeId).add(edge.source.nodeId)
+  // Every planned node gets a dependency set, including one the caller appended
+  // without an edge of its own; leaving it out would crash the wave loop below.
+  const dependencies = new Map([...nodeIds].map((nodeId) => [nodeId, new Set()]))
+  // Edges are converted to plain source/target ids first: stagesOnlyEdges works
+  // on ids, while an execution canvas keeps `{ nodeId, port }` ends.
+  const linked = (executionCanvas.edges || [])
+    .filter((edge) => nodeIds.has(edge.source?.nodeId) && nodeIds.has(edge.target?.nodeId))
+    .map((edge) => ({ source: edge.source.nodeId, target: edge.target.nodeId }))
+  for (const edge of stagesOnlyEdges(nodes, linked, isResultNodeType, slotStageOf(canvas))) {
+    if (nodeIds.has(edge.source) && nodeIds.has(edge.target) && dependencies.has(edge.target)) dependencies.get(edge.target).add(edge.source)
+  }
+  // A stage feeds its result slots: whatever it produced this run is written into
+  // the canvas node that stands for it, so the canvas shows the result without the
+  // run having to create a node for it.
+  const fillSlots = async () => {
+    const slots = (canvas.nodes || []).filter((node) => isResultNodeType(node.type) && node.generatedAssets?.resultOf?.sourceId)
+    let changed = false
+    for (const slot of slots) {
+      const stageId = slot.generatedAssets.resultOf.sourceId
+      // Only what this run executed fills its slots; a stage outside the plan
+      // keeps whatever an earlier run left in its slot.
+      if (!run.nodeRuns[stageId]) continue
+      const nodeRun = run.nodeRuns[stageId]
+      if (nodeRun.status !== 'succeeded' || !nodeRun.output) continue
+      const next = slotOutput(slot, nodeRun.output, slot.generatedAssets.resultOf.runId || run.id)
+      if (!next) continue
+      slot.generatedAssets = next
+      changed = true
+    }
+    if (changed) await onUpdate()
   }
   const completed = new Set()
   while (completed.size < nodes.length && !run.cancelRequested) {
@@ -405,6 +470,7 @@ export async function executeExecution(runs, run, canvas, executionCanvas, nodes
         if (!(nodeRun.status === 'running' && nodeRun.meshyHandedOff)) completed.add(node.id)
       }
     }))
+    await fillSlots()
     await onUpdate()
     if (deferred) {
       run.status = 'running'
@@ -422,6 +488,7 @@ export async function executeExecution(runs, run, canvas, executionCanvas, nodes
   else if (Object.values(run.nodeRuns).some((nodeRun) => nodeRun.status === 'waiting_review')) run.status = 'waiting_review'
   else run.status = 'succeeded'
   run.completedAt = new Date().toISOString()
+  await fillSlots()
   await onUpdate()
   return executionDto(run)
 }

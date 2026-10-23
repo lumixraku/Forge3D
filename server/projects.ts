@@ -1,3 +1,16 @@
+import { reconcileResultSlots } from '../src/canvas-result-slots.js'
+
+/**
+ * Fills in the result slots a stage must own. A stage created by a request, an
+ * Agent plan or a copy gets them here, so a workflow looks the same before and
+ * after it runs and Run downstream can plan the whole chain.
+ */
+export function withResultSlots(canvas) {
+  const repair = reconcileResultSlots({ nodes: canvas.nodes || [], edges: canvas.edges || [], provider: canvas.provider })
+  if (!repair.added.length && !repair.removed.length) return canvas
+  return { ...canvas, nodes: repair.canvas.nodes, edges: repair.canvas.edges }
+}
+
 export function projectDto(canvas) {
   return {
     id: canvas.id,
@@ -13,8 +26,10 @@ export function projectDto(canvas) {
 }
 
 export function replaceCanvasDocument(project, input, canvasId, updatedAt) {
+  const repaired = withResultSlots({ ...input, provider: input.provider ?? project.provider })
   return {
     ...input,
+    ...(repaired.nodes === input.nodes ? {} : { nodes: repaired.nodes, edges: repaired.edges }),
     id: canvasId,
     name: project.name,
     description: project.description,
@@ -27,12 +42,12 @@ export function replaceCanvasDocument(project, input, canvasId, updatedAt) {
 }
 
 export function applyAgentCanvas(project, canvas) {
-  return {
+  return withResultSlots({
     ...canvas,
     name: project.name,
     description: project.description,
     provider: project.provider,
     createdAt: project.createdAt,
     ...(project.ownerId ? { ownerId: project.ownerId } : {}),
-  }
+  })
 }

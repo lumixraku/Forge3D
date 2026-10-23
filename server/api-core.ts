@@ -22,7 +22,7 @@ import { runDeepSeekAgent } from './deepseek.js'
 import { cancelAgentViaService, runAgentViaService } from './agent-client.js'
 import { tripoNodeTypes } from './tripo-mapping.js'
 import { meshyNodeTypes } from './meshy-mapping.js'
-import { applyAgentCanvas, projectDto, replaceCanvasDocument } from './projects.js'
+import { applyAgentCanvas, projectDto, replaceCanvasDocument, withResultSlots } from './projects.js'
 import { appendAgentTrace, checkpointAgentTrace, createAgentTrace, sanitizeAgentError } from './agent-traces.js'
 import { accountDto, ensureVisitorAccount, EXECUTION_CREDIT_COST, reserveExecutionCredits, settleExecutionCredits } from './credits.js'
 import { readVisitor, visitorCookie } from './visitor.js'
@@ -648,7 +648,9 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
     }
 
     if (method === 'POST' && parts[1] === 'projects' && parts.length === 2) {
-      const canvas = createCanvas({ ...withStarterGraph(await parseJson(request)), ownerId: visitorId })
+      // Every stage arrives with its result slots, so the canvas has its final
+      // shape before the first run and Run downstream can plan the whole chain.
+      const canvas = withResultSlots(createCanvas({ ...withStarterGraph(await parseJson(request)), ownerId: visitorId }))
       state.canvases.push(canvas)
       state.sessions.push(createInitialSession(canvas))
       await store.persist(['canvases', 'sessions'])
@@ -694,7 +696,7 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
     if (method === 'POST' && parts[1] === 'projects' && parts[3] === 'duplicate' && parts.length === 4) {
       const source = canvasById(parts[2])
       if (!source) return json({ error: 'Project not found' }, 404)
-      const canvas = duplicateCanvas({ ...source, ownerId: visitorId })
+      const canvas = withResultSlots(duplicateCanvas({ ...source, ownerId: visitorId }))
       const now = canvas.createdAt
       state.canvases.push(canvas)
       state.sessions.push({ id: `session-${randomUUID()}`, canvasId: canvas.id, createdAt: now, updatedAt: now, messages: [{ id: `msg-${randomUUID()}`, role: 'assistant', content: 'This canvas was duplicated and can now evolve independently.', createdAt: now }] })
