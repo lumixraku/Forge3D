@@ -198,6 +198,8 @@ test('lays out root nodes globally only when nothing is selected', async () => {
   ]
   const result = await layoutSelection(nodes, [{ source: 'child', target: 'outside' }])
 
-  assert.deepEqual([...result.positions.keys()], ['section', 'outside'])
-  assert.equal(result.positions.has('child'), false)
+  // A section's child moves with its section, so only the top-level nodes get a
+  // new position of their own.
+  assert.deepEqual([...result.positions.keys()].sort(), ['child', 'outside'])
+  assert.equal(result.positions.has('section'), false)
 })

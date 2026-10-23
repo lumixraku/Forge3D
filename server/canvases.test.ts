@@ -88,7 +88,8 @@ test('duplicates a canvas with fresh graph IDs', () => {
 test('requires a name and accepts an empty canvas', () => {
   assert.throws(() => createCanvas({ name: ' ', nodes: [node('a')] }), /name is required/)
   const canvas = createCanvas({ name: 'Empty', nodes: [], edges: [] })
-  assert.equal(canvas.provider, 'tripo')
+  // Meshy is the deployment's default provider.
+  assert.equal(canvas.provider, 'meshy')
   assert.deepEqual(canvas.nodes, [])
   assert.deepEqual(canvas.edges, [])
 })

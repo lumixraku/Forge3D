@@ -74,8 +74,9 @@ test('what this run produced wins over what the canvas saved', () => {
 
 test('an image and a mesh reaching one node land on their own ports', () => {
   // texture takes a mesh on `model` and a reference image on `image`; neither may
-  // pick up the other.
-  const reference = node('ref', 'reference-image', {}, { preview: '/ref.png' })
+  // pick up the other. An upload emits the port matching what was uploaded, so
+  // the picture is an upload of an image.
+  const reference = node('ref', 'reference-image', {}, {}, { assetType: 'image', assetUrl: '/ref.png' })
   const model = node('model', 'generate-model', {}, {}, { modelUrl: '/mesh.glb' })
   const texture = node('tex', 'texture')
   const canvas = {
@@ -89,9 +90,10 @@ test('an image and a mesh reaching one node land on their own ports', () => {
 test('an uploaded model uses the asset upload output as a model input', () => {
   const upload = node('upload', 'reference-image', {}, {}, { assetType: 'model', assetUrl: '/model.glb', modelUrl: '/model.glb' })
   const retopo = node('retopo', 'retopology')
-  const canvas = { nodes: [upload, retopo], edges: [edge('upload', 'image', 'retopo', 'model')] }
+  const canvas = { nodes: [upload, retopo], edges: [edge('upload', 'model', 'retopo', 'model')] }
 
-  assert.deepEqual(nodeOutputPortValues(upload), { image: '/model.glb' })
+  // A model upload emits `model`, not an image handle.
+  assert.deepEqual(nodeOutputPortValues(upload), { model: '/model.glb' })
   assert.deepEqual(resolveNodeInputs(retopo, canvas), { model: '/model.glb' })
 })
 

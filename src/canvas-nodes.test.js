@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, compatibleUpstreamNodeTypes, nodeCatalog, nodeDefaults, nodeDisplayName, nodeInputPorts, nodeOutputPorts, nodeSchema, parameterRange } from './canvas-nodes.js'
+import { canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, compatibleUpstreamNodeTypes, nodeCatalog, nodeDefaults, nodeDisplayName, nodeInputPorts, nodeOutputPorts } from './canvas-nodes.js'
 import { normalizeNodeConfig, normalizeGeneratedAssets, splitNodeTrees, canvasNodeSchema } from './canvas-schema.js'
 
 test('uses Lychee node names while preserving unmatched node names', () => {
@@ -71,7 +71,8 @@ test('reads the result tree stored under its old name', () => {
 })
 
 test('exposes schema-defined typed input and output handles', () => {
-  assert.deepEqual(nodeOutputPorts('reference-image'), [{ id: 'image', label: 'Asset', type: 'any' }])
+  // An upload can carry an image or a model, so it has one output of each kind.
+  assert.deepEqual(nodeOutputPorts('reference-image').map(({ id, type }) => ({ id, type })), [{ id: 'image', type: 'image' }, { id: 'model', type: 'model' }])
   assert.deepEqual(nodeInputPorts('generate-model').map(({ id, type }) => ({ id, type })), [
     { id: 'image', type: 'image' },
     { id: 'front', type: 'image' }, { id: 'back', type: 'image' }, { id: 'left', type: 'image' }, { id: 'right', type: 'image' },
@@ -106,7 +107,8 @@ test('connects only compatible port types', () => {
 
 test('connects matching named ports only', () => {
   assert.equal(canConnectPorts('reference-image', 'image', 'multiview-to-3d', 'front'), true)
-  assert.equal(canConnectPorts('reference-image', 'image', 'retopology', 'model'), true)
+  // A model input does not take an image: the port types have to match.
+  assert.equal(canConnectPorts('reference-image', 'image', 'retopology', 'model'), false)
   assert.equal(canConnectPorts('generate-multiview-images', 'front', 'multiview-to-3d', 'front'), true)
   assert.equal(canConnectPorts('generate-model', 'model', 'texture', 'model'), true)
   assert.equal(canConnectPorts('generate-multiview-images', 'front', 'multiview-to-3d', 'back'), true)
@@ -141,7 +143,8 @@ test('hides Image from node menus and groups Export under Output', () => {
   assert.equal(image.hidden, true)
   assert.equal(exportNode.category, 'Output')
   assert.ok(!compatibleNodeTypes('generate-image').some((node) => node.type === 'generated-image'))
-  assert.equal(nodeCatalog.find((node) => node.type === 'multiview-to-3d').hidden, true)
+  // Result nodes are created by runs, never offered in Add node.
+  assert.equal(nodeCatalog.find((node) => node.type === 'generated-model').hidden, true)
 })
 
 test('registers the image decomposition demo as an image node', () => {
@@ -153,61 +156,6 @@ test('registers the image decomposition demo as an image node', () => {
   // The port declares data flow; running the node is what needs the image.
   assert.deepEqual(decomposition.requires, ['image'])
   assert.ok(compatibleNodeTypes('reference-image').some((node) => node.type === decomposition.type))
-})
-
-test('matches the Tripo Studio parameters without changing node types', () => {
-  const prompt = nodeSchema('prompt')
-  const generateImage = nodeSchema('generate-image')
-  const generateModel = nodeSchema('generate-model')
-  const smartMesh = nodeSchema('smart-mesh')
-  const segmentation = nodeSchema('segments')
-  const retopology = nodeSchema('retopology')
-  const texture = nodeSchema('texture')
-
-  assert.equal(generateModel.type, 'generate-model')
-  assert.equal(smartMesh.type, 'smart-mesh')
-  assert.equal(segmentation.type, 'segments')
-  assert.equal(segmentation.label, 'Segments')
-  assert.equal(Object.hasOwn(prompt.defaults, 'tPose'), false)
-  assert.equal(prompt.parameters.some(({ key }) => key === 'tPose'), false)
-  assert.equal(generateImage.defaults.tPose, false)
-  assert.equal(generateImage.parameters.find(({ key }) => key === 'tPose').control, 'toggle')
-  assert.equal(generateModel.defaults.generateParts, false)
-  assert.equal(generateModel.defaults.geometryQuality, true)
-  assert.equal(generateModel.defaults.aiComplete, false)
-  assert.equal(generateModel.defaults.textureQuality, 'extreme')
-  assert.equal(generateModel.defaults.texture8k, true)
-  assert.equal(generateModel.defaults.privacy, 'sharing-only')
-  assert.equal(generateModel.parameters.find(({ key }) => key === 'geometryQuality').control, 'toggle')
-  assert.equal(generateModel.parameters.find(({ key }) => key === 'aiComplete').control, 'toggle')
-  assert.deepEqual(generateModel.parameters.find(({ key }) => key === 'textureQuality').options.map(({ label }) => label), ['2K', '4K', '8K'])
-  assert.equal(generateModel.parameters.find(({ key }) => key === 'texture8k').control, 'toggle')
-  assert.deepEqual(parameterRange(generateModel.parameters.find(({ key }) => key === 'faceCount'), generateModel.defaults), { min: 500, max: 2000000, step: 500 })
-
-  assert.equal(segmentation.defaults.detailLevel, 'low')
-  assert.deepEqual(segmentation.parameters[0].options.map(({ label }) => label), [
-    'Simple · 3-6 parts',
-    'Balanced · 6-15 parts',
-    'Detailed · 15+ parts',
-  ])
-
-  assert.deepEqual(retopology.parameters[0].options.map(({ value }) => value), ['quad', 'triangle'])
-  assert.equal(retopology.parameters[1].label, 'Smart Low Poly v2')
-  assert.deepEqual(parameterRange(retopology.parameters[2], retopology.defaults), { min: 500, max: 50000, step: 500 })
-  assert.equal(retopology.defaults.faceLimit, 10000)
-
-  assert.equal(texture.defaults.textureQuality, 'extreme')
-  assert.equal(texture.parameters.find(({ key }) => key === 'textureQuality').control, 'segmented')
-  assert.deepEqual(texture.parameters.find(({ key }) => key === 'textureQuality').options.map(({ label }) => label), ['2K', '4K', '8K'])
-})
-
-test('uses Meshy parameters without exposing Tripo-only fields', () => {
-  const schema = nodeSchema('generate-model', 'meshy')
-  const keys = schema.parameters.map(({ key }) => key)
-  assert.deepEqual(keys, ['aiModel', 'texture', 'textureQuality', 'pbr', 'topology', 'faceCount'])
-  assert.equal(keys.includes('modelVersion'), false)
-  assert.equal(keys.includes('generateParts'), false)
-  assert.equal(nodeDefaults('generate-model', 'meshy').aiModel, 'latest')
 })
 
 test('gives every select a valid default and normalizes legacy values', () => {

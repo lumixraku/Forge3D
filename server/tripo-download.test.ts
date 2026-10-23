@@ -2,13 +2,17 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createApi } from './api-core.js'
 
+// Canvases belong to a visitor, and the Tripo routes check ownership, so the
+// fixture canvas is owned by the visitor these requests act as.
+const VISITOR_COOKIE = 'forge3d_visitor=visitor-11111111-1111-1111-1111-111111111111'
+
 function context(overrides = {}) {
   const state = {
-    canvases: [],
+    canvases: [{ id: 'canvas-1', ownerId: 'visitor-11111111-1111-1111-1111-111111111111', provider: 'tripo', revision: 1, nodes: [], edges: [] }],
     sessions: [],
     turns: [],
     agentTraces: [],
-    runs: [{ id: 'run-1', nodeRuns: { export: { tripoTaskId: 'task-owned' } } }],
+    runs: [{ id: 'run-1', canvasId: 'canvas-1', nodeRuns: { export: { tripoTaskId: 'task-owned' } } }],
   }
   return {
     store: { state, persist: async () => {}, reload: async () => {}, removeCanvas: async () => {} },
@@ -33,7 +37,7 @@ test('refreshes an owned Tripo task and redirects to its latest model url', asyn
     },
   }) })
 
-  const response = await handle(new Request('https://forge.test/api/tripo/tasks/task-owned/download', { redirect: 'manual' }), {})
+  const response = await handle(new Request('https://forge.test/api/tripo/tasks/task-owned/download', { redirect: 'manual', headers: { cookie: VISITOR_COOKIE } }), {})
 
   assert.equal(response.status, 302)
   assert.equal(response.headers.get('location'), 'https://cdn.tripo3d.ai/fresh.glb?expires=later')
@@ -46,7 +50,7 @@ test('does not query arbitrary Tripo task ids', async () => {
     getTripoTask: async () => assert.fail('unowned task must not be queried'),
   }) })
 
-  const response = await handle(new Request('https://forge.test/api/tripo/tasks/task-other/download'), {})
+  const response = await handle(new Request('https://forge.test/api/tripo/tasks/task-other/download', { headers: { cookie: VISITOR_COOKIE } }), {})
 
   assert.equal(response.status, 404)
 })
@@ -63,7 +67,7 @@ test('refreshes an execution status and output from its owned Tripo task', async
   base.store.persist = async () => { persisted = true }
   const handle = createApi({ createContext: () => base })
 
-  const response = await handle(new Request('https://forge.test/api/executions/run-1'))
+  const response = await handle(new Request('https://forge.test/api/executions/run-1', { headers: { cookie: VISITOR_COOKIE } }))
   const execution = await response.json()
 
   assert.equal(execution.status, 'succeeded')

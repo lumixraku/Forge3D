@@ -13,7 +13,12 @@ function listen(server) {
   })
 }
 
-async function createAgentApi(t, plans, canvas = { id: 'canvas-1', revision: 1, nodes: [], edges: [] }) {
+// Canvases are per-visitor now, so the fixture canvas belongs to the visitor the
+// tests send their requests as.
+const VISITOR = 'visitor-11111111-1111-1111-1111-111111111111'
+const VISITOR_COOKIE = `forge3d_visitor=${VISITOR}`
+
+async function createAgentApi(t, plans, canvas = { id: 'canvas-1', revision: 1, nodes: [], edges: [], ownerId: VISITOR }) {
   let calls = 0
   const service = createServer(async (request, response) => {
     if (request.url !== '/agent') return response.writeHead(404).end()
@@ -27,7 +32,7 @@ async function createAgentApi(t, plans, canvas = { id: 'canvas-1', revision: 1, 
     canvases: [canvas],
     sessions: [{ id: 'session-1', canvasId: canvas.id, messages: [], createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }],
     turns: [], agentTraces: [], runs: [],
-    accounts: [{ id: 'demo-user', name: 'Demo User', balance: 1000 }], creditLedger: [],
+    accounts: [{ id: VISITOR, name: 'Visitor', balance: 1000 }], creditLedger: [],
   }
   let persisted = structuredClone(state)
   const background = []
@@ -59,12 +64,12 @@ test('persists trace callbacks before the terminal turn status', async (t) => {
   t.after(() => service.close())
 
   const state = {
-    canvases: [{ id: 'canvas-1', revision: 1, nodes: [], edges: [] }],
+    canvases: [{ id: 'canvas-1', revision: 1, nodes: [], edges: [], ownerId: VISITOR }],
     sessions: [{ id: 'session-1', canvasId: 'canvas-1', messages: [], createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }],
     turns: [],
     agentTraces: [],
     runs: [],
-    accounts: [{ id: 'demo-user', name: 'Demo User', balance: 1000 }],
+    accounts: [{ id: VISITOR, name: 'Visitor', balance: 1000 }],
     creditLedger: [],
   }
   let persisted = structuredClone(state)
@@ -95,7 +100,7 @@ test('persists trace callbacks before the terminal turn status', async (t) => {
 
   const response = await handle(new Request('https://forge.test/api/sessions/session-1/turns', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', cookie: VISITOR_COOKIE },
     body: JSON.stringify({ message: 'Research GLB' }),
   }))
   assert.equal(response.status, 202)
@@ -116,7 +121,7 @@ test('persists trace callbacks before the terminal turn status', async (t) => {
 })
 
 test('runs one agent turn without persisting the generated canvas in the coordinator', async (t) => {
-  const canvas = { id: 'canvas-1', revision: 1, nodes: [], edges: [] }
+  const canvas = { id: 'canvas-1', revision: 1, nodes: [], edges: [], ownerId: VISITOR }
   const generated = {
     ...canvas,
     revision: 2,
@@ -124,7 +129,7 @@ test('runs one agent turn without persisting the generated canvas in the coordin
     edges: [],
   }
   const api = await createAgentApi(t, [{ canvas: generated, reply: 'Created the workflow.', changedNodeIds: ['prompt'], structureChanged: true }], canvas)
-  const response = await api.handle(new Request('https://forge.test/api/sessions/session-1/turns', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: 'Create an orange robot workflow' }) }))
+  const response = await api.handle(new Request('https://forge.test/api/sessions/session-1/turns', { method: 'POST', headers: { 'content-type': 'application/json', cookie: VISITOR_COOKIE }, body: JSON.stringify({ message: 'Create an orange robot workflow' }) }))
   assert.equal(response.status, 202)
   const created = await response.json()
   assert.equal(created.status, 'queued')
@@ -141,18 +146,18 @@ test('runs one agent turn without persisting the generated canvas in the coordin
 })
 
 test('parks and resumes one turn after a user selection', async (t) => {
-  const canvas = { id: 'canvas-1', revision: 1, nodes: [], edges: [] }
+  const canvas = { id: 'canvas-1', revision: 1, nodes: [], edges: [], ownerId: VISITOR }
   const api = await createAgentApi(t, [
     { canvas, reply: '', changedNodeIds: [], structureChanged: false, userSelectionRequest: { prompt: 'Choose a format', options: [{ id: 'glb', label: 'GLB' }], min: 1, max: 1 } },
     { canvas: { ...canvas, revision: 2 }, reply: 'Configured GLB export.', changedNodeIds: [], structureChanged: false },
   ], canvas)
-  await api.handle(new Request('https://forge.test/api/sessions/session-1/turns', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: 'Create an export workflow' }) }))
+  await api.handle(new Request('https://forge.test/api/sessions/session-1/turns', { method: 'POST', headers: { 'content-type': 'application/json', cookie: VISITOR_COOKIE }, body: JSON.stringify({ message: 'Create an export workflow' }) }))
   await Promise.all(api.background.splice(0))
   const parked = api.persisted().turns[0]
   assert.equal(parked.status, 'running')
   assert.equal(parked.request.options[0].id, 'glb')
 
-  const response = await api.handle(new Request(`https://forge.test/api/turns/${parked.id}/continue`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ request_id: parked.request.request_id, selected_option_ids: ['glb'] }) }))
+  const response = await api.handle(new Request(`https://forge.test/api/turns/${parked.id}/continue`, { method: 'POST', headers: { 'content-type': 'application/json', cookie: VISITOR_COOKIE }, body: JSON.stringify({ request_id: parked.request.request_id, selected_option_ids: ['glb'] }) }))
   assert.equal(response.status, 202)
   await Promise.all(api.background.splice(0))
   const persisted = api.persisted()

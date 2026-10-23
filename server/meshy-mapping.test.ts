@@ -10,10 +10,12 @@ function node(type, config = {}) {
 }
 
 test('nodes without a Meshy endpoint fall through to the mock producer', () => {
-  for (const type of ['review', 'model-preview', 'prompt', 'reference-image', 'frame', 'generate-image', 'retopology', 'texture', 'segments', 'rigging']) {
+  for (const type of ['review', 'model-preview', 'prompt', 'reference-image', 'frame', 'generate-image', 'retopology', 'texture', 'segments']) {
     assert.equal(meshyRequest(node(type), { input: 'https://cdn/in.png' }), null, type)
     assert.equal(usesMeshy(node(type)), false, type)
   }
+  // Rigging is a Meshy task now, so it maps an endpoint instead of falling through.
+  assert.equal(usesMeshy(node('rigging')), true)
   const exportNode = node('export-model')
   assert.equal(meshyRequest(exportNode, { input: 'https://cdn/model.glb' }), null)
   assert.equal(usesMeshy(exportNode), true)

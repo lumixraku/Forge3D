@@ -44,13 +44,18 @@ function stubMeshy(t) {
   return calls
 }
 
+// Canvases belong to a visitor now, so the fixture canvas is owned by the visitor
+// every request in this file acts as.
+const VISITOR = 'visitor-11111111-1111-1111-1111-111111111111'
+const COOKIE = `forge3d_visitor=${VISITOR}`
+
 function createTestApi(t, { withMeshy = true } = {}) {
   const calls = withMeshy ? stubMeshy(t) : null
   const state = {
-    canvases: [structuredClone(CANVAS)],
+    canvases: [{ ...structuredClone(CANVAS), ownerId: VISITOR }],
     sessions: [],
     turns: [], agentTraces: [], runs: [],
-    accounts: [{ id: 'demo-user', name: 'Demo User', balance: 1000 }], creditLedger: [],
+    accounts: [{ id: VISITOR, name: 'Visitor', balance: 1000 }], creditLedger: [],
   }
   let persisted = structuredClone(state)
   const background = []
@@ -79,13 +84,13 @@ function createTestApi(t, { withMeshy = true } = {}) {
 
 const post = (path, body) => new Request(`https://forge.test${path}`, {
   method: 'POST',
-  headers: { 'content-type': 'application/json' },
+  headers: { 'content-type': 'application/json', cookie: COOKIE },
   body: JSON.stringify(body),
 })
 
 const patch = (path, body) => new Request(`https://forge.test${path}`, {
   method: 'PATCH',
-  headers: { 'content-type': 'application/json' },
+  headers: { 'content-type': 'application/json', cookie: COOKIE },
   body: JSON.stringify(body),
 })
 
@@ -96,7 +101,7 @@ test('capabilities report Meshy when its key is configured', async (t) => {
   assert.deepEqual(body.providers, { mock: true, tripo: false, meshy: true })
   // Tripo stays the default when both could be configured; alone, Meshy is it.
   assert.equal(body.defaultProvider, 'meshy')
-  assert.deepEqual(body.meshyNodeTypes, ['generate-model', 'export-model'])
+  assert.deepEqual(body.meshyNodeTypes, ['generate-model', 'text-to-3d', 'multiview-to-3d', 'export-model', 'text-to-image', 'image-to-image', 'text-to-motion', 'remesh', 'retexture', 'rigging', 'animation', 'convert-model', 'resize-model', 'uv-unwrap', 'print-analyze', 'print-repair', 'multi-color-print', 'auto-split', 'creative-lab'])
 })
 
 test('Meshy assets are streamed through the API for the interactive preview', async (t) => {
@@ -132,7 +137,7 @@ test('a persisted Meshy task serves a fresh model URL after refresh', async (t) 
     },
   })
 
-  const response = await handle(new Request('https://forge.test/api/executions/run-meshy/nodes/gen/model'))
+  const response = await handle(new Request('https://forge.test/api/executions/run-meshy/nodes/gen/model', { headers: { cookie: COOKIE } }))
 
   assert.equal(response.status, 200)
   assert.equal(response.headers.get('content-type'), 'model/gltf-binary')

@@ -3,12 +3,14 @@ import assert from 'node:assert/strict'
 import { reconcileCanvasGraph, toCanvasGraph, toDomainCanvas } from './canvas-graph.js'
 
 const node = (id, type) => ({ id, type, name: id, config: {}, ui: { position: { x: 0, y: 0 } } })
+// An upload names what it holds, which is what decides the port it emits.
+const imageUpload = (id) => ({ ...node(id, 'reference-image'), uploadAssets: { assetType: 'image', assetUrl: `/${id}.png` } })
 
 test('renders logical ports as one untyped Input/Output connection', () => {
   const canvas = {
     id: 'canvas',
     name: 'Canvas',
-    nodes: [node('image', 'reference-image'), node('model', 'generate-model')],
+    nodes: [imageUpload('image'), node('model', 'generate-model')],
     edges: [{ id: 'edge', source: { nodeId: 'image', port: 'image' }, target: { nodeId: 'model', port: 'image' } }],
   }
 
@@ -24,7 +26,7 @@ test('maps a simple visual image connection to typed data ports when saving', ()
   const activeCanvas = {
     id: 'canvas',
     name: 'Canvas',
-    nodes: [node('image', 'reference-image'), node('model', 'generate-model')],
+    nodes: [imageUpload('image'), node('model', 'generate-model')],
     edges: [],
   }
   const graph = toCanvasGraph(activeCanvas)

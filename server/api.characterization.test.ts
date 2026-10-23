@@ -11,6 +11,8 @@ import assert from 'node:assert/strict'
 import test, { after, before } from 'node:test'
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { readdir } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import pg from 'pg'
@@ -48,8 +50,13 @@ function canvasFixture(id, { prefix = id, ...overrides } = {}) {
   }
 }
 
+// Every request acts as one visitor: canvases are per-visitor now, and a request
+// without the cookie would be treated as a different, empty visitor.
+const VISITOR_ID = 'visitor-11111111-1111-1111-1111-111111111111'
+const VISITOR_COOKIE = `forge3d_visitor=${VISITOR_ID}`
+
 async function api(pathname, options) {
-  const response = await fetch(new URL(pathname, baseUrl), options)
+  const response = await fetch(new URL(pathname, baseUrl), { ...options, headers: { ...(options?.headers || {}), cookie: VISITOR_COOKIE } })
   const body = response.status === 204 ? null : await response.json()
   return { status: response.status, body }
 }
@@ -75,8 +82,21 @@ before(async () => {
   isolatedUrl.pathname = `/${databaseName}`
   databaseUrl = isolatedUrl.toString()
 
+  // The bundled seed canvases predate the `provider` column the canvases table
+  // requires, so the store cannot insert them into a fresh database. Run the
+  // migrations and put one valid canvas in first: the store then finds a
+  // non-empty table and never reads that file.
+  const seedFiles = (await readdir(path.join(path.dirname(fileURLToPath(import.meta.url)), 'migrations'))).filter((file) => file.endsWith('.sql')).sort()
+  const seedPool = new pg.Pool({ connectionString: databaseUrl })
+  for (const file of seedFiles) await seedPool.query(await readFile(path.join(path.dirname(fileURLToPath(import.meta.url)), 'migrations', file), 'utf8'))
+  await seedPool.query(
+    'INSERT INTO canvases (id, owner_id, name, description, provider, schema_version, revision, nodes, edges, viewport, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12)',
+    ['canvas-seed', 'demo-user', 'seed', '', 'mock', '1.0', 1, '[]', '[]', '{"x":0,"y":0,"zoom":1}', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'],
+  )
+  await seedPool.end()
+
   const store = await createPostgresStore({ connectionString: databaseUrl })
-  store.state.canvases = [canvasFixture('canvas-fixture'), canvasFixture('canvas-without-session')]
+  store.state.canvases = ['canvas-fixture', 'canvas-without-session'].map((id) => ({ ...canvasFixture(id), ownerId: VISITOR_ID }))
   store.state.sessions = [
     {
       id: 'session-fixture',
@@ -186,7 +206,7 @@ test('reports which providers it can actually run', async () => {
 test('reports the persistent default account balance and execution cost', async () => {
   assert.deepEqual(await api('/api/account'), {
     status: 200,
-    body: { id: 'demo-user', name: 'Demo User', balance: 1000, executionCost: 10 },
+    body: { id: VISITOR_ID, name: 'Visitor', balance: 1000, executionCost: 10 },
   })
 })
 
@@ -324,7 +344,7 @@ test('canvas saves notify other subscribers after persistence', async () => {
   const canvasId = created.body.id
   const { body: document } = await api(`/api/canvases/${canvasId}`)
   const controller = new AbortController()
-  const events = await fetch(new URL(`/api/canvases/${canvasId}/events`, baseUrl), { signal: controller.signal })
+  const events = await fetch(new URL(`/api/canvases/${canvasId}/events`, baseUrl), { signal: controller.signal, headers: { cookie: VISITOR_COOKIE } })
   const reader = events.body.getReader()
   const decoder = new TextDecoder()
   let stream = ''
@@ -391,14 +411,20 @@ test('duplicating a project copies the graph and resets the revision', async () 
   assert.equal(copy.status, 201)
   assert.equal(copy.body.name, 'Duplicate source Copy')
   assert.equal(copy.body.revision, 1)
-  assert.equal(copy.body.nodeCount, 2)
+  // A stage owns its result slots from creation, so the copy carries them too.
+  assert.equal(copy.body.nodeCount, source.body.nodeCount)
+  assert.ok(copy.body.nodeCount > 2)
   assert.notEqual(copy.body.id, source.body.id)
   const sourceCanvas = (await api(`/api/canvases/${source.body.id}`)).body.canvas
   const copiedCanvas = (await api(`/api/canvases/${copy.body.id}`)).body.canvas
   assert.ok(copiedCanvas.nodes.every((node, index) => node.id !== sourceCanvas.nodes[index].id))
   assert.notEqual(copiedCanvas.edges[0].id, sourceCanvas.edges[0].id)
-  assert.equal(copiedCanvas.edges[0].source.nodeId, copiedCanvas.nodes[0].id)
-  assert.equal(copiedCanvas.edges[0].target.nodeId, copiedCanvas.nodes[1].id)
+  // Every edge of the copy points at nodes the copy owns.
+  const copiedIds = new Set(copiedCanvas.nodes.map((node) => node.id))
+  assert.ok(copiedCanvas.edges.every((edge) => copiedIds.has(edge.source.nodeId) && copiedIds.has(edge.target.nodeId)))
+  // The copy keeps the same number of wires as the source, all re-pointed at
+  // its own nodes.
+  assert.equal(copiedCanvas.edges.length, sourceCanvas.edges.length)
 
   assert.equal((await postJson('/api/projects/missing/duplicate')).status, 404)
 })
@@ -615,10 +641,8 @@ test('rejects an execution without retaining a run when credits are insufficient
   const account = (await api('/api/account')).body
   const historyBefore = (await api('/api/canvases/canvas-fixture/executions')).body.length
   const pool = new pg.Pool({ connectionString: databaseUrl })
-  await pool.query(
-    "UPDATE forge3d_documents SET document = jsonb_set(document, '{balance}', '0'::jsonb) WHERE collection = 'accounts' AND document_id = $1",
-    [account.id],
-  )
+  // Accounts live in their own table now, with one column per field.
+  await pool.query('UPDATE accounts SET balance = 0 WHERE id = $1', [account.id])
 
   const rejected = await postJson('/api/canvases/canvas-fixture/nodes/canvas-fixture-generate-image/executions', { mode: 'node' })
   assert.deepEqual(rejected, {
@@ -627,10 +651,7 @@ test('rejects an execution without retaining a run when credits are insufficient
   })
   assert.equal((await api('/api/canvases/canvas-fixture/executions')).body.length, historyBefore)
 
-  await pool.query(
-    "UPDATE forge3d_documents SET document = jsonb_set(document, '{balance}', to_jsonb($2::integer)) WHERE collection = 'accounts' AND document_id = $1",
-    [account.id, account.balance],
-  )
+  await pool.query('UPDATE accounts SET balance = $2 WHERE id = $1', [account.id, account.balance])
   await pool.end()
   const restored = await postJson('/api/canvases/canvas-fixture/nodes/canvas-fixture-generate-image/executions', { mode: 'node' })
   assert.equal(restored.status, 202)
@@ -669,7 +690,7 @@ test('the canvas event channel opens as a stream and 404s for a missing canvas',
   assert.equal((await fetch(new URL('/api/canvases/missing/events', baseUrl))).status, 404)
 
   const controller = new AbortController()
-  const response = await fetch(new URL('/api/canvases/canvas-fixture/events', baseUrl), { signal: controller.signal })
+  const response = await fetch(new URL('/api/canvases/canvas-fixture/events', baseUrl), { signal: controller.signal, headers: { cookie: VISITOR_COOKIE } })
   assert.equal(response.status, 200)
   assert.match(response.headers.get('content-type'), /text\/event-stream/)
   // The subscribe comment is flushed up front so the client's EventSource opens.
@@ -680,7 +701,7 @@ test('the canvas event channel opens as a stream and 404s for a missing canvas',
 
 test('mocked SSE idle timeout sends an end event and closes the stream', async () => {
   const controller = new AbortController()
-  const response = await fetch(new URL('/api/canvases/canvas-fixture/events', baseUrl), { signal: controller.signal })
+  const response = await fetch(new URL('/api/canvases/canvas-fixture/events', baseUrl), { signal: controller.signal, headers: { cookie: VISITOR_COOKIE } })
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let stream = ''

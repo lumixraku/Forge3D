@@ -17,6 +17,10 @@ test('PostgreSQL store persists, reloads, and removes documents', { skip: !conne
     id: canvasId,
     name: 'PostgreSQL test',
     description: '',
+    // The canvases table requires a provider and both timestamps for every row.
+    provider: 'mock',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
     revision: 1,
     nodes: [],
     edges: [],
@@ -28,7 +32,10 @@ test('PostgreSQL store persists, reloads, and removes documents', { skip: !conne
     await store.persist('canvases')
     store.state.canvases = []
     await store.reload('canvases')
-    assert.deepEqual(store.state.canvases.find((item) => item.id === canvasId), canvas)
+    // The store adds the owner a bare canvas does not carry, so compare what this
+    // test wrote rather than the whole record.
+    const reloaded = store.state.canvases.find((item) => item.id === canvasId)
+    assert.deepEqual({ ...reloaded, ownerId: undefined }, { ...canvas, ownerId: undefined })
 
     await store.removeCanvas(canvasId)
     await store.reload('canvases')

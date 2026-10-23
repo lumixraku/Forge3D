@@ -30,6 +30,9 @@ function canvasOf(nodes, edges) {
 
 // An uploaded asset is input the user gave, so its URL is a config field.
 const REFERENCE = { id: 'ref', type: 'reference-image', name: 'Ref', config: {}, uploadAssets: { assetType: 'image', assetUrl: '/shark-reference.png' } }
+// A local upload is read through this: the tests stand in a tiny PNG rather than
+// depending on a bundled file being on disk.
+const readLocal = async () => ({ bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]), filename: 'ref.png' })
 const MODEL = { id: 'model', type: 'generate-model', name: 'Model', config: { faceCount: 10000 } }
 
 test('a node type Meshy does not back is rejected by the real provider', async () => {
@@ -43,7 +46,7 @@ test('generate-model inlines the reference image as a data URI', async () => {
   const canvas = canvasOf([REFERENCE, MODEL], [['ref', 'model']])
   const client = stubClient()
 
-  const result = await executeMeshyNode(MODEL, canvas, { client })
+  const result = await executeMeshyNode(MODEL, canvas, { client, readLocal })
 
   assert.equal(result.status, 'succeeded')
   assert.equal(client.calls.tasks[0].endpoint, '/openapi/v1/image-to-3d')
@@ -165,7 +168,7 @@ test('a failed Meshy task fails the node run', async () => {
     async awaitTask() { throw new Error('Meshy task FAILED: moderation rejected the image (task task_1).') },
   }
 
-  await assert.rejects(executeMeshyNode(MODEL, canvas, { client }), /moderation rejected/)
+  await assert.rejects(executeMeshyNode(MODEL, canvas, { client, readLocal }), /moderation rejected/)
 })
 
 test('a node with neither an image nor a prompt is refused before spending credits', async () => {

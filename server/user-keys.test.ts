@@ -77,10 +77,13 @@ test('Meshy calls carry the visitor key when set, and the built-in key otherwise
     const env = { MESHY_API_KEY: apiKey, MESHY_BASE_URL: 'https://meshy.test' }
     return { createMeshyProvider: createMeshyRunner(env), submitMeshyTask: createMeshySubmitter(env), getMeshyTask: createMeshyTaskReader(env) }
   }
+  // Canvases and accounts belong to a visitor, so the fixture uses the visitor
+  // these requests act as.
+  const VISITOR_ID = 'visitor-11111111-1111-1111-1111-111111111111'
   const state = {
-    canvases: [{ id: 'canvas-1', provider: 'meshy', revision: 1, nodes: [{ id: 'gen', type: 'generate-model', name: 'Gen', config: { prompt: 'a shark' } }], edges: [] }],
+    canvases: [{ id: 'canvas-1', ownerId: VISITOR_ID, provider: 'meshy', revision: 1, nodes: [{ id: 'gen', type: 'generate-model', name: 'Gen', config: { prompt: 'a shark' } }], edges: [] }],
     sessions: [], turns: [], agentTraces: [], runs: [],
-    accounts: [{ id: 'demo-user', name: 'Demo User', balance: 1000 }], creditLedger: [],
+    accounts: [{ id: VISITOR_ID, name: 'Visitor', balance: 1000 }], creditLedger: [],
   }
   const base = { agentServiceUrl: '', deepseek: {}, createTripoProvider: null, getTripoTask: null, readAsset: null, uploadAsset: null, ...meshyPorts('built-in') }
   const background = []
@@ -94,7 +97,7 @@ test('Meshy calls carry the visitor key when set, and the built-in key otherwise
   })
   const run = (cookie) => handle(new Request('https://forge.test/api/projects/canvas-1/executions', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) },
+    headers: { 'content-type': 'application/json', cookie: [`forge3d_visitor=${VISITOR_ID}`, cookie].filter(Boolean).join('; ') },
     body: JSON.stringify({ entryNodeId: 'gen' }),
   }))
 
