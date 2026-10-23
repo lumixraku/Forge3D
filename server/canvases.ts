@@ -45,6 +45,7 @@ export function createCanvas(input) {
     nodes: structuredClone(input.nodes),
     edges: structuredClone(input.edges || []),
     viewport: input.viewport && typeof input.viewport === 'object' ? structuredClone(input.viewport) : { x: 0, y: 0, zoom: 1 },
+    ...(input.ownerId ? { ownerId: input.ownerId } : {}),
   }
 }
 
