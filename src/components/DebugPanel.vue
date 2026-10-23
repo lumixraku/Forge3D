@@ -168,7 +168,7 @@ async function copyCanvasJson() {
     <aside v-if="props.open" class="forge:w-[268px] forge:overflow-hidden forge:rounded-[10px] forge:border forge:border-line-strong forge:bg-bg-card forge:font-sans forge:shadow-popover" role="dialog" aria-label="Debug settings">
       <header class="forge:flex forge:items-center forge:justify-between forge:border-b forge:border-line forge:px-3 forge:py-[9px] forge:font-mono forge:text-[12px] forge:font-semibold forge:tracking-[.08em] forge:text-text-secondary">
         <span>DEBUG</span>
-        <button class="forge:border-0 forge:bg-transparent forge:text-[15px] forge:leading-none forge:text-text-muted forge:hover:text-text-primary" type="button" aria-label="Close debug panel" @click="emit('update:open', false)">×</button>
+        <button class="forge:border-0 forge:bg-transparent forge:text-[15px] forge:leading-none forge:text-text-muted forge:hover:text-acid" type="button" aria-label="Close debug panel" @click="emit('update:open', false)">×</button>
       </header>
 
       <section class="forge:p-3 forge:[&_h3]:mb-2 forge:[&_h3]:mt-0 forge:[&_h3]:font-mono forge:[&_h3]:text-[11px] forge:[&_h3]:font-semibold forge:[&_h3]:uppercase forge:[&_h3]:tracking-[.07em] forge:[&_h3]:text-text-muted">
@@ -190,7 +190,7 @@ async function copyCanvasJson() {
           <button
             v-for="provider in providers"
             :key="provider.value"
-            class="forge:min-w-0 forge:rounded-md forge:border forge:border-line forge:bg-bg-input forge:px-1.5 forge:py-2 forge:text-[11px] forge:font-medium forge:text-text-secondary forge:transition-colors forge:hover:bg-bg-input-hover forge:disabled:cursor-not-allowed forge:disabled:opacity-40 forge:[&.forge3d-selected]:border-acid forge:[&.forge3d-selected]:bg-[color-mix(in_srgb,var(--acid)_10%,var(--bg-input))] forge:[&.forge3d-selected]:text-acid"
+            class="forge:min-w-0 forge:rounded-md forge:border forge:border-line forge:bg-bg-input forge:px-1.5 forge:py-2 forge:text-[11px] forge:font-medium forge:text-text-secondary forge:transition-colors forge:hover:bg-[color-mix(in_srgb,var(--acid)_10%,var(--bg-input))] forge:disabled:cursor-not-allowed forge:disabled:opacity-40 forge:[&.forge3d-selected]:border-acid forge:[&.forge3d-selected]:bg-[color-mix(in_srgb,var(--acid)_10%,var(--bg-input))] forge:[&.forge3d-selected]:text-acid"
             :class="{ 'forge3d-selected': provider.value === props.activeProvider }"
             :disabled="props.providerLocked || !provider.available || provider.value === props.activeProvider"
             type="button"
@@ -206,7 +206,7 @@ async function copyCanvasJson() {
       <section class="forge:border-t forge:border-line-subtle forge:p-3 forge:[&_h3]:mb-2 forge:[&_h3]:mt-0 forge:[&_h3]:font-mono forge:[&_h3]:text-[11px] forge:[&_h3]:font-semibold forge:[&_h3]:uppercase forge:[&_h3]:tracking-[.07em] forge:[&_h3]:text-text-muted">
         <h3>Canvas</h3>
         <button
-          class="forge:flex forge:w-full forge:flex-col forge:gap-px forge:rounded-md forge:border forge:border-line forge:bg-bg-input forge:px-[9px] forge:py-[7px] forge:text-left forge:hover:bg-bg-input-hover forge:[&_strong]:text-xs forge:[&_strong]:font-medium forge:[&_strong]:text-text-primary forge:[&_small]:text-[12px] forge:[&_small]:text-text-muted"
+          class="forge:flex forge:w-full forge:flex-col forge:gap-px forge:rounded-md forge:border forge:border-line forge:bg-bg-input forge:px-[9px] forge:py-[7px] forge:text-left forge:hover:bg-[color-mix(in_srgb,var(--acid)_10%,var(--bg-input))] forge:[&_strong]:text-xs forge:[&_strong]:font-medium forge:[&_strong]:text-text-primary forge:[&_small]:text-[12px] forge:[&_small]:text-text-muted"
           type="button"
           @click="copyCanvasJson"
         >
@@ -218,7 +218,7 @@ async function copyCanvasJson() {
 
     <button
       type="button"
-      class="forge3d-debug-ball forge:flex forge:size-[52px] forge:cursor-pointer forge:flex-col forge:items-center forge:justify-center forge:gap-0.5 forge:rounded-full forge:border forge:border-line-strong forge:bg-bg-card forge:font-mono forge:text-[11px] forge:font-semibold forge:tracking-[.04em] forge:text-text-secondary forge:shadow-md forge:transition-[transform,border-color,color] forge:hover:-translate-y-px forge:hover:border-acid forge:hover:text-text-primary forge:[&.forge3d-open]:border-acid forge:[&.forge3d-open]:text-text-primary forge:[&_i]:size-[7px] forge:[&_i]:rounded-full forge:[&_i]:bg-text-muted forge:[&.forge3d-tripo_i]:bg-acid forge:[&.forge3d-tripo_i]:shadow-[0_0_6px_var(--acid)] forge:[&.forge3d-tripo]:text-text-primary forge:[&.forge3d-meshy_i]:bg-acid forge:[&.forge3d-meshy_i]:shadow-[0_0_6px_var(--acid)] forge:[&.forge3d-meshy]:text-text-primary"
+      class="forge:[--btn-shadow:var(--acid-shadow)] forge3d-debug-ball forge:flex forge:size-[52px] forge:cursor-pointer forge:flex-col forge:items-center forge:justify-center forge:gap-0.5 forge:rounded-full forge:border forge:border-acid-line forge:bg-bg-card forge:font-mono forge:text-[11px] forge:font-semibold forge:tracking-[.04em] forge:text-acid-dim forge:shadow-md forge:transition-[transform,border-color,color] forge:hover:-translate-y-px forge:hover:border-acid forge:hover:text-acid forge:[&.forge3d-open]:border-acid forge:[&.forge3d-open]:text-acid forge:[&_i]:size-[7px] forge:[&_i]:rounded-full forge:[&_i]:bg-text-muted forge:[&.forge3d-tripo_i]:bg-acid forge:[&.forge3d-tripo_i]:shadow-[0_0_6px_var(--acid)] forge:[&.forge3d-tripo]:text-text-primary forge:[&.forge3d-meshy_i]:bg-acid forge:[&.forge3d-meshy_i]:shadow-[0_0_6px_var(--acid)] forge:[&.forge3d-meshy]:text-text-primary"
       :class="[bizClass(props.activeProvider), { 'forge3d-open': props.open }]"
       :aria-expanded="props.open"
       :aria-label="`Debug settings · running on ${PROVIDER_LABELS[props.activeProvider]} · drag to move`"

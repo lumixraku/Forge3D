@@ -30,6 +30,7 @@
 
   --color-acid: var(--acid);
   --color-acid-dim: var(--acid-dim);
+  --color-acid-line: var(--acid-line);
 
   --color-status-running: var(--status-running);
   --color-status-failed: var(--status-failed);
@@ -66,6 +67,8 @@
 
     --acid: #19b8aa;
     --acid-dim: #12897e;
+    --acid-line: #9ed8cf;
+    --acid-shadow: #7fc9bd;
 
     --status-running: #f0a63c;
     --status-failed: #e05a5a;
@@ -111,6 +114,8 @@
 
     --acid: #19b8aa;
     --acid-dim: #12897e;
+    --acid-line: #9ed8cf;
+    --acid-shadow: #7fc9bd;
   }
 
   * { box-sizing: border-box; }
@@ -128,10 +133,10 @@
   button:not(:disabled):not(.forge3d-flat):not(.forge3d-bare) {
     border-radius: 999px;
     transition: transform .16s ease, box-shadow .16s ease, background-color .16s ease, border-color .16s ease, color .16s ease;
-    box-shadow: 0 3px 0 0 var(--line-strong);
+    box-shadow: 0 3px 0 0 var(--btn-shadow, var(--acid-shadow));
   }
-  button:not(:disabled):not(.forge3d-flat):not(.forge3d-bare):hover { transform: translateY(-1px); box-shadow: 0 4px 0 0 var(--line-strong); }
-  button:not(:disabled):not(.forge3d-flat):not(.forge3d-bare):active { transform: translateY(2px); box-shadow: 0 1px 0 0 var(--line-strong); }
+  button:not(:disabled):not(.forge3d-flat):not(.forge3d-bare):hover { transform: translateY(-1px); box-shadow: 0 4px 0 0 var(--btn-shadow, var(--acid-shadow)); }
+  button:not(:disabled):not(.forge3d-flat):not(.forge3d-bare):active { transform: translateY(2px); box-shadow: 0 1px 0 0 var(--btn-shadow, var(--acid-shadow)); }
   button.forge3d-flat { border-radius: 9px; }
 
   ::selection { background: color-mix(in srgb, var(--acid) 30%, transparent); }

@@ -44,9 +44,58 @@ const measureText = (() => {
     return context.measureText(label).width
   }
 })()
-// Section fill and title are warm island sand, so they read apart from the
-// mint canvas and the green selection stroke.
-const FRAME_COLOR = '#c9a46a'
+// Sections are the theme green, so they read apart from the sand canvas.
+const FRAME_COLOR = '#19b8aa'
+// Canvas floor: island sand with a faint tiled leaf, like the Animal Crossing mark.
+const CANVAS_SAND = '#f2e8d2'
+const CANVAS_LEAF = '#e6d6b4'
+// Tile size is in screen pixels: two leaves per 800px tile leaves two or three
+// in view at a time.
+const LEAF_TILE = 800
+const LEAF_RES = 2
+let leafTile: HTMLCanvasElement | null = null
+function leafTileCanvas() {
+  if (leafTile) return leafTile
+  const tile = document.createElement('canvas')
+  tile.width = tile.height = LEAF_TILE * LEAF_RES
+  const ctx = tile.getContext('2d')
+  if (!ctx) return tile
+  ctx.scale(LEAF_RES, LEAF_RES)
+  // One leaf in the spirit of the Animal Crossing mark: a broad, rounded leaf
+  // leaning to one side, a curved pale midrib and a short stem.
+  const leaf = (x: number, y: number, angle: number, size: number) => {
+    ctx.save()
+    ctx.translate(x, y)
+    ctx.rotate(angle)
+    ctx.scale(size, size)
+    ctx.fillStyle = CANVAS_LEAF
+    ctx.beginPath()
+    ctx.moveTo(0, 16)
+    ctx.bezierCurveTo(-21, 12, -23, -13, -4, -20)
+    ctx.quadraticCurveTo(5, -24, 13, -22)
+    ctx.bezierCurveTo(23, -7, 17, 12, 0, 16)
+    ctx.fill()
+    ctx.lineCap = 'round'
+    ctx.strokeStyle = CANVAS_LEAF
+    ctx.lineWidth = 3
+    ctx.beginPath()
+    ctx.moveTo(0, 14)
+    ctx.quadraticCurveTo(-1, 21, -5, 26)
+    ctx.stroke()
+    ctx.strokeStyle = CANVAS_SAND
+    ctx.lineWidth = 2.2
+    ctx.beginPath()
+    ctx.moveTo(0, 12)
+    ctx.quadraticCurveTo(-2, -3, 9, -17)
+    ctx.stroke()
+    ctx.restore()
+  }
+  // Two leaves per tile on a half-drop grid: sparse, and the seam never lines up.
+  leaf(LEAF_TILE * 0.25, LEAF_TILE * 0.3, -0.3, 2)
+  leaf(LEAF_TILE * 0.75, LEAF_TILE * 0.8, 0.35, 2)
+  leafTile = tile
+  return tile
+}
 const FRAME_TITLE_BAND = 36
 // Same greens as --acid. LiteGraph's #9A9 reads as white on the light canvas,
 // and a selected node repaints every attached link #FFF.
@@ -68,9 +117,9 @@ const WIDGET_PALETTE = {
     text: '#794f27',
     label: '#96795a',
     outline: '#e6dcc8',
-    hover: '#f2e7d2',
-    hoverOutline: '#c9b48c',
-    pressed: '#ece0c9',
+    hover: '#e6f5f1',
+    hoverOutline: '#19b8aa',
+    pressed: '#d3eee8',
     caret: '#a38a68',
     trackOff: '#ddd1b9',
     trackOn: '#19b8aa',
@@ -82,9 +131,9 @@ const WIDGET_PALETTE = {
     text: '#794f27',
     label: '#96795a',
     outline: '#e6dcc8',
-    hover: '#f2e7d2',
-    hoverOutline: '#c9b48c',
-    pressed: '#ece0c9',
+    hover: '#e6f5f1',
+    hoverOutline: '#19b8aa',
+    pressed: '#d3eee8',
     caret: '#a38a68',
     trackOff: '#ddd1b9',
     trackOn: '#19b8aa',
@@ -424,8 +473,28 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   // last stretch and the wire never meets the port.
   graph.config.links_ontop = true
   const view = new LGraphCanvas(canvas, graph)
-  view.background_image = LGraphCanvas.DEFAULT_BACKGROUND_IMAGE
-  view.clear_background_color = '#d3ecdb'
+  view.background_image = null
+  view.clear_background_color = CANVAS_SAND
+  // Paint the floor ourselves, in screen pixels rather than graph space, so the
+  // leaves keep their size and place while the canvas zooms and pans.
+  view.onRenderBackground = (bg: HTMLCanvasElement, ctx: CanvasRenderingContext2D) => {
+    const rect = canvas.getBoundingClientRect()
+    const ratio = rect.width > 0 ? bg.width / rect.width : window.devicePixelRatio || 1
+    ctx.save()
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
+    const width = bg.width / ratio
+    const height = bg.height / ratio
+    ctx.fillStyle = CANVAS_SAND
+    ctx.fillRect(0, 0, width, height)
+    const pattern = ctx.createPattern(leafTileCanvas(), 'repeat')
+    if (pattern) {
+      pattern.setTransform(new DOMMatrix().scale(1 / LEAF_RES))
+      ctx.fillStyle = pattern
+      ctx.fillRect(0, 0, width, height)
+    }
+    ctx.restore()
+    return true
+  }
   view.round_radius = 16
   view.show_info = false
   // LiteGraph strokes a debug rectangle from graph (0, 0) out to the bitmap
@@ -2030,7 +2099,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       ctx.fillStyle = NODE_BODY_COLOR
       ctx.fillRect(button.x - (button.joined ? 0 : 2), button.y - 2, button.w + (head || button.joined ? 2 : 4), button.h + 6)
       shape(button.y + 1)
-      ctx.fillStyle = '#d6c6a6'
+      ctx.fillStyle = primary ? '#12897e' : '#7fc9bd'
       ctx.fill()
       shape(button.y)
       ctx.fillStyle = primary ? (hot ? '#2cc7b9' : '#19b8aa') : (hot ? palette.hover : palette.field)
@@ -2257,8 +2326,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       const color = LINK_COLOR[next] || LINK_COLOR.dark
       view.default_link_color = color
       LiteGraph.CONNECTING_LINK_COLOR = color
-      view.clear_background_color = '#d3ecdb'
-      view.background_image = next === 'light' ? null : LGraphCanvas.DEFAULT_BACKGROUND_IMAGE
+      view.clear_background_color = CANVAS_SAND
       // Node bodies take their color when built. Repaint the live ones too, or
       // a theme switch leaves light bodies under dark widgets.
       for (const node of graph._nodes) node.bgcolor = NODE_BODY_COLOR

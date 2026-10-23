@@ -29,7 +29,7 @@ function save() {
             <h2 id="api-keys-title" class="forge:m-0 forge:text-[17px] forge:text-text-primary">Use your own API keys</h2>
             <p id="api-keys-desc" class="forge:mb-0 forge:mt-1.5 forge:text-[13px] forge:leading-[1.5] forge:text-text-secondary">The copilot runs on DeepSeek and 3D generation on Meshy. Add your keys to use your own quota, or close this to try the demo keys.</p>
           </div>
-          <button type="button" class="forge3d-bare forge:grid forge:size-8 forge:flex-none forge:place-items-center forge:rounded-full forge:border-0 forge:bg-transparent forge:text-xl forge:leading-none forge:text-text-muted forge:hover:bg-bg-input-hover forge:hover:text-text-primary" aria-label="Close and use the demo keys" @click="emit('dismiss')">×</button>
+          <button type="button" class="forge3d-bare forge:grid forge:size-8 forge:flex-none forge:place-items-center forge:rounded-full forge:border-0 forge:bg-transparent forge:text-xl forge:leading-none forge:text-text-muted forge:hover:bg-[color-mix(in_srgb,var(--acid)_10%,var(--bg-input))] forge:hover:text-acid" aria-label="Close and use the demo keys" @click="emit('dismiss')">×</button>
         </header>
 
         <label class="forge:grid forge:gap-1.5 forge:text-[13px] forge:text-text-primary">

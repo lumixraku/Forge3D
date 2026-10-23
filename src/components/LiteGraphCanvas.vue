@@ -188,7 +188,7 @@ function drawMinimap() {
   const ctx = map.getContext('2d')
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
   const style = getComputedStyle(panel)
-  const acid = style.getPropertyValue('--acid').trim() || '#789800'
+  const acid = style.getPropertyValue('--acid').trim() || '#19b8aa'
   const card = style.getPropertyValue('--bg-card').trim() || '#ffffff'
   const line = style.getPropertyValue('--line-strong').trim() || '#cbd1cd'
   ctx.clearRect(0, 0, MAP_WIDTH, MAP_HEIGHT)
@@ -214,7 +214,7 @@ function drawMinimap() {
     const y = oy + (box.y - top) * scale
     const width = Math.max(1, box.width * scale)
     const height = Math.max(1, box.height * scale)
-    ctx.fillStyle = box.frame ? 'rgba(201, 164, 106, 0.55)' : 'rgba(60, 74, 82, 0.7)'
+    ctx.fillStyle = box.frame ? 'rgba(25, 184, 170, 0.35)' : 'rgba(60, 74, 82, 0.7)'
     ctx.fillRect(x, y, width, height)
     if (box.selected) {
       ctx.strokeStyle = acid
@@ -227,7 +227,7 @@ function drawMinimap() {
   const viewY = oy + ((-viewport.value.y / zoom) - top) * scale
   const viewW = (panel.clientWidth / zoom) * scale
   const viewH = (panel.clientHeight / zoom) * scale
-  ctx.fillStyle = 'rgba(120, 152, 0, 0.16)'
+  ctx.fillStyle = 'rgba(25, 184, 170, 0.16)'
   ctx.fillRect(viewX, viewY, viewW, viewH)
   ctx.strokeStyle = acid
   ctx.lineWidth = 1.5
@@ -452,19 +452,19 @@ async function uploadAsset(id, file) {
 </template>
 
 <style scoped>
-.forge3d-litegraph { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg-primary); }
+.forge3d-litegraph { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; background: #f2e8d2; }
 .forge3d-litegraph-surface { display: block; width: 100%; height: 100%; outline: none; }
 .forge3d-litegraph :deep(canvas) { display: block; }
 .forge3d-frame-draw-layer { position: absolute; inset: 0; z-index: 4; pointer-events: none; transform-origin: 0 0; }
-.forge3d-frame-draw-rect { position: absolute; border-style: dashed; border-color: #c9a46a; background: color-mix(in srgb, #c9a46a 8%, transparent); }
-.forge3d-frame-draw-size { position: absolute; bottom: 100%; left: 0; transform-origin: bottom left; border-radius: 5px; background: color-mix(in srgb, #c9a46a 18%, var(--bg-input)); padding: 3px 6px; font-family: var(--font-mono, monospace); font-size: 10px; font-weight: 600; line-height: 1; color: var(--text-primary); white-space: nowrap; }
+.forge3d-frame-draw-rect { position: absolute; border-style: dashed; border-color: var(--acid); background: color-mix(in srgb, var(--acid) 10%, transparent); }
+.forge3d-frame-draw-size { position: absolute; bottom: 100%; left: 0; transform-origin: bottom left; border-radius: 5px; background: color-mix(in srgb, var(--acid) 18%, var(--bg-input)); padding: 3px 6px; font-family: var(--font-mono, monospace); font-size: 10px; font-weight: 600; line-height: 1; color: var(--text-primary); white-space: nowrap; }
 .forge3d-node-actions { position: absolute; inset: 0; z-index: 5; pointer-events: none; transform-origin: 0 0; }
-.forge3d-upload-well { position: absolute; pointer-events: auto; display: grid; place-content: center; gap: 4px; margin: 0; padding: 12px; border: 1.5px dashed var(--line-strong); border-radius: 8px; background: var(--bg-input); color: var(--text-primary); text-align: center; cursor: pointer; }
+.forge3d-upload-well { position: absolute; pointer-events: auto; display: grid; place-content: center; gap: 4px; margin: 0; padding: 12px; border: 1.5px dashed var(--acid-line); border-radius: 8px; background: color-mix(in srgb, var(--acid) 4%, var(--bg-input)); color: var(--acid-dim); text-align: center; cursor: pointer; }
 .forge3d-upload-well:hover { border-color: var(--acid); background: color-mix(in srgb, var(--acid) 8%, var(--bg-input)); }
 .forge3d-upload-well strong { font: 600 12px/1.2 var(--font-sans, sans-serif); }
-.forge3d-upload-well small { font: 11px/1.3 var(--font-sans, sans-serif); color: var(--text-muted); }
-.forge3d-node-action { position: absolute; pointer-events: auto; display: grid; place-items: center; margin: 0; padding: 0; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-card); color: var(--text-primary); box-shadow: 0 1px 2px rgb(0 0 0 / 12%); cursor: pointer; }
-.forge3d-node-action:hover { background: var(--bg-input); border-color: var(--node-accent, var(--acid)); }
+.forge3d-upload-well small { font: 11px/1.3 var(--font-sans, sans-serif); color: color-mix(in srgb, var(--acid-dim) 70%, var(--bg-input)); }
+.forge3d-node-action { position: absolute; pointer-events: auto; display: grid; place-items: center; margin: 0; padding: 0; border: 1px solid var(--acid-line); border-radius: 8px; background: var(--bg-card); color: var(--acid-dim); box-shadow: 0 2px 0 0 var(--acid-shadow); cursor: pointer; }
+.forge3d-node-action:hover { background: color-mix(in srgb, var(--acid) 10%, var(--bg-card)); border-color: var(--acid); color: var(--acid); }
 .forge3d-node-action:focus-visible { outline: 2px solid var(--acid); outline-offset: 1px; }
 .forge3d-node-action-icon svg { width: 16px; height: 16px; }
 .forge3d-node-action-text { padding: 0 10px; font: 500 12px/1 var(--font-sans, sans-serif); white-space: nowrap; }
@@ -475,7 +475,7 @@ async function uploadAsset(id, file) {
 .forge3d-node-textarea:focus { border-color: var(--acid); box-shadow: 0 0 0 2px color-mix(in srgb, var(--acid) 22%, transparent); }
 .forge3d-node-textarea::placeholder { color: var(--text-muted); }
 .forge3d-node-action-hidden:not(:focus-visible) { opacity: 0; pointer-events: none; }
-.forge3d-frame-run { position: absolute; z-index: 5; height: 22px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg-card); color: var(--acid); font: 600 12px/1 var(--font-sans, sans-serif); }
+.forge3d-frame-run { position: absolute; z-index: 5; height: 22px; padding: 0 8px; border: 1px solid var(--acid-line); border-radius: 6px; background: var(--bg-card); color: var(--acid); font: 600 12px/1 var(--font-sans, sans-serif); }
 .forge3d-minimap { position: absolute; z-index: 6; right: 12px; bottom: 12px; width: 220px; height: 140px; border-radius: 8px; box-shadow: var(--shadow-md); cursor: pointer; touch-action: none; }
 .forge3d-litegraph-file { display: none; }
 .forge3d-canvas-mode-frame .forge3d-litegraph-surface { cursor: crosshair; }
