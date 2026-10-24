@@ -10,3 +10,5 @@ dist-cloudflare/
 server/data/*
 !server/data/.gitkeep
 .vercel/
+
+assets/forge3d-shark-demo.mp4
