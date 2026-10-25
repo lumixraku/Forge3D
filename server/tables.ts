@@ -22,6 +22,7 @@ export const tableColumns: Record<string, { table: string; orderBy: string; colu
       ['revision', 'revision', 'int'],
       ['nodes', 'nodes', 'json'],
       ['edges', 'edges', 'json'],
+      ['wire_ties', 'wireTies', 'json'],
       ['viewport', 'viewport', 'json'],
       ['created_at', 'createdAt', 'time'],
       ['updated_at', 'updatedAt', 'time'],
@@ -154,6 +155,8 @@ export function rowToRecord(collection: string, row: Record<string, unknown>, pa
   }
   if (collection === 'runs') record.projectId = record.canvasId
   if (collection === 'canvases' && !record.ownerId) record.ownerId = LEGACY_OWNER_ID
+  // A canvas without wire ties stores no field, so it round-trips unchanged.
+  if (collection === 'canvases' && Array.isArray(record.wireTies) && !record.wireTies.length) delete record.wireTies
   return record
 }
 
@@ -164,6 +167,7 @@ const notNullDefaults: Record<string, unknown> = {
   'canvases.revision': 1,
   'canvases.nodes': [],
   'canvases.edges': [],
+  'canvases.wireTies': [],
   'canvases.viewport': { x: 0, y: 0, zoom: 1 },
   'sessions.messages': [],
   'agentTraces.events': [],

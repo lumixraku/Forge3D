@@ -65,7 +65,7 @@ export function useKeyboardShortcuts({
       closeCanvasMenu()
       return
     }
-    if (event.key === 'Escape' && canvasMode.value === 'frame') {
+    if (event.key === 'Escape' && (canvasMode.value === 'frame' || canvasMode.value === 'tie')) {
       event.preventDefault()
       canvasMode.value = 'select'
       return
@@ -94,6 +94,13 @@ export function useKeyboardShortcuts({
       event.preventDefault()
       if (!ensureEditAccess()) return
       deleteSelected()
+      return
+    }
+    // V selects, H pans (the hand), as in most canvas tools.
+    if (!modifier && !event.altKey && (event.code === 'KeyV' || event.code === 'KeyH')) {
+      event.preventDefault()
+      if (frameDrawing.value) cancelFrameDraw()
+      canvasMode.value = event.code === 'KeyV' ? 'select' : 'move'
       return
     }
     if (event.key === '/') {

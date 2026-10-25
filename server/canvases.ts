@@ -8,6 +8,17 @@ function invalid(message) {
   throw error
 }
 
+// Wire ties name wires by their source and target ports; ties on wires that
+// are not in the canvas are dropped.
+function liveWireTies(input) {
+  if (!Array.isArray(input.wireTies)) return []
+  const wires = new Set((input.edges || []).map((edge) => `${edge.source?.nodeId}:${edge.source?.port}->${edge.target?.nodeId}:${edge.target?.port}`))
+  return input.wireTies
+    .filter((tie) => typeof tie?.id === 'string' && Array.isArray(tie.point) && tie.point.length === 2 && Array.isArray(tie.members))
+    .map((tie) => ({ id: tie.id, point: structuredClone(tie.point), members: tie.members.filter((member) => wires.has(member)) }))
+    .filter((tie) => tie.members.length)
+}
+
 export function createCanvas(input) {
   if (!input.name?.trim()) invalid('Canvas name is required')
   const provider = input.provider ?? defaultCanvasProvider
@@ -44,6 +55,7 @@ export function createCanvas(input) {
     updatedAt: now,
     nodes: structuredClone(input.nodes),
     edges: structuredClone(input.edges || []),
+    ...(liveWireTies(input).length ? { wireTies: liveWireTies(input) } : {}),
     viewport: input.viewport && typeof input.viewport === 'object' ? structuredClone(input.viewport) : { x: 0, y: 0, zoom: 1 },
     ...(input.ownerId ? { ownerId: input.ownerId } : {}),
   }
@@ -67,6 +79,14 @@ export function duplicateCanvas(source) {
       id: `${edge.id || 'edge'}-${randomUUID()}`,
       source: { ...edge.source, nodeId: nodeIds.get(edge.source.nodeId) },
       target: { ...edge.target, nodeId: nodeIds.get(edge.target.nodeId) },
+    })),
+    // A wire's name carries node ids, so a duplicate rewrites them.
+    wireTies: (source.wireTies || []).map((tie) => ({
+      ...structuredClone(tie),
+      members: tie.members.map((member) => {
+        const match = /^(.*?):(.*?)->(.*?):(.*)$/.exec(member)
+        return match ? `${nodeIds.get(match[1]) || match[1]}:${match[2]}->${nodeIds.get(match[3]) || match[3]}:${match[4]}` : member
+      }),
     })),
   })
 }

@@ -40,6 +40,8 @@ const activeCanvas = ref(null)
 const activeSession = ref(null)
 const nodes = ref([])
 const edges = ref([])
+// Wire ties: pins a few wires must pass through. See wire-tie.ts.
+const wireTies = ref([])
 const run = ref(null)
 const nodeRuns = ref({})
 const agentBusy = ref(false)
@@ -155,6 +157,7 @@ const { drawRect: frameDrawRect, drawing: frameDrawing, onFrameDrawPointerDown, 
 const { syncHistoryCanvas, recordHistory, undo, redo } = useCanvasHistory({
   nodes,
   edges,
+  wireTies,
   activeCanvas,
   hydrating: computed(() => hydrating.value),
   updateNodeInternals,
@@ -171,6 +174,7 @@ const {
   activeSession,
   nodes,
   edges,
+  wireTies,
   run,
   nodeRuns,
   busy: agentBusy,
@@ -573,8 +577,9 @@ async function arrangeCanvas() {
     if (!width || !height) return node
     return { ...node, width, height, dimensions: { width, height } }
   })
+  // Layout moves nodes only. The camera stays put, so a tie the user placed
+  // stays where it is on screen too.
   await autoLayout()
-  fitCanvasView()
 }
 
 function buildCanvasNode(type, { id, position, selected = false, config, uploadAssets, generatedAssets, parentNode, initialAsset } = {}) {
@@ -848,6 +853,11 @@ function selectNodeType(type) {
   addNode(type, context?.sourceId, context?.position)
 }
 
+function toggleTieMode() {
+  cancelFrameDraw()
+  canvasMode.value = canvasMode.value === 'tie' ? 'select' : 'tie'
+}
+
 function toggleFrameMode() {
   cancelFrameDraw()
   canvasMode.value = canvasMode.value === 'frame' ? 'select' : 'frame'
@@ -1055,6 +1065,7 @@ onUnmounted(() => {
           ref="graphCanvas"
           :nodes="nodes"
           :edges="edges"
+          :wire-ties="wireTies"
           :node-runs="nodeRuns"
           :missing-parameters="missingParameters"
           :theme="resolvedTheme"
@@ -1062,7 +1073,8 @@ onUnmounted(() => {
           :frame-draw-rect="frameDrawRect"
           :section-running="sectionIsRunning"
           @update:nodes="nodes = $event"
-          @update:edges="edges = $event"
+          @update:edges="edges = $event; saveCanvas()"
+          @update:wire-ties="wireTies = $event; saveCanvas()"
           @update-parameter="updateNodeParameter"
           @update-uploads="updateNodeUploads($event.id, $event.uploadAssets)"
           @update-output="updateNodeOutput($event.id, $event.generatedAssets)"
@@ -1110,6 +1122,7 @@ onUnmounted(() => {
           @select-node-type="selectNodeType"
           @drag-node-type="startNodeDrag($event.event, $event.type)"
           @toggle-frame-mode="toggleFrameMode"
+          @toggle-tie-mode="toggleTieMode"
           @fit-view="fitCanvasView"
           @auto-layout="arrangeCanvas"
         ><span class="forge:flex forge:h-full forge:items-center forge:gap-[7px]"><i class="forge:size-[7px] forge:rounded-full forge:bg-acid forge:shadow-[0_0_9px_color-mix(in_srgb,var(--acid)_60%,transparent)]" />{{ runSummary }}</span><button v-if="runDetails" class="forge:flex forge:h-[19px] forge:items-center forge:gap-[5px] forge:rounded forge:border forge:border-line-strong forge:bg-bg-input forge:px-[7px] forge:font-mono forge:text-[10px] forge:font-semibold forge:text-acid forge:transition-colors forge:hover:bg-[color-mix(in_srgb,var(--acid)_10%,var(--bg-input))]" type="button" :aria-expanded="runSummaryOpen" @click="runSummaryOpen = !runSummaryOpen">{{ runSummaryOpen ? 'Hide logs' : 'Logs' }} <b class="forge:text-[11px] forge:font-medium">{{ runSummaryOpen ? '↓' : '↑' }}</b></button></CanvasToolbar>

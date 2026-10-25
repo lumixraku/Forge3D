@@ -137,8 +137,13 @@ function nonEmptyTree(name, tree) {
 // canvas has since cleared. `outputResult` is the old name of the result tree, and
 // goes for good — `splitNodeTrees` has already folded its content into
 // `generatedAssets` on the way in.
-export function toDomainCanvas(activeCanvas, nodes, edges) {
+export function toDomainCanvas(activeCanvas, nodes, edges, ties = activeCanvas?.wireTies || []) {
   if (!activeCanvas) return null
+  // A tie keeps only the wires that still exist; a tie left with none goes.
+  const liveWires = new Set(edges.flatMap((edge) => (edge.data?.logicalConnections || []).map((pair) => `${edge.source}:${pair.sourcePort}->${edge.target}:${pair.targetPort}`)))
+  const liveTies = ties
+    .map((tie) => ({ ...tie, members: tie.members.filter((member) => liveWires.has(member)) }))
+    .filter((tie) => tie.members.length)
   const nodeMap = new Map(activeCanvas.nodes.map(({ uploadAssets, generatedAssets, outputResult, ...node }) => [node.id, node]))
   return {
     ...activeCanvas,
@@ -165,6 +170,8 @@ export function toDomainCanvas(activeCanvas, nodes, edges) {
         target: { nodeId: edge.target, port: targetPort },
       }))
     }),
+    // Omitted when empty, so a canvas without ties saves exactly as before.
+    ...(liveTies.length ? { wireTies: liveTies } : {}),
   }
 }
 

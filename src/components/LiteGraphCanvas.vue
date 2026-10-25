@@ -6,6 +6,7 @@ import { createModelThumbnail } from '../model-thumbnail'
 const props = defineProps({
   nodes: { type: Array, required: true },
   edges: { type: Array, required: true },
+  wireTies: { type: Array, default: () => [] },
   nodeRuns: { type: Object, default: () => ({}) },
   missingParameters: { type: Object, default: () => ({}) },
   theme: { type: String, default: 'dark' },
@@ -15,7 +16,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits([
-  'update:nodes', 'update:edges', 'update-parameter', 'update-uploads', 'update-output', 'clear-upload', 'update-name',
+  'update:nodes', 'update:edges', 'update:wire-ties', 'update-parameter', 'update-uploads', 'update-output', 'clear-upload', 'update-name',
   'drag-start', 'drag-stop', 'selection-start', 'selection-end',
   'connect-start', 'connect-end', 'node-context-menu', 'frame-context-menu', 'pane-context-menu', 'pane-click',
   'edge-click', 'preview-image', 'run-node', 'run-downstream', 'stop-run', 'open-model-editor', 'run-section',
@@ -103,10 +104,13 @@ onMounted(() => {
     onPaneClick: () => emit('pane-click'),
     onEdgeClick: (payload) => emit('edge-click', payload),
     onViewport: (next) => { viewport.value = next; emit('viewport', next); refreshFrameButton() },
+    onTies: (ties) => emit('update:wire-ties', ties),
   })
   host.setTheme(props.theme)
   host.setMode(props.canvasMode)
   host.sync(props.nodes, props.edges, props.nodeRuns, props.missingParameters)
+  // After sync: the routes need the graph's links, which sync builds.
+  host.setTies(props.wireTies)
   refreshFrameButton()
   observer = new ResizeObserver(() => { host?.resize(); drawMinimap() })
   observer.observe(root.value)
@@ -139,6 +143,7 @@ watch(() => renameField.value?.id, async (id) => {
 
 watch(() => props.theme, (theme) => { host?.setTheme(theme); drawMinimap() })
 watch(() => props.canvasMode, (mode) => host?.setMode(mode))
+watch(() => props.wireTies, (ties) => host?.setTies(ties), { deep: true })
 watch(viewport, drawMinimap, { deep: true })
 watch(() => props.nodes, drawMinimap, { deep: true })
 
@@ -479,6 +484,7 @@ async function uploadAsset(id, file) {
 .forge3d-minimap { position: absolute; z-index: 6; right: 12px; bottom: 12px; width: 220px; height: 140px; border-radius: 8px; box-shadow: var(--shadow-md); cursor: pointer; touch-action: none; }
 .forge3d-litegraph-file { display: none; }
 .forge3d-canvas-mode-frame .forge3d-litegraph-surface { cursor: crosshair; }
+.forge3d-canvas-mode-tie .forge3d-litegraph-surface { cursor: crosshair; }
 .forge3d-node-rename { position: absolute; pointer-events: none; margin: 0; padding: 0; background: transparent; border: 0; }
 .forge3d-node-rename input { position: absolute; pointer-events: auto; top: 0; height: 100%; margin: 0; padding: 0; border: 0; background: transparent; font: 14px Arial; line-height: 14px; outline: none; caret-color: #fff; box-sizing: border-box; }
 .forge3d-node-rename input::selection { background: rgb(255 255 255 / 22%); }

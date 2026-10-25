@@ -212,7 +212,8 @@ async function layoutPackedFrames(nodes: LayoutNode[], edges: LayoutEdge[], opti
     })
   }
 
-  blocks.sort((a, b) => a.y - b.y || a.x - b.x)
+  // Keep the document order. Sorting by current position made each run feed
+  // ELK a different order, so pressing Auto layout again moved everything.
   const blockIds = new Set(blocks.map((block) => block.id))
   const ownerOf = (id: string) => {
     const node = nodeMap.get(id)
@@ -273,6 +274,26 @@ async function layoutPackedFrames(nodes: LayoutNode[], edges: LayoutEdge[], opti
         x: originX + box.x + insets.left + (position.x - box.left),
         y: originY + box.y + insets.top + (position.y - box.top),
       })
+    }
+  }
+  // Pin the top-left corner of the content where it was, so the graph does not
+  // creep across the canvas a little on every run.
+  let placedX = Infinity
+  let placedY = Infinity
+  for (const node of content) {
+    const position = placed.get(node.id)
+    if (!position) continue
+    const parent = node.parentNode ? placed.get(node.parentNode) : null
+    if (parent) continue
+    placedX = Math.min(placedX, position.x)
+    placedY = Math.min(placedY, position.y)
+  }
+  if (Number.isFinite(placedX) && Number.isFinite(placedY)) {
+    const dx = originX - placedX
+    const dy = originY - placedY
+    for (const position of placed.values()) {
+      position.x += dx
+      position.y += dy
     }
   }
   return placed

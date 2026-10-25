@@ -17,6 +17,8 @@ export function useCanvasDocument({
   activeSession,
   nodes,
   edges,
+  // Optional so callers without wire ties keep working.
+  wireTies = ref([]),
   run,
   nodeRuns,
   error,
@@ -74,6 +76,7 @@ export function useCanvasDocument({
       const reconciled = reconcileCanvasGraph(nodes.value, edges.value, graph)
       nodes.value = reconciled.nodes
       edges.value = reconciled.edges
+      wireTies.value = canvas.wireTies || []
       await nextTick()
       await new Promise((resolve) => requestAnimationFrame(resolve))
       await nextTick()
@@ -84,6 +87,7 @@ export function useCanvasDocument({
     }
     nodes.value = graph.nodes
     edges.value = graph.edges
+    wireTies.value = canvas.wireTies || []
     // Repair canvases whose views were materialized before they were wired to the model node.
     if (repairFrames) await fitFramesAfterRender({ persist: true })
     else {
@@ -97,7 +101,7 @@ export function useCanvasDocument({
   }
 
   function fromCanvas() {
-    return toDomainCanvas(activeCanvas.value, nodes.value, edges.value)
+    return toDomainCanvas(activeCanvas.value, nodes.value, edges.value, wireTies.value)
   }
 
   function restoreWorkflowDraft(remoteCanvas) {
@@ -236,6 +240,7 @@ export function useCanvasDocument({
     const current = fromCanvas()
     return JSON.stringify(current.nodes) !== JSON.stringify(activeCanvas.value.nodes)
       || JSON.stringify(current.edges) !== JSON.stringify(activeCanvas.value.edges)
+      || JSON.stringify(current.wireTies || []) !== JSON.stringify(activeCanvas.value.wireTies || [])
       || JSON.stringify(current.viewport) !== JSON.stringify(activeCanvas.value.viewport)
   }
 
@@ -363,6 +368,7 @@ export function useCanvasDocument({
       activeSession.value = null
       nodes.value = []
       edges.value = []
+      wireTies.value = []
       run.value = null
       nodeRuns.value = {}
       if (canvases.value[0]) await openCanvas(canvases.value[0].id)

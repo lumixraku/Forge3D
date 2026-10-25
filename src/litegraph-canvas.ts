@@ -2,6 +2,7 @@ import { LGraph, LGraphCanvas, LGraphGroup, LiteGraph } from 'litegraph.js'
 import { canConnectPorts, hasModelEditor, isExecutableNodeType, nodeSchema, parameterRange, visibleParameters } from './canvas-nodes'
 import { meshyAssetHref } from './meshy-asset'
 import { applyNodeParameter } from './canvas-schema'
+import { distanceToPolyline, distanceToSegment, LANE_GAP, polylinesCross, routeWire, stockWire, tieBar, tieRadius, wireKey, type WireTie } from './wire-tie'
 
 const NODE_TYPE = 'forge/node'
 const PORT_COLOR: Record<string, string> = {
@@ -104,6 +105,7 @@ const LINK_COLOR: Record<string, string> = {
   dark: '#5aa15f',
 }
 const LINK_HOVER_COLOR = '#2f7d43'
+// Space between the wires a tie holds, in graph units.
 const RUNNING_LINK_COLOR = '#9bd94f'
 const NODE_BODY_COLOR = '#fffdf7'
 const NODE_INK = '#794f27'
@@ -463,6 +465,7 @@ export interface GraphHostHandlers {
   onPaneClick: () => void
   onEdgeClick: (payload: { edge: any; event: MouseEvent }) => void
   onViewport: (viewport: { x: number; y: number; zoom: number }) => void
+  onTies: (ties: WireTie[]) => void
 }
 
 export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHandlers) {
@@ -600,6 +603,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       ctx.strokeRect(box.x, box.y, box.w, box.h)
     }
     ctx.restore()
+    paintTieStroke(ctx)
     paintActionTooltip(ctx)
   }
   let flowEdges: any[] = []
@@ -608,6 +612,16 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   // stroke. Hit-test the curve ourselves and paint that one link brighter.
   let hoverLinkId: number | null = null
   let selectedLinkId: number | null = null
+  // Wire ties: pins that a few wires must pass through. See wire-tie.ts.
+  let ties: WireTie[] = []
+  let routes: Map<number, number[][]> | null = null
+  let selectedTieId: string | null = null
+  let hoverTieId: string | null = null
+  // The tie being drawn, and the wires the cut crosses.
+  let tieStroke: number[][] | null = null
+  let strokeHits = new Set<string>()
+  // The tie being dragged, and how far the pointer is from its pin.
+  let tieDrag: { id: string; origin: number[]; start: number[] } | null = null
   view.render_link_tooltip = false
   view.default_link_color = LINK_COLOR.dark
   const renderLink = view.renderLink.bind(view)
@@ -617,7 +631,8 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     // reads the color argument, so the flag has to be gone for this call.
     const highlighted = Boolean(link) && view.highlighted_links?.[link.id]
     if (highlighted) delete view.highlighted_links[link.id]
-    const hovered = Boolean(link) && (link.id === hoverLinkId || link.id === selectedLinkId)
+    const route = link ? routeFor(link) : null
+    const hovered = Boolean(link) && (link.id === hoverLinkId || link.id === selectedLinkId || (strokeHits.size > 0 && strokeHits.has(wireOf(link))))
     const running = Boolean(link) && linkIsRunning(link)
     // Leave flow off. Stock draws five discs. A running wire gets one streak below.
     if (!args[5]) args[5] = running ? RUNNING_LINK_COLOR : (LINK_COLOR[theme] || LINK_COLOR.dark)
@@ -630,18 +645,324 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       ctx.shadowBlur = 6
     }
     try {
-      return renderLink(ctx, ...args)
+      return route ? paintRoute(ctx, route, link, args[5]) : renderLink(ctx, ...args)
     } finally {
       if (highlighted) view.highlighted_links[link.id] = true
       view.connections_width = width
       if (hovered) ctx.restore()
-      if (running) paintFlowStreak(ctx, args[0], args[1], args[6], args[7])
+      if (running) paintFlowStreak(ctx, route, args[0], args[1], args[6], args[7])
     }
+  }
+
+  // A pinned wire: the points routeWire produced, drawn like any other wire.
+  function paintRoute(ctx: CanvasRenderingContext2D, route: number[][], link: any, color: string) {
+    view.visible_links.push(link)
+    ctx.save()
+    ctx.lineJoin = 'round'
+    ctx.lineCap = 'round'
+    ctx.lineWidth = view.connections_width
+    ctx.strokeStyle = color || view.default_link_color
+    ctx.beginPath()
+    route.forEach((point, index) => (index ? ctx.lineTo(point[0], point[1]) : ctx.moveTo(point[0], point[1])))
+    ctx.stroke()
+    ctx.restore()
+    if (link._pos) {
+      const middle = route[Math.floor(route.length / 2)]
+      link._pos[0] = middle[0]
+      link._pos[1] = middle[1]
+    }
+  }
+
+  // Ties are painted on top of their wires, like a band around them.
+  // LiteGraph skips a link when the box between its two ports is off screen.
+  // A tied wire leaves that box to pass through its pins, so once only the
+  // detour is in view the stock pass drops it. Draw those wires here.
+  function paintCulledRoutes(ctx: CanvasRenderingContext2D) {
+    if (!ties.length) return
+    routes ||= computeRoutes()
+    const drawn = new Set((view.visible_links || []).map((link: any) => link.id))
+    const area = view.visible_area
+    for (const [id, route] of routes) {
+      if (drawn.has(id)) continue
+      const link = graph.links?.[id]
+      if (!link || !route?.length) continue
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+      for (const [x, y] of route) {
+        if (x < minX) minX = x
+        if (y < minY) minY = y
+        if (x > maxX) maxX = x
+        if (y > maxY) maxY = y
+      }
+      if (maxX < area[0] - 20 || maxY < area[1] - 20 || minX > area[0] + area[2] + 20 || minY > area[1] + area[3] + 20) continue
+      const source = graph.getNodeById(link.origin_id)
+      const target = graph.getNodeById(link.target_id)
+      if (!source || !target) continue
+      const from = source.getConnectionPos(false, link.origin_slot, [0, 0])
+      const to = target.getConnectionPos(true, link.target_slot, [0, 0])
+      view.renderLink(ctx, from, to, link, false, 0, null, LiteGraph.RIGHT, LiteGraph.LEFT)
+    }
+  }
+
+  const drawConnections = view.drawConnections.bind(view)
+  view.drawConnections = (ctx: CanvasRenderingContext2D) => {
+    const drawn = drawConnections(ctx)
+    paintCulledRoutes(ctx)
+    // Painting the ties must not disturb the stroke state the next frame
+    // inherits: every change is inside save/restore.
+    ctx.save()
+    try {
+      paintTies(ctx)
+    } finally {
+      ctx.restore()
+    }
+    return drawn
+  }
+
+  function paintTies(ctx: CanvasRenderingContext2D) {
+    if (!ties.length) return
+    const scale = view.ds.scale || 1
+    for (const tie of ties) {
+      const [a, b] = tieBar(tie, LANE_GAP)
+      const active = tie.id === selectedTieId || tie.id === hoverTieId
+      ctx.save()
+      ctx.lineCap = 'round'
+      ctx.strokeStyle = active ? LINK_HOVER_COLOR : selectionColor()
+      ctx.lineWidth = active ? 6 : 5
+      ctx.beginPath()
+      ctx.moveTo(a[0], a[1])
+      ctx.lineTo(b[0], b[1])
+      ctx.stroke()
+      // A sand colored seam keeps the band readable over its own wires.
+      ctx.strokeStyle = CANVAS_SAND
+      ctx.lineWidth = 1.5
+      ctx.stroke()
+      if (tie.id === selectedTieId) {
+        ctx.strokeStyle = selectionColor()
+        ctx.lineWidth = 1 / scale
+        ctx.setLineDash([4 / scale, 3 / scale])
+        ctx.beginPath()
+        ctx.arc(tie.point[0], tie.point[1], Math.hypot(b[0] - a[0], b[1] - a[1]) / 2 + 6 / scale, 0, Math.PI * 2)
+        ctx.stroke()
+      }
+      ctx.restore()
+    }
+  }
+
+  // The live cut while a tie is being drawn.
+  function paintTieStroke(ctx: CanvasRenderingContext2D) {
+    if (!tieStroke || tieStroke.length < 2) return
+    const scale = view.ds.scale || 1
+    ctx.save()
+    ctx.strokeStyle = selectionColor()
+    ctx.lineWidth = 1.5 / scale
+    ctx.setLineDash([5 / scale, 4 / scale])
+    ctx.beginPath()
+    ctx.moveTo(tieStroke[0][0], tieStroke[0][1])
+    ctx.lineTo(tieStroke[1][0], tieStroke[1][1])
+    ctx.stroke()
+    if (strokeHits.size) {
+      ctx.setLineDash([])
+      ctx.fillStyle = selectionColor()
+      ctx.font = `${12 / scale}px ${CANVAS_FONT}`
+      ctx.fillText(`Tie ${strokeHits.size} wire${strokeHits.size > 1 ? 's' : ''}`, tieStroke[1][0] + 10 / scale, tieStroke[1][1] - 8 / scale)
+    }
+    ctx.restore()
+  }
+
+  // A wire's name, built from what a wire already is: its source node and
+  // port, and its target node and port.
+  function wireOf(link: any) {
+    const source = graph.getNodeById(link?.origin_id)
+    const target = graph.getNodeById(link?.target_id)
+    const from = source?.properties?.forgeId
+    const to = target?.properties?.forgeId
+    if (!from || !to) return ''
+    const fromPort = source.outputs?.[link.origin_slot]?.forgePortId
+    const toPort = target.inputs?.[link.target_slot]?.forgePortId
+    return fromPort && toPort ? wireKey(from, fromPort, to, toPort) : ''
+  }
+
+  function linkEnds(link: any) {
+    const start = graph.getNodeById(link?.origin_id)
+    const end = graph.getNodeById(link?.target_id)
+    if (!start || !end) return null
+    return { from: start.getConnectionPos(false, link.origin_slot), to: end.getConnectionPos(true, link.target_slot) }
+  }
+
+  // The wire as drawn: its pins, or the stock curve when it has none.
+  function linkPolyline(link: any) {
+    const route = routeFor(link)
+    if (route) return route
+    const ends = linkEnds(link)
+    return ends ? stockWire(ends.from, ends.to) : []
+  }
+
+  // Pin positions per wire, rebuilt only when the ties or the graph change.
+  function computeRoutes() {
+    const pins = new Map<string, number[][]>()
+    for (const tie of ties) {
+      for (const member of tie.members) {
+        const list = pins.get(member) || []
+        list.push(tie.point)
+        pins.set(member, list)
+      }
+    }
+    const next = new Map<number, number[][]>()
+    for (const link of Object.values(graph.links || {}) as any[]) {
+      const name = link ? wireOf(link) : ''
+      const list = name ? pins.get(name) : null
+      const ends = list ? linkEnds(link) : null
+      if (!list || !ends) continue
+      next.set(link.id, routeWire(ends.from, ends.to, list))
+    }
+    return next
+  }
+
+  function routeFor(link: any) {
+    if (!ties.length) return null
+    routes ||= computeRoutes()
+    return routes.get(link.id) || null
+  }
+
+  // Every wire is a name and its pins; this is the one place that changes.
+  function refreshRoutes() {
+    routes = null
+    view.setDirty(true, false)
+    view.setDirty(true, true)
+  }
+
+  function tieAt(x: number, y: number) {
+    const scale = view.ds.scale || 1
+    for (let index = ties.length - 1; index >= 0; index -= 1) {
+      const tie = ties[index]
+      // A generous grab area: the whole band, plus a screen-sized ring around
+      // the pin, so a tie is easy to catch at any zoom.
+      const grab = Math.max(tieRadius(tie, LANE_GAP) + 6 / scale, 16 / scale)
+      if (Math.hypot(x - tie.point[0], y - tie.point[1]) <= grab) return tie
+    }
+    return null
+  }
+
+  function setSelectedTie(id: string | null) {
+    if (id === selectedTieId) return
+    selectedTieId = id
+    view.setDirty(true, true)
+    if (id == null) return
+    setSelectedLink(null)
+    view.deselectAllNodes()
+    commitSelection()
+  }
+
+  function commitTies() {
+    refreshRoutes()
+    handlers.onTies(ties.map((tie) => ({ id: tie.id, point: [...tie.point], members: [...tie.members] })))
+  }
+
+  function deleteSelectedTie() {
+    if (selectedTieId == null) return
+    ties = ties.filter((tie) => tie.id !== selectedTieId)
+    selectedTieId = null
+    commitTies()
+  }
+
+  // Dragging a tie moves the pin, and the wires follow it: the whole point of
+  // a tie is that the user decides where the wires go.
+  function startTieDrag(tie: WireTie, event: MouseEvent) {
+    const point = strokePoint(event)
+    tieDrag = { id: tie.id, origin: [tie.point[0], tie.point[1]], start: point }
+    window.addEventListener('mousemove', moveTieDrag, true)
+    window.addEventListener('mouseup', endTieDrag, true)
+  }
+
+  function moveTieDrag(event: MouseEvent) {
+    if (!tieDrag) return
+    event.stopPropagation()
+    // The pin follows the pointer itself: only the travel since the press
+    // counts, so the tie does not jump on the first move.
+    const point = strokePoint(event)
+    const drag = tieDrag as { id: string; origin: number[]; start: number[] }
+    const next = ties.map((tie) => tie.id === drag.id
+      ? { ...tie, point: [Math.round(drag.origin[0] + point[0] - drag.start[0]), Math.round(drag.origin[1] + point[1] - drag.start[1])] }
+      : tie)
+    ties = next
+    refreshRoutes()
+  }
+
+  function endTieDrag() {
+    window.removeEventListener('mousemove', moveTieDrag, true)
+    window.removeEventListener('mouseup', endTieDrag, true)
+    if (!tieDrag) return
+    tieDrag = null
+    swallowRelease = false
+    commitTies()
+  }
+
+  // Screen point to graph point. adjustMouseEvent already packs both, and it is
+  // the same conversion the canvas uses for every other pointer position.
+  function strokePoint(event: MouseEvent) {
+    view.adjustMouseEvent(event)
+    return [event.canvasX, event.canvasY]
+  }
+
+  function startTieStroke(event: MouseEvent) {
+    tieStroke = [strokePoint(event)]
+    strokeHits = new Set()
+    window.addEventListener('mousemove', moveTieStroke, true)
+    window.addEventListener('mouseup', endTieStroke, true)
+  }
+
+  function stopTieStroke() {
+    window.removeEventListener('mousemove', moveTieStroke, true)
+    window.removeEventListener('mouseup', endTieStroke, true)
+  }
+
+  // The cut picks up the wires it crosses, as they are drawn right now.
+  function moveTieStroke(event: MouseEvent) {
+    if (!tieStroke) return
+    event.stopPropagation()
+    tieStroke = [tieStroke[0], strokePoint(event)]
+    strokeHits = new Set()
+    for (const link of Object.values(graph.links || {}) as any[]) {
+      const name = link ? wireOf(link) : ''
+      if (name && polylinesCross(tieStroke, linkPolyline(link))) strokeHits.add(name)
+    }
+    view.setDirty(true, false)
+    view.setDirty(true, true)
+  }
+
+  function endTieStroke(event: MouseEvent) {
+    stopTieStroke()
+    const stroke = tieStroke
+    const hits = strokeHits
+    tieStroke = null
+    strokeHits = new Set()
+    if (!stroke) return
+    event.stopPropagation()
+    const scale = view.ds.scale || 1
+    const end = stroke[stroke.length - 1]
+    // A click, not a cut: pick the tie under the pointer, if any.
+    if (Math.hypot(end[0] - stroke[0][0], end[1] - stroke[0][1]) < 8 / scale) {
+      setSelectedTie(tieAt(stroke[0][0], stroke[0][1])?.id || null)
+      return
+    }
+    // One wire is enough: a tie is a point the wire is routed through.
+    if (!hits.size) {
+      refreshRoutes()
+      return
+    }
+    const tie: WireTie = {
+      id: `tie-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      point: [Math.round((stroke[0][0] + end[0]) / 2), Math.round((stroke[0][1] + end[1]) / 2)],
+      members: [...hits],
+    }
+    ties = [...ties, tie]
+    commitTies()
+    setSelectedTie(tie.id)
   }
 
   // One bright length of the wire travels from the output into the input, then
   // the wire is clear until the next length leaves the output.
-  function paintFlowStreak(ctx: CanvasRenderingContext2D, start: number[], end: number[], startDir: number, endDir: number) {
+  function paintFlowStreak(ctx: CanvasRenderingContext2D, route: number[][] | null, start: number[], end: number[], startDir: number, endDir: number) {
     const travel = 1400
     const gap = 380
     const length = 0.36
@@ -662,7 +983,9 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     ctx.lineWidth = 3.5
     ctx.beginPath()
     for (let step = 0; step <= steps; step += 1) {
-      const pos = view.computeConnectionPoint(start, end, from + (to - from) * (step / steps), startDir, endDir)
+      const pos = route
+        ? route[Math.min(route.length - 1, Math.round((from + (to - from) * (step / steps)) * (route.length - 1)))]
+        : view.computeConnectionPoint(start, end, from + (to - from) * (step / steps), startDir, endDir)
       if (step === 0) ctx.moveTo(pos[0], pos[1])
       else ctx.lineTo(pos[0], pos[1])
     }
@@ -673,6 +996,8 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   // repaints while dirty. Keep it dirty for the whole run so the streak moves.
   const drawFrame = view.draw.bind(view)
   view.draw = (...drawArgs: unknown[]) => {
+    // Routes follow node positions, which change without any dirty flag of ours.
+    routes = null
     const drawn = drawFrame(...drawArgs)
     if (anyLinkRunning()) view.dirty_canvas = true
     return drawn
@@ -874,20 +1199,12 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     return Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
   }
 
+  // Hit-test what is on screen. A tied wire is drawn along its pins, so its
+  // clickable path has to be the same points, or the wire under the pointer is
+  // not the one being tested.
   function distanceToLink(x: number, y: number, link: any) {
-    const start = graph.getNodeById(link.origin_id)
-    const end = graph.getNodeById(link.target_id)
-    if (!start || !end) return Infinity
-    const from = start.getConnectionPos(false, link.origin_slot)
-    const to = end.getConnectionPos(true, link.target_slot)
-    let previous = view.computeConnectionPoint(from, to, 0)
-    let best = Infinity
-    for (let step = 1; step <= 16; step += 1) {
-      const next = view.computeConnectionPoint(from, to, step / 16)
-      best = Math.min(best, distanceToSegment(x, y, previous[0], previous[1], next[0], next[1]))
-      previous = next
-    }
-    return best
+    const points = linkPolyline(link)
+    return points.length > 1 ? distanceToPolyline([x, y], points) : Infinity
   }
 
   function linkIsRunning(link: any) {
@@ -920,6 +1237,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     selectedLinkId = id
     view.setDirty(true, true)
     if (id == null) return
+    selectedTieId = null
     view.deselectAllNodes()
     commitSelection()
   }
@@ -943,10 +1261,26 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     const mouse = view.graph_mouse
     if (!view.graph || !mouse || view.connecting_node || view.dragging_canvas) {
       setHoverLink(null)
+      setHoverTie(null)
       return
     }
     const x = mouse[0]
     const y = mouse[1]
+    // A tie wins over the nodes it sits near: it is the smaller target, and it
+    // is what the user is reaching for when they press on one.
+    const tie = tieAt(x, y)
+    setHoverTie(tie ? tie.id : null)
+    if (tie) {
+      setHoverLink(null)
+      if (view.canvas) view.canvas.style.cursor = 'move'
+      return
+    }
+    // Tie mode cuts: off a tie, keep the crosshair from the stylesheet.
+    if (mode === 'tie') {
+      setHoverLink(null)
+      if (view.canvas) view.canvas.style.cursor = ''
+      return
+    }
     if (view.graph.getNodeOnPos(x, y)) {
       setHoverLink(null)
       return
@@ -956,30 +1290,46 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     if (link && view.canvas) view.canvas.style.cursor = 'pointer'
   }
 
+  function setHoverTie(id: string | null) {
+    if (id === hoverTieId) return
+    hoverTieId = id
+    view.setDirty(true, true)
+  }
+
   function deleteSelectedLink() {
     if (selectedLinkId == null || !graph.links?.[selectedLinkId]) return
     graph.removeLink(selectedLinkId)
     setSelectedLink(null)
     view.setDirty(true, true)
-    scheduleEdges()
+    // Publish straight away: a queued read would race the removal and can
+    // write the wire back into the canvas document.
+    if (silent) return
+    const next = edgesFromGraph()
+    flowEdges = next
+    remember()
+    handlers.onEdges(next)
   }
 
   function onLinkKey(event: KeyboardEvent) {
-    if (selectedLinkId == null) return
+    if (selectedLinkId == null && selectedTieId == null) return
     const target = event.target
     if (target instanceof Element && target.closest('input, textarea, [contenteditable="true"]')) return
     if (event.key === 'Escape') {
       setSelectedLink(null)
+      setSelectedTie(null)
       return
     }
     if (event.key !== 'Delete' && event.key !== 'Backspace') return
     event.preventDefault()
     event.stopPropagation()
-    deleteSelectedLink()
+    // Deleting a tie only unpins its wires; the wires stay where they are.
+    if (selectedTieId != null) deleteSelectedTie()
+    else deleteSelectedLink()
   }
   window.addEventListener('keydown', onLinkKey, true)
   const clearLinkHover = () => {
     setHoverLink(null)
+    setHoverTie(null)
     setHoverWidget(null)
     if (hoverActionKey) {
       hoverActionKey = null
@@ -1804,15 +2154,56 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     publishViewport()
     return result
   }
+  // A press picked up by a tie never reaches LiteGraph, so the release that
+  // follows must not be processed either.
+  let swallowRelease = false
   // bindEvents captured the prototype methods. Point the real listeners at the
   // wrappers, or box-select, drag save, and drop-to-add never run.
   canvas.removeEventListener('mousedown', view._mousedown_callback, true)
+  // The visible area only refreshes while the canvas draws, so a hit-test made
+  // between a pan and the next frame can read a stale, empty area.
+  function updateVisibleArea() {
+    view.computeVisibleArea?.(view.bgcanvas) ?? view.computeVisibleArea?.()
+  }
+
   view._mousedown_callback = (event: MouseEvent) => {
+    // Tie mode: a left drag cuts across wires; nothing else reacts.
+    if (mode === 'tie' && event.button === 0 && view.graph) {
+      setSelectedLink(null)
+      // Pressing on a tie moves it, so a tie just made can be placed without
+      // leaving tie mode.
+      view.adjustMouseEvent(event)
+      const pressedTie = tieAt(event.canvasX, event.canvasY)
+      if (pressedTie) {
+        setSelectedTie(pressedTie.id)
+        startTieDrag(pressedTie, event)
+        swallowRelease = true
+        event.stopPropagation()
+        event.preventDefault()
+        return
+      }
+      startTieStroke(event)
+      event.stopPropagation()
+      event.preventDefault()
+      return
+    }
     if (event.button === 0 && view.graph) {
       view.adjustMouseEvent(event)
+      updateVisibleArea()
       const button = actionAt(event.canvasX, event.canvasY)
       if (button) {
         runAction(button.nodeId, button.id)
+        event.stopPropagation()
+        event.preventDefault()
+        return
+      }
+      // A tie sits on top of its wires and near its nodes, so it wins the press.
+      const pressedTie = tieAt(event.canvasX, event.canvasY)
+      if (pressedTie) {
+        setSelectedTie(pressedTie.id)
+        // A tie is dragged by the hand that made it: press and move it.
+        startTieDrag(pressedTie, event)
+        swallowRelease = true
         event.stopPropagation()
         event.preventDefault()
         return
@@ -1823,19 +2214,25 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
         const link = linkUnder(event.canvasX, event.canvasY)
         if (link) {
           setSelectedLink(link.id)
+          // LiteGraph never sees this press, so its release must not clear the
+          // selection we just made.
+          swallowRelease = true
           event.stopPropagation()
           event.preventDefault()
           return
         }
       }
       setSelectedLink(null)
+      setSelectedTie(null)
     }
     return view.processMouseDown(event)
   }
   canvas.addEventListener('mousedown', view._mousedown_callback, true)
   canvas.removeEventListener('mousemove', view._mousemove_callback)
   view._mousemove_callback = (event: MouseEvent) => {
+    if (tieDrag) return
     const result = view.processMouseMove(event)
+    if (tieStroke) view.setDirty(true, false)
     trackLinkHover()
     trackWidgetHover()
     const button = event.canvasX == null ? null : actionAt(event.canvasX, event.canvasY)
@@ -1852,7 +2249,15 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   }
   canvas.addEventListener('mousemove', view._mousemove_callback)
   canvas.removeEventListener('mouseup', view._mouseup_callback, true)
-  view._mouseup_callback = (event: MouseEvent) => view.processMouseUp(event)
+  view._mouseup_callback = (event: MouseEvent) => {
+    // A press picked up by a tie never reached LiteGraph, so its release must
+    // not land on whatever sits underneath.
+    if (swallowRelease && event.button === 0) {
+      swallowRelease = false
+      return
+    }
+    return view.processMouseUp(event)
+  }
   canvas.addEventListener('mouseup', view._mouseup_callback, true)
   view.processContextMenu = (node: any, event: MouseEvent) => {
     event.preventDefault()
@@ -2313,7 +2718,22 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       }
       publishViewport()
     },
+    setTies(next: WireTie[]) {
+      ties = Array.isArray(next)
+        ? next.filter((tie) => tie && Array.isArray(tie.point) && tie.point.length === 2 && Array.isArray(tie.members))
+          .map((tie) => ({ id: tie.id, point: [Number(tie.point[0]), Number(tie.point[1])], members: [...tie.members] }))
+        : []
+      if (selectedTieId && !ties.some((tie) => tie.id === selectedTieId)) selectedTieId = null
+      refreshRoutes()
+    },
     setMode(next: string) {
+      if (mode === 'tie' && next !== 'tie') {
+        stopTieStroke()
+        tieStroke = null
+        strokeHits = new Set()
+        view.setDirty(true, false)
+        view.setDirty(true, true)
+      }
       mode = next
       const framing = next === 'frame'
       view.read_only = framing
@@ -2345,6 +2765,8 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     paintNodeActions,
     runNodeAction: runAction,
     destroy() {
+      stopTieStroke()
+      endTieDrag()
       window.removeEventListener('keydown', onLinkKey, true)
       canvas.removeEventListener('keydown', view._key_callback, true)
       document.removeEventListener('keyup', view._key_callback, true)
