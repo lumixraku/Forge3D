@@ -2,7 +2,7 @@ import { LGraph, LGraphCanvas, LGraphGroup, LiteGraph } from 'litegraph.js'
 import { canConnectPorts, hasModelEditor, isExecutableNodeType, nodeSchema, parameterRange, visibleParameters } from './canvas-nodes'
 import { meshyAssetHref } from './meshy-asset'
 import { applyNodeParameter } from './canvas-schema'
-import { distanceToPolyline, distanceToSegment, LANE_GAP, planWire, polylinesCross, stockWire, tieBar, tieRadius, wireKey, type WireTie } from './wire-tie'
+import { distanceToPolyline, distanceToSegment, LANE_GAP, planWire, polylinesCross, stockWire, tieBar, tieLanes, tieRadius, type Pin, wireKey, type WireTie } from './wire-tie'
 
 const NODE_TYPE = 'forge/node'
 const PORT_COLOR: Record<string, string> = {
@@ -622,6 +622,8 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   // Routes are rebuilt every frame, but a wire only needs planning again when
   // its ends or pins move: keep the last plan for each.
   let planCache = new Map<string, ReturnType<typeof planWire>>()
+  // The way each tie's wires run through it; its band is drawn square to this.
+  let tieHeadings = new Map<string, number[]>()
   let selectedTieId: string | null = null
   let hoverTieId: string | null = null
   // The tie being drawn, and the wires the cut crosses.
@@ -741,9 +743,10 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
 
   function paintTies(ctx: CanvasRenderingContext2D) {
     if (!ties.length) return
+    routes ||= computeRoutes()
     const scale = view.ds.scale || 1
     for (const tie of ties) {
-      const [a, b] = tieBar(tie, LANE_GAP)
+      const [a, b] = tieBar(tie, LANE_GAP, tieHeadings.get(tie.id))
       const active = tie.id === selectedTieId || tie.id === hoverTieId
       ctx.save()
       ctx.lineCap = 'round'
@@ -820,23 +823,39 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
 
   // Pin positions per wire, rebuilt only when the ties or the graph change.
   function computeRoutes() {
-    const pins = new Map<string, number[][]>()
+    const endsByName = new Map<string, { link: any; from: number[]; to: number[] }>()
+    for (const link of Object.values(graph.links || {}) as any[]) {
+      const name = link ? wireOf(link) : ''
+      const ends = name ? linkEnds(link) : null
+      if (ends) endsByName.set(name, { link, from: [ends.from[0], ends.from[1]], to: [ends.to[0], ends.to[1]] })
+    }
+    // Each tie lines its wires up side by side, square to the way they run.
+    const pins = new Map<string, Pin[]>()
+    const headings = new Map<string, number[]>()
     for (const tie of ties) {
+      const ends = new Map<string, { from: number[]; to: number[] }>()
       for (const member of tie.members) {
+        const entry = endsByName.get(member)
+        if (entry) ends.set(member, entry)
+      }
+      if (!ends.size) continue
+      const { heading, offsets } = tieLanes(tie.point, ends, LANE_GAP)
+      headings.set(tie.id, heading)
+      for (const [member, offset] of offsets) {
         const list = pins.get(member) || []
-        list.push(tie.point)
+        list.push({ point: tie.point, heading, offset })
         pins.set(member, list)
       }
     }
+    tieHeadings = headings
     const next = new Map<number, number[][]>()
     const tight = new Map<number, number[][]>()
     const kept = new Map<string, ReturnType<typeof planWire>>()
-    for (const link of Object.values(graph.links || {}) as any[]) {
-      const name = link ? wireOf(link) : ''
-      const list = name ? pins.get(name) : null
-      const ends = list ? linkEnds(link) : null
-      if (!list || !ends) continue
-      const key = `${ends.from[0]},${ends.from[1]};${ends.to[0]},${ends.to[1]};${list.map((pin) => `${pin[0]},${pin[1]}`).join(';')}`
+    for (const [name, ends] of endsByName) {
+      const list = pins.get(name)
+      if (!list) continue
+      const link = ends.link
+      const key = `${ends.from[0]},${ends.from[1]};${ends.to[0]},${ends.to[1]};${list.map((pin) => `${pin.point[0]},${pin.point[1]},${pin.heading?.[0]},${pin.heading?.[1]},${pin.offset}`).join(';')}`
       const plan = planCache.get(key) || planWire(ends.from, ends.to, list)
       kept.set(key, plan)
       next.set(link.id, plan.points)

@@ -50,6 +50,44 @@ function cubic(x0: number, y0: number, x1: number, y1: number, x2: number, y2: n
 /** The tightest bend a wire may take on its way through a tie, in graph units. */
 export const MIN_BEND_RADIUS = 48
 
+/** How far a tied wire runs straight either side of its tie, in graph units. */
+export const LANE_LEAD = 12
+
+/** A point a wire passes through; a tie's lane also fixes the wire's heading there. */
+export interface Pin {
+  point: Point
+  heading?: Point
+  // Distance of this wire's lane from the tie's centre line, across the heading.
+  offset?: number
+}
+
+/**
+ * Lay out a tie: the heading its wires share, and a lane for each wire, side by
+ * side across that heading, LANE_GAP apart. Lanes are ordered by where the
+ * wires come from and go to, so wires do not cross on their way in or out.
+ */
+export function tieLanes(point: Point, ends: Map<string, { from: Point; to: Point }>, gap = LANE_GAP) {
+  let hx = 0
+  let hy = 0
+  for (const { from, to } of ends.values()) {
+    const a = unit(point[0] - from[0], point[1] - from[1])
+    const b = unit(to[0] - point[0], to[1] - point[1])
+    hx += a[0] + b[0]
+    hy += a[1] + b[1]
+  }
+  const heading: Point = Math.hypot(hx, hy) > 1e-6 ? unit(hx, hy) : [1, 0]
+  const normal: Point = [-heading[1], heading[0]]
+  const side = (p: Point) => (p[0] - point[0]) * normal[0] + (p[1] - point[1]) * normal[1]
+  const members = [...ends.keys()].sort((a, b) => {
+    const ea = ends.get(a)!
+    const eb = ends.get(b)!
+    return side(ea.from) + side(ea.to) - side(eb.from) - side(eb.to) || (a < b ? -1 : 1)
+  })
+  const offsets = new Map<string, number>()
+  members.forEach((member, i) => offsets.set(member, (i - (members.length - 1) / 2) * gap))
+  return { heading, offsets }
+}
+
 export interface WirePlan {
   points: Point[]
   // Index ranges into points where the bend is still tighter than the
@@ -72,19 +110,40 @@ export function routeWire(from: Point, to: Point, pins: Point[]): Point[] {
  *   3. a bend that is still too tight is kept, and reported in `tight`.
  * The wire leaves its output and enters its input heading right, like every wire.
  */
-export function planWire(from: Point, to: Point, pins: Point[], minRadius = MIN_BEND_RADIUS): WirePlan {
+export function planWire(from: Point, to: Point, pins: (Point | Pin)[], minRadius = MIN_BEND_RADIUS): WirePlan {
   if (!pins.length) return { points: stockWire(from, to), tight: [] }
   const dx = to[0] - from[0]
   const dy = to[1] - from[1]
   const span = dx * dx + dy * dy || 1
   const along = (point: Point) => ((point[0] - from[0]) * dx + (point[1] - from[1]) * dy) / span
-  const points = [from, ...[...pins].sort((a, b) => along(a) - along(b)), to]
+  const ordered = pins.map((pin) => (Array.isArray(pin) ? { point: pin } : pin)).sort((a, b) => along(a.point) - along(b.point))
+  // A pin with a heading is a lane of a tie: the wire runs straight along the
+  // tie's heading for a short way either side, parallel to its neighbours.
+  // Every wire of a tie is planned along the tie's centre line, and then moved
+  // sideways onto its own lane. Wires that share a port and a tie share that
+  // centre line, so they run side by side, parallel, all the way in.
+  const points: Point[] = [from]
+  const fixed: (Point | null)[] = [[1, 0]]
+  const lanes: number[] = [0]
+  for (const pin of ordered) {
+    if (!pin.heading) {
+      points.push(pin.point)
+      fixed.push(null)
+      lanes.push(0)
+      continue
+    }
+    const [hx, hy] = pin.heading
+    points.push([pin.point[0] - hx * LANE_LEAD, pin.point[1] - hy * LANE_LEAD], [pin.point[0] + hx * LANE_LEAD, pin.point[1] + hy * LANE_LEAD])
+    fixed.push(pin.heading, pin.heading)
+    lanes.push(pin.offset || 0, pin.offset || 0)
+  }
+  points.push(to)
+  fixed.push([1, 0])
+  lanes.push(0)
   // Start from the heading between the points either side of each pin.
-  const tangents = points.map((point, i) => {
-    if (i === 0 || i === points.length - 1) return [1, 0]
-    return unit(points[i + 1][0] - points[i - 1][0], points[i + 1][1] - points[i - 1][1])
-  })
+  const tangents = points.map((point, i) => fixed[i] || unit(points[i + 1][0] - points[i - 1][0], points[i + 1][1] - points[i - 1][1]))
   for (let i = 1; i < points.length - 1; i += 1) {
+    if (fixed[i]) continue
     const score = (trial: Point[]) => Math.min(widestStretch(points, trial, i - 1, minRadius).radius, widestStretch(points, trial, i, minRadius).radius)
     if (score(tangents) >= minRadius) continue
     const base = Math.atan2(tangents[i][1], tangents[i][0])
@@ -106,11 +165,27 @@ export function planWire(from: Point, to: Point, pins: Point[], minRadius = MIN_
   const tight: number[][] = []
   for (let i = 0; i < points.length - 1; i += 1) {
     const stretch = widestStretch(points, tangents, i, minRadius)
+    const lane = toLane(stretch.points, lanes[i], lanes[i + 1])
     const offset = out.length ? out.length - 1 : 0
-    out.push(...(out.length ? stretch.points.slice(1) : stretch.points))
+    out.push(...(out.length ? lane.slice(1) : lane))
     for (const [a, b] of stretch.tight) tight.push([a + offset, b + offset])
   }
   return { points: out, tight }
+}
+
+// Move a stretch sideways, square to its own direction, easing from one lane
+// offset to the next. Constant offsets keep it exactly parallel to the centre.
+function toLane(points: Point[], start: number, end: number): Point[] {
+  if (!start && !end) return points
+  const last = points.length - 1
+  return points.map((point, j) => {
+    const t = last ? j / last : 0
+    const offset = start + (end - start) * t * t * (3 - 2 * t)
+    const a = points[Math.max(0, j - 1)]
+    const b = points[Math.min(last, j + 1)]
+    const [ux, uy] = unit(b[0] - a[0], b[1] - a[1])
+    return [point[0] - uy * offset, point[1] + ux * offset]
+  })
 }
 
 // Headings tried at a pin, nearest first, so the wire turns only as far as it must.
@@ -188,9 +263,12 @@ export function tieRadius(tie: WireTie, gap: number) {
   return Math.max(10, (Math.min(tie.members.length, 5) * gap) / 2 + 6)
 }
 
-export function tieBar(tie: WireTie, gap: number) {
+/** The tie's band, square to the heading its wires run along. */
+export function tieBar(tie: WireTie, gap: number, heading: Point = [0, 1]) {
   const half = tieRadius(tie, gap)
-  return [[tie.point[0] - half, tie.point[1]], [tie.point[0] + half, tie.point[1]]]
+  const nx = -heading[1]
+  const ny = heading[0]
+  return [[tie.point[0] - nx * half, tie.point[1] - ny * half], [tie.point[0] + nx * half, tie.point[1] + ny * half]]
 }
 
 export function distanceToSegment(point: Point, a: Point, b: Point) {
