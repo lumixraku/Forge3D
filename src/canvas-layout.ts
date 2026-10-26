@@ -7,7 +7,10 @@ export const FRAME_TITLE_SCREEN_HEIGHT = 42
 // LiteGraph draws the title above the node origin, so the box that must not
 // overlap is taller than the body stored in `size`.
 const NODE_TITLE_BAND = 30
-const LAYOUT_GAP = 48
+// Neighbouring nodes sit one title bar apart.
+const LAYOUT_GAP = NODE_TITLE_BAND
+// Nodes outside any section are packed as one block, laid out together.
+const LOOSE_BLOCK_ID = '__loose__'
 // Each example is its own section. The gutter has to stay obvious at the zoom
 // where several sections are on screen; a hairline gap reads as one shared box.
 const FRAME_GAP = 200
@@ -157,6 +160,7 @@ async function layoutPackedFrames(nodes: LayoutNode[], edges: LayoutEdge[], opti
     left?: number
     top?: number
   }[] = []
+  const looseIds = new Set(loose.map((node) => node.id))
 
   for (const frame of frames) {
     const children = members.get(frame.id) || []
@@ -199,17 +203,24 @@ async function layoutPackedFrames(nodes: LayoutNode[], edges: LayoutEdge[], opti
     })
   }
 
-  for (const node of loose) {
-    const position = absoluteNodePosition(node, nodeMap)
-    const size = sizeOf(node)
-    blocks.push({
-      id: node.id,
-      width: size.width,
-      height: size.height + NODE_TITLE_BAND,
-      x: position.x,
-      y: position.y - NODE_TITLE_BAND,
-      kind: 'loose',
-    })
+  // One block per loose node spaced them a section gap apart. Lay them out
+  // together so they get the normal node spacing.
+  if (loose.length) {
+    const looseEdges = edges.filter((edge) => looseIds.has(edge.source) && looseIds.has(edge.target))
+    const local = await layoutCanvas(loose, looseEdges, { originX: 0, originY: 0, columnGap: options.columnGap, rowGap: options.rowGap })
+    let left = Infinity
+    let top = Infinity
+    let right = -Infinity
+    let bottom = -Infinity
+    for (const node of loose) {
+      const position = local.get(node.id)!
+      const size = sizeOf(node)
+      left = Math.min(left, position.x)
+      top = Math.min(top, position.y - NODE_TITLE_BAND)
+      right = Math.max(right, position.x + size.width)
+      bottom = Math.max(bottom, position.y + size.height)
+    }
+    blocks.push({ id: LOOSE_BLOCK_ID, width: right - left, height: bottom - top, x: 0, y: 0, kind: 'loose', local, left, top })
   }
 
   // Keep the document order. Sorting by current position made each run feed
@@ -220,7 +231,7 @@ async function layoutPackedFrames(nodes: LayoutNode[], edges: LayoutEdge[], opti
     if (!node) return null
     if (node.type === 'frame') return node.id
     if (node.parentNode && frameIds.has(node.parentNode)) return node.parentNode
-    return node.id
+    return looseIds.has(node.id) ? LOOSE_BLOCK_ID : node.id
   }
   const seenEdges = new Set<string>()
   const packEdges: { id: string; sources: string[]; targets: string[] }[] = []
@@ -262,7 +273,9 @@ async function layoutPackedFrames(nodes: LayoutNode[], edges: LayoutEdge[], opti
   const placed = new Map<string, { x: number; y: number }>()
   for (const box of packedBoxes) {
     if (box.kind === 'loose') {
-      placed.set(box.id, { x: originX + box.x, y: originY + box.y + NODE_TITLE_BAND })
+      for (const [id, position] of box.local!) {
+        placed.set(id, { x: originX + box.x + (position.x - box.left!), y: originY + box.y + (position.y - box.top!) })
+      }
       continue
     }
     if (!box.local || box.left === undefined || box.top === undefined) {
@@ -390,7 +403,7 @@ export function frameComponentGap(spacing = 32) {
   return insets.bottom + insets.top + FRAME_TITLE_SCREEN_HEIGHT + spacing
 }
 
-export async function layoutCanvas(nodes: LayoutNode[], edges: LayoutEdge[], { originX = 0, originY = 120, columnGap = 100, rowGap = 80, componentGap = rowGap * 1.5 }: LayoutOptions = {}) {
+export async function layoutCanvas(nodes: LayoutNode[], edges: LayoutEdge[], { originX = 0, originY = 120, columnGap = 100, rowGap = LAYOUT_GAP, componentGap = rowGap * 1.5 }: LayoutOptions = {}) {
   if (!nodes.length) return new Map()
 
   const nodeIds = new Set(nodes.map((node) => node.id))
