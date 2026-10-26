@@ -30,6 +30,7 @@ import { edgeDefaults, nodePresentation } from './canvas-graph'
 import { applyNodeParameter, defaultCanvasProvider } from './canvas-schema'
 import { activeInputPorts, canConnectNodeTypes, canConnectPorts, compatibleNodeTypes, compatibleUpstreamNodeTypes, hasModelEditor, isExecutableNodeType, missingParametersByNode, nodeCatalog, nodeCategories, nodeDefaults, nodeOutputPorts, outputPortsOf } from './canvas-nodes'
 import { resultArtifacts } from './run-results'
+import { resultSpecs } from './canvas-results'
 import { reconcileResultSlots } from './canvas-result-slots'
 
 const ModelEditor = defineAsyncComponent(() => import('./components/ModelEditor.vue'))
