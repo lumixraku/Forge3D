@@ -941,7 +941,10 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     window.removeEventListener('mouseup', endTieDrag, true)
     if (!tieDrag) return
     tieDrag = null
-    swallowRelease = false
+    // This window capture listener runs before the canvas mouseup, so clearing
+    // the flag now would let this same release reach LiteGraph and select the
+    // section under the tie. Clear it once the release has finished dispatching.
+    setTimeout(() => { swallowRelease = false })
     commitTies()
   }
 
