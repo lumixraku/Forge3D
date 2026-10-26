@@ -47,68 +47,133 @@ function cubic(x0: number, y0: number, x1: number, y1: number, x2: number, y2: n
   }
 }
 
-/**
- * A wire through its pins. With no pins this returns exactly the stock wire.
- * With pins, the stretch from the output to the first pin and the stretch from
- * the last pin to the input stay on the stock bezier, so the wire leaves its
- * port and enters its port at the same angle as before; only the middle runs
- * through the pins.
- */
+/** The tightest bend a wire may take on its way through a tie, in graph units. */
+export const MIN_BEND_RADIUS = 48
+
+export interface WirePlan {
+  points: Point[]
+  // Index ranges into points where the bend is still tighter than the
+  // minimum: the tie is where it is, and there was no room to go wider.
+  tight: number[][]
+}
+
+/** A wire through its pins. With no pins this returns exactly the stock wire. */
 export function routeWire(from: Point, to: Point, pins: Point[]): Point[] {
-  if (!pins.length) return stockWire(from, to)
+  return planWire(from, to, pins).points
+}
+
+/**
+ * Route a wire through its pins. The pins are fixed: the wire always passes
+ * through every one of them. Within that, the bend radius is kept at or above
+ * `minRadius` where it can be:
+ *   1. the heading the wire takes through each pin is turned, a little at a
+ *      time, towards whichever lets it bend gentlest;
+ *   2. each stretch then widens its curve, going round in a larger arc;
+ *   3. a bend that is still too tight is kept, and reported in `tight`.
+ * The wire leaves its output and enters its input heading right, like every wire.
+ */
+export function planWire(from: Point, to: Point, pins: Point[], minRadius = MIN_BEND_RADIUS): WirePlan {
+  if (!pins.length) return { points: stockWire(from, to), tight: [] }
   const dx = to[0] - from[0]
   const dy = to[1] - from[1]
   const span = dx * dx + dy * dy || 1
   const along = (point: Point) => ((point[0] - from[0]) * dx + (point[1] - from[1]) * dy) / span
-  const ordered = [...pins].sort((a, b) => along(a) - along(b))
-  // The wire leaves its output heading right and enters its input heading
-  // right, like every wire. At a pin it heads from the point before towards
-  // the point after, so it passes through smoothly from whichever side it
-  // comes: no corner, whatever side of the pin the ports are on.
-  const points = [from, ...ordered, to]
+  const points = [from, ...[...pins].sort((a, b) => along(a) - along(b)), to]
+  // Start from the heading between the points either side of each pin.
   const tangents = points.map((point, i) => {
     if (i === 0 || i === points.length - 1) return [1, 0]
-    const tx = points[i + 1][0] - points[i - 1][0]
-    const ty = points[i + 1][1] - points[i - 1][1]
-    const length = Math.hypot(tx, ty) || 1
-    return [tx / length, ty / length]
+    return unit(points[i + 1][0] - points[i - 1][0], points[i + 1][1] - points[i - 1][1])
   })
-  const chain = new Stretches()
-  for (let i = 1; i < points.length; i += 1) {
-    const a = points[i - 1]
-    const b = points[i]
-    const length = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1
-    // Handles scale with the stretch, capped so a long wire does not swing
-    // far out to reach a nearby pin.
-    // Wide enough that a wire turning back through a pin bends in a broad
-    // curve rather than a hook.
-    const k = Math.min(length * 0.4, 600)
-    chain.add(tangents[i - 1][0] * k, tangents[i - 1][1] * k, -tangents[i][0] * k, -tangents[i][1] * k, b, a, i === 1)
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const score = (trial: Point[]) => Math.min(widestStretch(points, trial, i - 1, minRadius).radius, widestStretch(points, trial, i, minRadius).radius)
+    if (score(tangents) >= minRadius) continue
+    const base = Math.atan2(tangents[i][1], tangents[i][0])
+    let best = tangents[i]
+    let bestScore = score(tangents)
+    for (const turn of PIN_TURNS) {
+      const trial = tangents.slice()
+      trial[i] = [Math.cos(base + turn), Math.sin(base + turn)]
+      const value = score(trial)
+      if (value > bestScore + 1e-6) {
+        best = trial[i]
+        bestScore = value
+      }
+      if (bestScore >= minRadius) break
+    }
+    tangents[i] = best
   }
-  return chain.points
+  const out: Point[] = []
+  const tight: number[][] = []
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const stretch = widestStretch(points, tangents, i, minRadius)
+    const offset = out.length ? out.length - 1 : 0
+    out.push(...(out.length ? stretch.points.slice(1) : stretch.points))
+    for (const [a, b] of stretch.tight) tight.push([a + offset, b + offset])
+  }
+  return { points: out, tight }
 }
 
-// Builds one continuous polyline out of cubic segments, each described
-// relative to where the previous one ended.
-class Stretches {
-  points: Point[] = []
+// Headings tried at a pin, nearest first, so the wire turns only as far as it must.
+const PIN_TURNS = [15, -15, 30, -30, 45, -45, 60, -60].map((degrees) => (degrees * Math.PI) / 180)
+// How far a stretch may widen its curve, as multiples of its natural handles.
+const WIDEN = [1, 1.5, 2, 3, 4]
 
-  add(handle1X: number, handle1Y: number, handle2X: number, handle2Y: number, end: Point, start?: Point, begin = false) {
-    const from = start || this.points[this.points.length - 1]
-    // Sample by length: a long stretch drawn with a fixed count of points
-    // shows its straight chords as corners.
-    const reach = Math.hypot(handle1X, handle1Y) + Math.hypot(end[0] - from[0], end[1] - from[1]) + Math.hypot(handle2X, handle2Y)
-    const steps = Math.max(CURVE_STEPS, Math.min(240, Math.ceil(reach / 12)))
-    cubic(
-      from[0], from[1],
-      from[0] + handle1X, from[1] + handle1Y,
-      end[0] + handle2X, end[1] + handle2Y,
-      end[0], end[1],
-      this.points,
-      begin,
-      steps,
-    )
+function unit(x: number, y: number): Point {
+  const length = Math.hypot(x, y) || 1
+  return [x / length, y / length]
+}
+
+// One stretch between two consecutive points, as wide as it needs to be.
+function widestStretch(points: Point[], tangents: Point[], i: number, minRadius: number) {
+  const a = points[i]
+  const b = points[i + 1]
+  const length = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1
+  const natural = Math.min(length * 0.4, 600)
+  let best: { points: Point[]; radius: number } | null = null
+  for (const factor of WIDEN) {
+    const k = Math.max(natural * factor, Math.min(minRadius * factor, length))
+    const sampled: Point[] = []
+    sampleCubic(a, [a[0] + tangents[i][0] * k, a[1] + tangents[i][1] * k], [b[0] - tangents[i + 1][0] * k, b[1] - tangents[i + 1][1] * k], b, sampled)
+    const radius = tightestBend(sampled)
+    if (!best || radius > best.radius) best = { points: sampled, radius }
+    if (radius >= minRadius) break
   }
+  return { ...best!, tight: tightSpans(best!.points, minRadius) }
+}
+
+function sampleCubic(a: Point, h1: Point, h2: Point, b: Point, out: Point[]) {
+  const reach = Math.hypot(h1[0] - a[0], h1[1] - a[1]) + Math.hypot(h2[0] - h1[0], h2[1] - h1[1]) + Math.hypot(b[0] - h2[0], b[1] - h2[1])
+  const steps = Math.max(CURVE_STEPS, Math.min(240, Math.ceil(reach / 8)))
+  cubic(a[0], a[1], h1[0], h1[1], h2[0], h2[1], b[0], b[1], out, true, steps)
+}
+
+// Radius of the circle through three consecutive samples.
+function bendAt(points: Point[], j: number) {
+  const [ax, ay] = points[j - 1]
+  const [bx, by] = points[j]
+  const [cx, cy] = points[j + 1]
+  const area = Math.abs((bx - ax) * (cy - ay) - (by - ay) * (cx - ax)) / 2
+  if (area < 1e-9) return Infinity
+  return (Math.hypot(bx - ax, by - ay) * Math.hypot(cx - bx, cy - by) * Math.hypot(cx - ax, cy - ay)) / (4 * area)
+}
+
+/** The tightest bend along a polyline. */
+export function tightestBend(points: Point[]) {
+  let radius = Infinity
+  for (let j = 1; j < points.length - 1; j += 1) radius = Math.min(radius, bendAt(points, j))
+  return radius
+}
+
+function tightSpans(points: Point[], minRadius: number) {
+  const spans: number[][] = []
+  for (let j = 1; j < points.length - 1; j += 1) {
+    // A little slack, so a bend right at the limit is not flagged.
+    if (bendAt(points, j) >= minRadius * 0.9) continue
+    const last = spans[spans.length - 1]
+    if (last && last[1] >= j - 1) last[1] = j + 1
+    else spans.push([j - 1, j + 1])
+  }
+  return spans
 }
 
 /** Where a tie is drawn: a short bar across the wires it pins. *//**

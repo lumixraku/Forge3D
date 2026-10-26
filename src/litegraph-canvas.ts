@@ -2,7 +2,7 @@ import { LGraph, LGraphCanvas, LGraphGroup, LiteGraph } from 'litegraph.js'
 import { canConnectPorts, hasModelEditor, isExecutableNodeType, nodeSchema, parameterRange, visibleParameters } from './canvas-nodes'
 import { meshyAssetHref } from './meshy-asset'
 import { applyNodeParameter } from './canvas-schema'
-import { distanceToPolyline, distanceToSegment, LANE_GAP, polylinesCross, routeWire, stockWire, tieBar, tieRadius, wireKey, type WireTie } from './wire-tie'
+import { distanceToPolyline, distanceToSegment, LANE_GAP, planWire, polylinesCross, stockWire, tieBar, tieRadius, wireKey, type WireTie } from './wire-tie'
 
 const NODE_TYPE = 'forge/node'
 const PORT_COLOR: Record<string, string> = {
@@ -107,6 +107,8 @@ const LINK_COLOR: Record<string, string> = {
 const LINK_HOVER_COLOR = '#2f7d43'
 // Space between the wires a tie holds, in graph units.
 const RUNNING_LINK_COLOR = '#9bd94f'
+// Marks a bend tighter than the minimum radius.
+const TIGHT_BEND_COLOR = '#d9822b'
 const NODE_BODY_COLOR = '#fffdf7'
 const NODE_INK = '#794f27'
 // Parameter rows share one left edge, one right edge, and the same corner.
@@ -615,6 +617,11 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
   // Wire ties: pins that a few wires must pass through. See wire-tie.ts.
   let ties: WireTie[] = []
   let routes: Map<number, number[][]> | null = null
+  // Stretches of a tied wire that bend tighter than the minimum radius.
+  let tightSpans = new Map<number, number[][]>()
+  // Routes are rebuilt every frame, but a wire only needs planning again when
+  // its ends or pins move: keep the last plan for each.
+  let planCache = new Map<string, ReturnType<typeof planWire>>()
   let selectedTieId: string | null = null
   let hoverTieId: string | null = null
   // The tie being drawn, and the wires the cut crosses.
@@ -654,7 +661,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     }
   }
 
-  // A pinned wire: the points routeWire produced, drawn like any other wire.
+  // A pinned wire: the points planWire produced, drawn like any other wire.
   function paintRoute(ctx: CanvasRenderingContext2D, route: number[][], link: any, color: string) {
     view.visible_links.push(link)
     ctx.save()
@@ -665,6 +672,20 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     ctx.beginPath()
     route.forEach((point, index) => (index ? ctx.lineTo(point[0], point[1]) : ctx.moveTo(point[0], point[1])))
     ctx.stroke()
+    // The tie is fixed where the user put it; a bend with no room to widen is
+    // kept, and marked so the user can see it.
+    const tight = tightSpans.get(link.id)
+    if (tight) {
+      const scale = view.ds.scale || 1
+      ctx.strokeStyle = TIGHT_BEND_COLOR
+      ctx.lineWidth = view.connections_width + 1
+      ctx.setLineDash([4 / scale, 3 / scale])
+      for (const [a, b] of tight) {
+        ctx.beginPath()
+        for (let j = a; j <= b && j < route.length; j += 1) (j === a ? ctx.moveTo(route[j][0], route[j][1]) : ctx.lineTo(route[j][0], route[j][1]))
+        ctx.stroke()
+      }
+    }
     ctx.restore()
     if (link._pos) {
       const middle = route[Math.floor(route.length / 2)]
@@ -808,13 +829,21 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       }
     }
     const next = new Map<number, number[][]>()
+    const tight = new Map<number, number[][]>()
+    const kept = new Map<string, ReturnType<typeof planWire>>()
     for (const link of Object.values(graph.links || {}) as any[]) {
       const name = link ? wireOf(link) : ''
       const list = name ? pins.get(name) : null
       const ends = list ? linkEnds(link) : null
       if (!list || !ends) continue
-      next.set(link.id, routeWire(ends.from, ends.to, list))
+      const key = `${ends.from[0]},${ends.from[1]};${ends.to[0]},${ends.to[1]};${list.map((pin) => `${pin[0]},${pin[1]}`).join(';')}`
+      const plan = planCache.get(key) || planWire(ends.from, ends.to, list)
+      kept.set(key, plan)
+      next.set(link.id, plan.points)
+      if (plan.tight.length) tight.set(link.id, plan.tight)
     }
+    planCache = kept
+    tightSpans = tight
     return next
   }
 
