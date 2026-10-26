@@ -176,6 +176,8 @@ const {
   nodes,
   edges,
   wireTies,
+  // The camera, so a pan or a zoom is part of what gets saved.
+  viewport,
   run,
   nodeRuns,
   busy: agentBusy,
@@ -1101,7 +1103,7 @@ onUnmounted(() => {
           @stop-run="cancelRun"
           @open-model-editor="openModelEditor"
           @run-section="runSection"
-          @viewport="viewport = $event"
+          @viewport="viewport = $event; saveCanvas()"
         />
         <AssetLibraryView v-if="canvasView === 'assets'" :rails="assetRails" :total="assetLibrary.total" :loading="assetsLoading" :canvas-node-ids="canvasNodeIds" @preview="openImagePreview" @open-model-editor="openModelEditor" />
         <RunLogPanel v-if="runDetails && runSummaryOpen" :details="runDetails" @close="runSummaryOpen = false" />

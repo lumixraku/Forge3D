@@ -19,6 +19,7 @@ export function useCanvasDocument({
   edges,
   // Optional so callers without wire ties keep working.
   wireTies = ref([]),
+  viewport = ref(null),
   run,
   nodeRuns,
   error,
@@ -101,7 +102,12 @@ export function useCanvasDocument({
   }
 
   function fromCanvas() {
-    return toDomainCanvas(activeCanvas.value, nodes.value, edges.value, wireTies.value)
+    const canvas = toDomainCanvas(activeCanvas.value, nodes.value, edges.value, wireTies.value)
+    // No canvas open yet: nothing to write, and callers only read a canvas.
+    if (!canvas) return canvas
+    // toDomainCanvas carries the document it was given, so the camera the user
+    // is looking through has to be written over that copy.
+    return viewport.value ? { ...canvas, viewport: { ...viewport.value } } : canvas
   }
 
   function restoreWorkflowDraft(remoteCanvas) {
