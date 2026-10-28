@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { addCanvasStage, buildCanvasStructure, planCanvas, rebuildDagEdges } from './planner.js'
+import { addCanvasStage, buildCanvasStructure, planCanvas, rebuildDagEdges, removeCanvasNodes } from './planner.js'
 
 test('creates a named frame for a Blahaj reconstruction request', () => {
   const { canvas } = planCanvas('复刻 Blahaj 的3D模型')
@@ -156,4 +156,89 @@ test('adds a new frame with a unique ID', () => {
   assert.equal(frames.length, 2)
   assert.notEqual(frames[0].id, frames[1].id)
   assert.equal(result.canvas.edges.length, initial.edges.length)
+})
+
+test('applies per-type config overrides while building', () => {
+  const canvas = buildCanvasStructure('Build a prop pipeline', ['prompt', 'text-to-3d', 'texture', 'export-model'], null, {
+    configs: {
+      'texture': { textureQuality: 'detailed' },
+      'export-model': { modelFormat: 'usdz' },
+    },
+  })
+  const texture = canvas.nodes.find((node) => node.type === 'texture')
+  const exported = canvas.nodes.find((node) => node.type === 'export-model')
+
+  assert.equal(texture.config.textureQuality, 'detailed')
+  assert.equal(exported.config.modelFormat, 'usdz')
+})
+
+test('rejects an override the node does not have', () => {
+  assert.throws(
+    () => buildCanvasStructure('Build a prop pipeline', ['prompt', 'text-to-3d'], null, {
+      configs: { 'text-to-3d': { notAParameter: 1 } },
+    }),
+    /does not support parameter/,
+  )
+})
+
+test('wires every mesh stage in the chain, not just the original four', () => {
+  const nodes = [
+    { id: 'prompt', type: 'prompt' },
+    { id: 'text-to-3d', type: 'text-to-3d' },
+    { id: 'remesh', type: 'remesh' },
+    { id: 'uv-unwrap', type: 'uv-unwrap' },
+    { id: 'print-analyze', type: 'print-analyze' },
+    { id: 'print-repair', type: 'print-repair' },
+    { id: 'convert-model', type: 'convert-model' },
+    { id: 'export-model', type: 'export-model' },
+  ]
+  const pairs = rebuildDagEdges(nodes).map((edge) => [edge.source.nodeId, edge.target.nodeId]).filter(([source]) => source !== 'prompt')
+
+  assert.deepEqual(pairs, [
+    ['text-to-3d', 'remesh'],
+    ['remesh', 'uv-unwrap'],
+    ['uv-unwrap', 'print-analyze'],
+    ['print-analyze', 'print-repair'],
+    ['print-repair', 'convert-model'],
+    ['convert-model', 'export-model'],
+  ])
+})
+
+test('routes a motion clip into the animation node motion port', () => {
+  const edges = rebuildDagEdges([
+    { id: 'text-to-motion', type: 'text-to-motion' },
+    { id: 'rigging', type: 'rigging' },
+    { id: 'animation', type: 'animation' },
+  ])
+  const motion = edges.find((edge) => edge.source.nodeId === 'text-to-motion')
+
+  assert.deepEqual([motion.target.nodeId, motion.target.port], ['animation', 'motion'])
+})
+
+test('deleting a stage reconnects upstream to downstream and drops the orphan preview', () => {
+  const slot = (id) => ({ id, type: 'generated-model', name: 'generated-model', config: {}, ui: {} })
+  const node = (id, type) => ({ id, type, name: type, config: {}, ui: {} })
+  const edge = (id, from, to) => ({ id, source: { nodeId: from, port: 'model' }, target: { nodeId: to, port: 'model' } })
+  const canvas = {
+    revision: 4,
+    nodes: [node('text-to-3d', 'text-to-3d'), slot('slot-a'), node('retopology', 'retopology'), slot('slot-b'), node('texture', 'texture')],
+    edges: [edge('e1', 'text-to-3d', 'slot-a'), edge('e2', 'slot-a', 'retopology'), edge('e3', 'retopology', 'slot-b'), edge('e4', 'slot-b', 'texture')],
+  }
+
+  // Deleting the stage and its preview slot together must not strand the node
+  // that came after them.
+  const result = removeCanvasNodes(canvas, ['retopology', 'slot-b'])
+
+  assert.equal(result.changed, true)
+  assert.deepEqual(result.removed.map((entry) => entry.id).sort(), ['retopology', 'slot-b'])
+  assert.ok(result.bridged.some((hop) => hop.from === 'slot-a' && hop.to === 'texture'))
+  const ids = new Set(result.canvas.nodes.map((entry) => entry.id))
+  assert.ok(result.canvas.edges.every((entry) => ids.has(entry.source.nodeId) && ids.has(entry.target.nodeId)))
+  assert.equal(result.canvas.revision, 5)
+})
+
+test('removing a node that is not there is a no-op', () => {
+  const canvas = buildCanvasStructure('Build a text pipeline', ['prompt', 'text-to-3d'], null)
+  const result = removeCanvasNodes(canvas, ['not-a-node'])
+  assert.equal(result.changed, false)
 })

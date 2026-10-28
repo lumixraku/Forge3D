@@ -1,4 +1,4 @@
-import { describeCanvasParameters, canvasParameters } from './canvas-parameters.js'
+import { describeCanvasParameters, canvasParameters, updateNodeParameters } from './canvas-parameters.js'
 import { randomUUID } from './ids.js'
 import { applyNodeParameter, defaultCanvasProvider, nodeDefaults as schemaDefaults, canvasNodeSchema } from '../src/canvas-schema.js'
 import { nodeInputPorts, nodeOutputPorts } from '../src/canvas-nodes.js'
@@ -67,17 +67,23 @@ function fitFrame(nodes, options = {}) {
 export function rebuildDagEdges(nodes) {
   const byType = new Map(nodes.map((node) => [node.type, node]))
   const edges = []
-  const connect = (sourceType, targetType) => {
+  // Ports named after their media type are the generic way in. Labeled ports
+  // (front / left / motion) only ever accept their namesake, so an image wire
+  // can no longer slide into a view slot just because both carry an image.
+  const GENERIC_PORTS = new Set(['image', 'model', 'text'])
+
+  const connect = (sourceType, targetType, ports = {}) => {
     const source = byType.get(sourceType)
     const target = byType.get(targetType)
     if (!source || !target) return
     const usedTargetPorts = new Set(edges.filter((edge) => edge.target.nodeId === target.id).map((edge) => edge.target.port))
     for (const sourcePort of nodeOutputPorts(sourceType)) {
-      const inputs = nodeInputPorts(targetType)
-      // Prefer an exact key match so a view port (front/back/left/right) pairs
-      // with its namesake instead of collapsing onto a generic same-type port.
-      const targetPort = inputs.find((candidate) => !usedTargetPorts.has(candidate.id) && candidate.id === sourcePort.id)
-        || inputs.find((candidate) => !usedTargetPorts.has(candidate.id) && (sourcePort.type === 'any' || candidate.type === sourcePort.type || candidate.type === 'any'))
+      if (ports.from && sourcePort.id !== ports.from) continue
+      const inputs = nodeInputPorts(targetType).filter((candidate) => !usedTargetPorts.has(candidate.id))
+      const targetPort = ports.to
+        ? inputs.find((candidate) => candidate.id === ports.to)
+        : inputs.find((candidate) => candidate.id === sourcePort.id)
+          || inputs.find((candidate) => GENERIC_PORTS.has(candidate.id) && (sourcePort.type === 'any' || candidate.type === sourcePort.type || candidate.type === 'any'))
       if (!targetPort) continue
       usedTargetPorts.add(targetPort.id)
       edges.push({
@@ -90,12 +96,27 @@ export function rebuildDagEdges(nodes) {
 
   connect('reference-image', 'generate-image')
   connect('prompt', 'generate-image')
-  connect('generate-image', 'generate-model')
+  connect('generate-image', 'image-to-image')
+  connect('text-to-image', 'image-to-image')
+  connect('reference-image', 'image-decomposition')
+  connect('image-decomposition', 'generate-image')
+  connect('prompt', 'text-to-image')
+  // A review gate is a pass-through for the image stage, so the wire runs
+  // through it instead of bypassing it.
+  if (byType.has('review')) {
+    connect('generate-image', 'review')
+    connect('review', 'generate-model', { from: 'image', to: 'image' })
+  } else {
+    connect('generate-image', 'generate-model')
+  }
   connect('reference-image', 'generate-multiview-images')
   connect('prompt', 'generate-multiview-images')
   connect('prompt', 'text-to-3d')
+  connect('prompt', 'text-to-motion')
   connect('generate-image', 'smart-mesh')
   connect('prompt', 'smart-mesh')
+  connect('reference-image', 'creative-lab')
+  connect('generate-image', 'creative-lab')
   // Multi-view images feed the 3D reconstruction stage. Without this the
   // generate-multiview-images node is left dangling before the model node.
   connect('generate-multiview-images', 'multiview-to-3d')
@@ -117,8 +138,20 @@ export function rebuildDagEdges(nodes) {
       ? 'multiview-to-3d'
       : byType.has('smart-mesh')
         ? 'smart-mesh'
-        : 'generate-model'
-  const modelChain = [modelSource, 'retopology', 'texture', 'rigging', 'segments'].filter((type) => byType.has(type))
+        : byType.has('creative-lab')
+          ? 'creative-lab'
+          : 'generate-model'
+  // Mesh-refinement stages in pipeline order. Everything present is linked into
+  // one chain, so a stage from the print / retopo / rigging families is no
+  // longer left dangling the way it was when this list stopped at `segments`.
+  const MESH_STAGES = [
+    'retopology', 'remesh', 'uv-unwrap', 'texture', 'retexture', 'rigging',
+    'animation', 'segments', 'resize-model', 'print-analyze', 'print-repair',
+    'auto-split', 'multi-color-print', 'convert-model',
+  ]
+  // A motion clip is the animation node's second input, not a mesh upstream.
+  connect('text-to-motion', 'animation', { from: 'model', to: 'motion' })
+  const modelChain = [modelSource, ...MESH_STAGES.filter((type) => byType.has(type))]
   modelChain.slice(1).forEach((type, index) => connect(modelChain[index], type))
   const finalModelType = modelChain.at(-1)
   const finalNodeType = byType.has('export-model') ? 'export-model' : 'model-preview'
@@ -127,7 +160,18 @@ export function rebuildDagEdges(nodes) {
   return edges
 }
 
-export function buildCanvasStructure(message, types, existingCanvas = null) {
+/**
+ * Append one frame of nodes to a canvas.
+ *
+ * @param {string} message — the instruction the section came from (used for naming).
+ * @param {string[]} types — node types, in pipeline order.
+ * @param {object|null} existingCanvas — canvas to append to.
+ * @param {{ configs?: Record<string, object> }} [options] — per-type parameter
+ *   overrides applied after the node is created. Without this the section can
+ *   only ever run on schema defaults, which is how the canvas ended up with 8K
+ *   textures nobody asked for.
+ */
+export function buildCanvasStructure(message, types, existingCanvas = null, options = {}) {
   const normalizedTypes = [...new Set(types)].filter((type) => nodeDefaults[type])
   if (!normalizedTypes.length) return existingCanvas ? structuredClone(existingCanvas) : baseCanvas(message)
 
@@ -162,7 +206,7 @@ export function buildCanvasStructure(message, types, existingCanvas = null) {
     createdAt: now,
   }
   const textTo3d = normalizedTypes.includes('text-to-3d')
-  return {
+  const next = {
     ...canvas,
     name: existingCanvas?.name || (textTo3d ? 'Text to 3D Pipeline' : '3D Asset Pipeline'),
     description: existingCanvas?.description || 'A reusable 3D production canvas created through conversation.',
@@ -172,6 +216,137 @@ export function buildCanvasStructure(message, types, existingCanvas = null) {
     edges,
     viewport: existingCanvas?.viewport || { x: 80, y: 160, zoom: 0.72 },
   }
+
+  const configs = options?.configs || {}
+  // Only the nodes this call created: a canvas can already hold a node of the
+  // same type, and an override must never reach back into an earlier section.
+  const created = new Map(sectionNodes.filter((node) => node.type !== 'frame').map((node) => [node.type, node]))
+  for (const [type, config] of Object.entries(configs)) {
+    if (!config || typeof config !== 'object') continue
+    const node = created.get(type)
+    if (!node) {
+      throw new Error(`configs mentions "${type}", which is not part of this build (${normalizedTypes.join(', ')})`)
+    }
+    // Reject loudly: a silently dropped override would look applied in the tool
+    // result while the canvas still runs on the default.
+    try {
+      updateNodeParameters(next, node.id, config)
+    } catch (error) {
+      throw new Error(`${type}: ${error.message}`)
+    }
+  }
+  return next
+}
+
+/** Node types that only display what flows through them (Asset Preview). */
+const PREVIEW_TYPES = new Set(canvasNodeSchema.filter((node) => node.role === 'result').map((node) => node.type))
+
+/** One wire, named the way a wire tie names its members. */
+function wireKeyOf(edge) {
+  return `${edge.source.nodeId}:${edge.source.port}->${edge.target.nodeId}:${edge.target.port}`
+}
+
+/** Column width the canvas lays a section out with. */
+const COLUMN_GAP = 340
+
+/**
+ * Re-pack each frame's children into one row and resize the frame to fit.
+ * A multi-row section is left where the user put it — only its frame resizes.
+ */
+function compactFrames(nodes, options = {}) {
+  if (options.compact === false) return
+  for (const frame of nodes.filter((node) => node.type === 'frame')) {
+    const children = nodes.filter((node) => node.ui?.parentFrameId === frame.id)
+    if (!children.length) continue
+    const ordered = [...children].sort((left, right) => left.ui.position.x - right.ui.position.x)
+    const baseline = ordered[0].ui.position.y
+    const singleRow = ordered.every((node) => Math.abs(node.ui.position.y - baseline) < 80)
+    if (singleRow) {
+      ordered.forEach((node, index) => {
+        node.ui.position.x = ordered[0].ui.position.x + index * COLUMN_GAP
+        node.ui.position.y = baseline
+      })
+    }
+    const minX = Math.min(...ordered.map((node) => node.ui.position.x))
+    const minY = Math.min(...ordered.map((node) => node.ui.position.y))
+    const maxX = Math.max(...ordered.map((node) => node.ui.position.x + (node.ui.size?.width ?? 260)))
+    const maxY = Math.max(...ordered.map((node) => node.ui.position.y + (node.ui.size?.height ?? 430)))
+    frame.ui.size = { width: maxX - minX + 140, height: maxY - minY + 140 }
+  }
+}
+
+/**
+ * Delete nodes and repair the graph around them.
+ *
+ * Deleting a stage used to be a manual JSON edit: drop the node, drop its wires,
+ * then reconnect upstream to downstream by hand. This does that. Preview slots
+ * are left to the store's result-slot reconciler, which knows which slot belongs
+ * to which stage — guessing from edges would delete slots that are fed by their
+ * stage rather than by a wire.
+ *
+ * @param {{ nodes: any[], edges: any[], revision?: number, wireTies?: any[] }} canvas
+ * @param {string[]} nodeIds
+ * @param {{ compact?: boolean }} [options]
+ */
+export function removeCanvasNodes(canvas, nodeIds, options = {}) {
+  const next = structuredClone(canvas)
+  const doomed = new Set((nodeIds || []).filter((id) => typeof id === 'string'))
+  const gone = next.nodes.filter((node) => doomed.has(node.id))
+  if (!gone.length) return { canvas: next, removed: [], bridged: [], changed: false }
+
+  const removedIds = new Set(gone.map((node) => node.id))
+  const removed = gone.map((node) => ({ id: node.id, type: node.type, name: node.name }))
+  const incoming = next.edges.filter((edge) => removedIds.has(edge.target.nodeId) && !removedIds.has(edge.source.nodeId))
+  // Wires leaving the doomed region. A deleted stage usually takes its preview
+  // slot with it, so follow the chain through deleted nodes to the first
+  // surviving target instead of stopping at the immediate neighbour.
+  const outgoing = []
+  const walkDownstream = (edge) => {
+    if (!removedIds.has(edge.target.nodeId)) {
+      outgoing.push(edge)
+      return
+    }
+    for (const deeper of next.edges.filter((candidate) => candidate.source.nodeId === edge.target.nodeId)) walkDownstream(deeper)
+  }
+  for (const edge of next.edges.filter((candidate) => removedIds.has(candidate.source.nodeId))) walkDownstream(edge)
+  next.nodes = next.nodes.filter((node) => !removedIds.has(node.id))
+  next.edges = next.edges.filter((edge) => !removedIds.has(edge.source.nodeId) && !removedIds.has(edge.target.nodeId))
+
+  // Whatever fed the deleted stage now feeds what the stage fed.
+  const bridged = []
+  for (const inEdge of incoming) {
+    for (const outEdge of outgoing) {
+      const source = next.nodes.find((node) => node.id === inEdge.source.nodeId)
+      const target = next.nodes.find((node) => node.id === outEdge.target.nodeId)
+      if (!source || !target) continue
+      const sourcePort = nodeOutputPorts(source.type).find((port) => port.id === inEdge.source.port)
+      if (!sourcePort) continue
+      const used = new Set(next.edges.filter((edge) => edge.target.nodeId === target.id).map((edge) => edge.target.port))
+      const targetPort = nodeInputPorts(target.type).find((port) => port.id === outEdge.target.port && !used.has(port.id))
+        || nodeInputPorts(target.type).find((port) => !used.has(port.id) && ['image', 'model', 'text'].includes(port.id) && (port.type === sourcePort.type || port.type === 'any' || sourcePort.type === 'any'))
+      if (!targetPort) continue
+      if (sourcePort.type !== 'any' && targetPort.type !== 'any' && sourcePort.type !== targetPort.type) continue
+      if (next.edges.some((edge) => edge.source.nodeId === source.id && edge.target.nodeId === target.id && edge.target.port === targetPort.id)) continue
+      let id = `edge-${source.id}-${target.id}`
+      let suffix = 2
+      while (next.edges.some((edge) => edge.id === id)) id = `edge-${source.id}-${target.id}-${suffix++}`
+      next.edges.push({ id, source: { nodeId: source.id, port: sourcePort.id }, target: { nodeId: target.id, port: targetPort.id } })
+      bridged.push({ from: source.id, to: target.id })
+    }
+  }
+
+  // A tie pins specific wires; a tie whose wires are all gone is dead weight.
+  if (Array.isArray(next.wireTies)) {
+    const live = new Set(next.edges.map(wireKeyOf))
+    next.wireTies = next.wireTies
+      .map((tie) => ({ ...tie, members: (tie.members || []).filter((member) => live.has(member)) }))
+      .filter((tie) => tie.members.length > 0)
+  }
+
+  compactFrames(next.nodes, options)
+  next.revision = (canvas.revision || 0) + 1
+  next.updatedAt = new Date().toISOString()
+  return { canvas: next, removed, bridged, changed: true }
 }
 
 function requestedStructure(message) {
