@@ -27,6 +27,11 @@ export function projectDto(canvas) {
 
 export function replaceCanvasDocument(project, input, canvasId, updatedAt) {
   const repaired = withResultSlots({ ...input, provider: input.provider ?? project.provider })
+  // A revision numbers the content, so a document that matches what the server
+  // already holds must not spend one. Pointer-driven saves and a re-measured
+  // viewport can send a canvas identical to the stored one; treating those as
+  // edits is what made opening a menu look like a change to the workflow.
+  const changed = documentChanged(project, repaired)
   return {
     ...input,
     ...(repaired.nodes === input.nodes ? {} : { nodes: repaired.nodes, edges: repaired.edges }),
@@ -35,10 +40,19 @@ export function replaceCanvasDocument(project, input, canvasId, updatedAt) {
     description: project.description,
     provider: input.provider ?? project.provider,
     createdAt: project.createdAt,
-    revision: project.revision + 1,
-    updatedAt,
+    revision: changed ? project.revision + 1 : project.revision,
+    updatedAt: changed ? updatedAt : project.updatedAt,
     ...(project.ownerId ? { ownerId: project.ownerId } : {}),
   }
+}
+
+// Compares the parts of a canvas that are its content. The camera is where the
+// last editor was looking, so it never makes a document different; everything a
+// run reads — the graph, the wiring, the notes — does.
+function documentChanged(project, input) {
+  return JSON.stringify(project.nodes || []) !== JSON.stringify(input.nodes || [])
+    || JSON.stringify(project.edges || []) !== JSON.stringify(input.edges || [])
+    || JSON.stringify(project.wireTies || []) !== JSON.stringify(input.wireTies || [])
 }
 
 export function applyAgentCanvas(project, canvas) {

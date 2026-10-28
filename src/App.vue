@@ -1130,7 +1130,7 @@ onUnmounted(() => {
           @stop-run="cancelRun"
           @open-model-editor="openModelEditor"
           @run-section="runSection"
-          @viewport="viewport = $event; saveCanvas()"
+          @viewport="viewport = $event"
         />
         <AssetLibraryView v-if="canvasView === 'assets'" :rails="assetRails" :total="assetLibrary.total" :loading="assetsLoading" :canvas-node-ids="canvasNodeIds" @preview="openImagePreview" @open-model-editor="openModelEditor" />
         <RunLogPanel v-if="runDetails && runSummaryOpen" :details="runDetails" @close="runSummaryOpen = false" />

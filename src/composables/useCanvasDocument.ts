@@ -254,7 +254,6 @@ export function useCanvasDocument({
     return JSON.stringify(current.nodes) !== JSON.stringify(activeCanvas.value.nodes)
       || JSON.stringify(current.edges) !== JSON.stringify(activeCanvas.value.edges)
       || JSON.stringify(current.wireTies || []) !== JSON.stringify(activeCanvas.value.wireTies || [])
-      || JSON.stringify(current.viewport) !== JSON.stringify(activeCanvas.value.viewport)
   }
 
   // The canvas has exactly one save gate: anyone may call it, throttling is its own
