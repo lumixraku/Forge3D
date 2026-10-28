@@ -182,7 +182,13 @@ export function useCanvasDocument({
       if (token !== openToken) return
       // The nodes are on screen: show them now. Run results, previews and the
       // chat backlog fill in afterwards and never hold the canvas back.
+      // Framing the canvas on open is not an edit: hold the save gate shut while
+      // the camera moves, then take the framed camera as the loaded one, so it
+      // does not read as an unsaved change and bump the revision.
+      hydrating.value = true
       fitView({ padding: 0.18, duration: 0 })
+      if (viewport.value) activeCanvas.value = { ...activeCanvas.value, viewport: { ...viewport.value } }
+      hydrating.value = false
       openingCanvas.value = false
       const path = `/projects/${encodeURIComponent(id)}`
       window.history[replaceHistory ? 'replaceState' : 'pushState']({}, '', path)
