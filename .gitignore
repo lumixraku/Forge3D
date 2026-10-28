@@ -12,3 +12,12 @@ server/data/*
 .vercel/
 
 assets/forge3d-shark-demo.mp4
+# Promo renders and source media are large binaries built from promo/*.mjs; the
+# scripts that produce them stay in the repository.
+promo/*.gif
+promo/*.mp4
+promo/assets/
+.wrangler/
+dsh-plugin/dist/
+dsh-plugin/data/
+dsh-plugin/lib/data/
