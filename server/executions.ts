@@ -1,5 +1,5 @@
-import { isExecutableNodeType, isResultNodeType } from '../src/canvas-schema.js'
-import { validateCanvasGraph } from '../src/canvas-nodes.js'
+import { isExecutableNodeType, isResultNodeType } from '@forge3d/canvas-core'
+import { validateCanvasGraph } from '@forge3d/canvas-core'
 import { stagesOnlyEdges } from '../src/result-traversal.js'
 import { downstreamCanvas, executeNode, executionNodes } from './mock-runs.js'
 import { randomUUID } from './ids.js'

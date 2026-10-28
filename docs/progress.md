@@ -12,7 +12,7 @@
 - Ctrl+D 复制节点：直接追加到渲染图、保留相对布局与参数（24px 偏移）、刷新节点/边/父节点 ID、复制不携带运行结果，也不重排既有 Section。
 - 选中感知的 Auto Layout：无选择=全局布局；选中节点=仅其坐标范围；仅选中一个 Section=只布局其直接内容；Section+外部节点=作为组节点。Auto Layout 不再伴随 fitView（拆分出工具栏主动调用）。
 - Section（Frame）：从点击放置改为拖拽绘制（`useFrameDraw` + `buildDrawnFrame`）、拖拽矩形吸附子节点、拖动 Section 时重叠根节点被收养、跨 Section 拖入/拖出采用重叠所有权规则、选中感知 Fit、节点进入/离开/手拖时才 refit（运行态重测量不再触发 refit）、`manualSize` 退役、帧尺寸自适应其子节点。
-- 远程焦点刷新只修数据不重绘布局；顶部 bar / canvas 工具栏位于 Vue Flow 之上，Section 位于普通节点之上。
+- 远程焦点刷新只修数据不重绘布局；顶部 bar / canvas 工具栏位于画布之上，Section 位于普通节点之上。
 - 引力向画布放下图片文件会在落点创建 Asset Upload 节点并立即上传，保持既有目录拖拽路径不变（图片扩展名兜底 MIME 缺失）。
 - MessagePack 二进制系统剪贴板（无 `text/plain` 兜底）、版本化 canvas fragment 跨标签粘贴、跨标签粘贴时节点/边/父 ID 重映射。
 

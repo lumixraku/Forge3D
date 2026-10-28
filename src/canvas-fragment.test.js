@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { buildFragment, parseFragment, remapFragment, serializeFragment } from './canvas-fragment.js'
-import { toCanvasGraph } from './canvas-graph.js'
+import { toCanvasGraph } from '@forge3d/canvas-core'
 
 function node(id, x, y, parentFrameId) {
   return { id, type: id === 'section' ? 'frame' : 'prompt', ui: { position: { x, y }, ...(parentFrameId ? { parentFrameId } : {}) } }

@@ -78,6 +78,66 @@ The [live application](https://forge3d.lumixraku.org/) runs on Cloudflare Worker
 
 Cloudflare D1 and the local SQLite file are independent stores. Both use the SQL in `migrations/`. Deploying to Cloudflare does not upload or synchronize canvases from the local file.
 
+### DeepSeek Harness Plugin
+
+The same canvas also ships as a DeepSeek Harness bundle (`dsh-plugin/`). It serves the app under `/forge3d/`
+inside a `conversation.view` tab and gives the harness agent seven canvas tools, so a conversation and a
+workflow share one window. The harness conversation *is* the agent there, which is why that build has no
+in-app copilot. See [`dsh-plugin/README.md`](dsh-plugin/README.md).
+
+## Build Targets
+
+Two Vite configs build one source tree into two different applications:
+
+| Config | Output | `base` | Copilot |
+| --- | --- | --- | --- |
+| `vite.config.ts` | `dist/` (local + Cloudflare) | `/` | included |
+| `vite.config.plugin.ts` | `dsh-plugin/lib/client.js` | — (mounted in the DSH page) | **not built in** |
+
+### Build-time specialization
+
+A difference between the two builds must be decided **at build time**, not at runtime. A conditional render, a query
+parameter, or a `VITE_` flag all leave the code in the bundle — the branch is just never taken. That is
+acceptable for behaviour, fatal for weight: the plugin would ship the whole tiptap editor for a panel it
+cannot open.
+
+Two mechanisms exist, and only these two:
+
+1. **`define`** — `__FORGE3D_EMBED__` is `false` in the web config and `true` in the plugin config. Use it
+   for layout and behaviour that differ while the code is shared. It is declared in `src/env.d.ts`.
+   What it currently controls: the agent column in the canvas grid, and whether the API-key dialog asks
+   for a DeepSeek key (the harness brings its own model, so only the 3D provider key means anything there).
+2. **Module swap** — a `resolveId` rule in `vite.config.plugin.ts` that points a real module at a stub.
+   This removes the module *and its dependencies* from the graph.
+
+Current swaps:
+
+| Real module | Harness build resolves to | Removes |
+| --- | --- | --- |
+| `src/components/ChatPanel.tsx` | `src/components/NoAgentPanel.tsx` | `marked`, `dompurify`, message rendering |
+| `src/state/composer.ts` | `src/state/composer.harness.ts` | `@tiptap/*`, ProseMirror, the attachment node view |
+
+Adding a swap:
+
+1. Extract the heavy or agent-only part into its own module. It must be reachable from a single import.
+2. Write a stub that exports **the same shape**, with inert values (`state(null)`, `derived(() => false)`,
+   no-op functions). Callers stay unchanged, so the shared code needs no guards.
+3. Add a `resolveId` rule in `vite.config.plugin.ts` and a row to the table above.
+
+Two traps worth knowing:
+
+- `resolve.alias` matches on the **module specifier**, and its replacement is substituted textually. An
+  absolute path as the replacement turns `./components/ChatPanel` into
+  `./components//Users/...`. Use a `resolveId` rule, which receives the specifier and returns a resolved
+  path.
+- A regex that does not match fails **silently**: the build stays green and the module is still bundled.
+  Verify after adding one:
+
+```bash
+npx vite build --config vite.config.plugin.ts
+grep -c ProseMirror dsh-plugin/lib/client.js   # expect 0 in the plugin build, >0 in dist/
+```
+
 ## Prerequisites
 
 Prepare the following configuration for the features you intend to use.

@@ -4,15 +4,35 @@
     "useDefineForClassFields": true,
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "types": ["vite/client"],
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [
+      "vite/client"
+    ],
     "strict": false,
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
+    "jsx": "react-jsx",
     "noEmit": true,
-    "noCheck": true
+    "noCheck": true,
+        "baseUrl": ".",
+    "paths": {
+      "@forge3d/canvas-core": [
+        "packages/canvas-core/src/index.ts"
+      ]
+    }
   },
-  "include": ["src/**/*.ts", "src/**/*.vue", "vite.config.ts"],
-  "exclude": ["src/**/*.test.js"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "packages/**/*.ts",
+    "vite.config.ts"
+  ],
+  "exclude": [
+    "src/**/*.test.js"
+  ]
 }

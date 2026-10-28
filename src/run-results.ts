@@ -1,4 +1,4 @@
-import { nodeOutputPorts } from './canvas-nodes'
+import { nodeOutputPorts } from '@forge3d/canvas-core'
 
 /**
  * One artifact a successful run produced, as a result node to materialize.

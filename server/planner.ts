@@ -1,7 +1,7 @@
 import { describeCanvasParameters, canvasParameters, updateNodeParameters } from './canvas-parameters.js'
 import { randomUUID } from './ids.js'
-import { applyNodeParameter, defaultCanvasProvider, nodeDefaults as schemaDefaults, canvasNodeSchema } from '../src/canvas-schema.js'
-import { nodeInputPorts, nodeOutputPorts } from '../src/canvas-nodes.js'
+import { applyNodeParameter, defaultCanvasProvider, nodeDefaults as schemaDefaults, canvasNodeSchema } from '@forge3d/canvas-core'
+import { nodeInputPorts, nodeOutputPorts } from '@forge3d/canvas-core'
 
 export const nodeDefaults = Object.fromEntries(canvasNodeSchema
   .filter((node) => node.role !== 'container' && node.role !== 'result')

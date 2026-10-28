@@ -1,7 +1,7 @@
 // Shared input resolution for Tripo and Meshy. This file stays free of Node
 // built-ins so the Cloudflare Worker can import the Meshy runner.
 
-import { nodeOutputPortValues, resolveInputSources, resolveNodeInputs } from '../src/canvas-nodes.js'
+import { nodeOutputPortValues, resolveInputSources, resolveNodeInputs } from '@forge3d/canvas-core'
 
 function inboundSources(node, canvas) {
   const nodesById = new Map(canvas.nodes.map((item) => [item.id, item]))

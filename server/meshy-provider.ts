@@ -5,7 +5,7 @@
 
 import { meshyNodeOutput, meshyRequest, usesMeshy } from './meshy-mapping.js'
 import { resolveGenerateModelImages, resolvePrompt, resolveUpstreamPreview } from './run-inputs.js'
-import { nodeInputPorts, nodeOutputPortValues, resolveInputSources } from '../src/canvas-nodes.js'
+import { nodeInputPorts, nodeOutputPortValues, resolveInputSources } from '@forge3d/canvas-core'
 
 // Only images reach Meshy here: generate-model is the one backed node type, and
 // it never takes a mesh. Meshy itself accepts jpg, jpeg, and png.

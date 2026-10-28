@@ -3,8 +3,13 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2023"],
-    "types": ["node", "@cloudflare/workers-types"],
+    "lib": [
+      "ES2023"
+    ],
+    "types": [
+      "node",
+      "@cloudflare/workers-types"
+    ],
     "allowJs": true,
     "checkJs": false,
     "strict": false,
@@ -13,7 +18,17 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "verbatimModuleSyntax": false,
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@forge3d/canvas-core": [
+        "packages/canvas-core/src/index.ts"
+      ]
+    }
   },
-  "include": ["worker.ts", "server/**/*.ts"]
+  "include": [
+    "worker.ts",
+    "server/**/*.ts",
+    "packages/**/*.ts"
+  ]
 }

@@ -1,9 +1,16 @@
+import { fileURLToPath } from 'node:url'
+import path from 'node:path'
+
+const corePath = fileURLToPath(new URL('./packages/canvas-core/src/index.ts', import.meta.url))
+
 import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
+import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
-  plugins: [tailwindcss(), vue({ template: { compilerOptions: { isCustomElement: (tag) => tag === 'model-viewer' } } })],
+  define: { __FORGE3D_EMBED__: 'false' },
+  resolve: { alias: { '@forge3d/canvas-core': corePath } },
+  plugins: [tailwindcss(), react()],
   server: {
     port: 5175,
     watch: {

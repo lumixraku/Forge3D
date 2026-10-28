@@ -157,7 +157,7 @@ const imgList = {
 };
 const loadImg = (k, src) => new Promise((ok, bad) => { const i = new Image(); i.onload = () => { IMG[k] = i; ok(); }; i.onerror = () => bad(new Error(src)); i.src = src; });
 
-// 与 src/components/Model3D.vue 一致的预览场景：RoomEnvironment、半球光 + 主光、fov 38、相机 (0.4, 0.6, 4)
+// 与 src/components/Model3D.tsx 一致的预览场景：RoomEnvironment、半球光 + 主光、fov 38、相机 (0.4, 0.6, 4)
 const VIEW = { x: 0, y: 129, w: 1620, h: 897 }; // 截图里 3D 视口在 1920x1080 坐标下的位置
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(1);

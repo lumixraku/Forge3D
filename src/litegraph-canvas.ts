@@ -1,8 +1,9 @@
 import { LGraph, LGraphCanvas, LGraphGroup, LiteGraph } from 'litegraph.js'
-import { canConnectPorts, hasModelEditor, isExecutableNodeType, nodeSchema, parameterRange, visibleParameters } from './canvas-nodes'
+import { canConnectPorts, hasModelEditor, isExecutableNodeType, nodeSchema, parameterRange, visibleParameters } from '@forge3d/canvas-core'
 import { meshyAssetHref } from './meshy-asset'
-import { applyNodeParameter } from './canvas-schema'
-import { distanceToPolyline, distanceToSegment, LANE_GAP, planWire, polylinesCross, stockWire, tieBar, tieLanes, tieRadius, type Pin, wireKey, type WireTie } from './wire-tie'
+import { applyNodeParameter } from '@forge3d/canvas-core'
+import { distanceToPolyline, distanceToSegment, LANE_GAP, planWire, polylinesCross, stockWire, tieBar, tieLanes, tieRadius, type Pin, wireKey, type WireTie } from '@forge3d/canvas-core'
+import { apiUrl } from './api'
 
 const NODE_TYPE = 'forge/node'
 const PORT_COLOR: Record<string, string> = {
@@ -1656,13 +1657,13 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       const generated = node?.data?.generatedAssets
       const item = generated?.outputs?.[Number(action.slice(9))]
       const href = meshyAssetHref(generated, 'model', item?.downloadUrl)
-      if (href) window.open(href, '_blank', 'noopener')
+      if (href) window.open(apiUrl(href), '_blank', 'noopener')
     }
     if (action === 'download-model') {
       const node = byForgeId().get(id)
       const generated = node?.data?.generatedAssets
       const href = meshyAssetHref(generated, 'model', generated?.modelUrl)
-      if (href) window.open(href, '_blank', 'noopener')
+      if (href) window.open(apiUrl(href), '_blank', 'noopener')
     }
     if (action === 'run') handlers.onRun(id)
     if (action === 'downstream') handlers.onRunDownstream(id)
@@ -1685,7 +1686,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
       if (!image) continue
       const controller = new AbortController()
       previewLoads.set(url, controller)
-      fetch(url, { signal: controller.signal })
+      fetch(apiUrl(url), { signal: controller.signal })
         .then((response) => (response.ok ? response.blob() : null))
         .then((blob) => {
           if (images.get(url) !== image) return
@@ -1739,7 +1740,7 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
         previewQueue.push(url)
         pumpPreviews()
       } else {
-        image.src = url
+        image.src = apiUrl(url)
       }
     }
     created.previewImage = image

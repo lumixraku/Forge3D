@@ -1,12 +1,8 @@
 // @forge3d/dsh-plugin — host half.
 //
-// One job: own the `/forge3d` web route so the browser (and the plugin's own
-// `conversation.view` tab) can load the built Forge3D app from the DSH origin.
-//
-// Why a route instead of bundling the canvas into the client plugin:
-// the canvas is a Vue 3 app with its own build output. Serving it as a
-// same-origin document under `/forge3d/` keeps that app untouched — no React
-// rewrite, no cross-origin bridge, and the DSH auth cookie applies as-is.
+// One job: own the `/forge3d` web route. The canvas itself renders natively in
+// the harness page (`lib/client.js`); this route answers its `/forge3d/api`
+// requests on the DSH origin, so the DSH auth cookie applies as-is.
 //
 // Phase 1 scope: static serving + SPA fallback + `/forge3d/api` reverse proxy,
 // so an existing Forge3D server (default http://127.0.0.1:8787) can back the
@@ -157,7 +153,10 @@ async function sendIndex(res, dist, req) {
   res.writeHead(200, {
     'content-type': 'text/html; charset=utf-8',
     'content-length': body.length,
-    'cache-control': 'no-cache',
+    // An iframe document is what keeps a stale build alive across a host
+    // restart: `no-cache` still allows a reuse with revalidation, and a restored
+    // frame does not always revalidate. `no-store` forbids keeping it at all.
+    'cache-control': 'no-store, must-revalidate',
   })
   if (req.method === 'HEAD') return res.end()
   res.end(body)
@@ -208,31 +207,57 @@ function proxy(req, res, upstream, rest, search) {
 // function that serves a Node request. No port, no child process, no second
 // service — the plugin's own web route is the service.
 const BACKEND_KEY = Symbol.for('forge3d.dsh.backend')
-const PLUGIN_DATA = process.env.FORGE3D_DATA_DIR || path.join(HERE, '..', 'data')
+// The database lives with the rest of this install's state, never inside the
+// package: an installed package may sit on a read-only volume, and an update
+// replaces its contents wholesale. Derived from STATE_DIR and never from
+// `process.env.FORGE3D_DATA_DIR`: this module is re-imported on every edit, and
+// reading the env var it later sets would pin the first (legacy) path forever.
+const PLUGIN_DATA = path.join(STATE_DIR, 'data')
 
 /**
- * First run after the data moved under the plugin: take the checkout's existing
- * store along instead of starting empty. Copies once; never overwrites.
+ * Where an older install of this plugin kept its data, newest convention first.
+ *
+ * - `STATE_DIR/data`: where it lives now.
+ * - `HERE/../data`: the package-local location used before the move.
+ * - `REPO_ROOT/server/data`: the checkout's server store, for a dev install.
+ */
+function legacyDataDirs() {
+  return [path.join(HERE, '..', 'data'), path.join(REPO_ROOT, 'server', 'data')]
+}
+
+/**
+ * Take an existing store along instead of starting empty. Copies once; never
+ * overwrites. The database is copied with its WAL files so that a store that was
+ * open when this ran still arrives consistent.
  */
 function adoptExistingData() {
   try {
     mkdirSync(PLUGIN_DATA, { recursive: true })
-    const target = path.join(PLUGIN_DATA, 'forge3d.sqlite')
-    if (readFileSync(target)) return
+    if (readFileSync(path.join(PLUGIN_DATA, 'forge3d.sqlite'))) return
   } catch {
-    /* no database yet — the copy below may still apply */
+    /* no database yet — a copy below may still apply */
   }
-  try {
-    const source = path.join(REPO_ROOT, 'server', 'data', 'forge3d.sqlite')
-    copyFileSync(source, path.join(PLUGIN_DATA, 'forge3d.sqlite'))
-    log(`adopted existing database from ${source}`)
-  } catch {
-    /* nothing to adopt */
-  }
-  try {
-    cpSync(path.join(REPO_ROOT, 'server', 'data', 'assets'), path.join(PLUGIN_DATA, 'assets'), { recursive: true, force: false, errorOnExist: false })
-  } catch {
-    /* no assets to adopt */
+  for (const source of legacyDataDirs()) {
+    const database = path.join(source, 'forge3d.sqlite')
+    try {
+      copyFileSync(database, path.join(PLUGIN_DATA, 'forge3d.sqlite'))
+    } catch {
+      continue
+    }
+    for (const suffix of ['-wal', '-shm']) {
+      try {
+        copyFileSync(database + suffix, path.join(PLUGIN_DATA, 'forge3d.sqlite') + suffix)
+      } catch {
+        /* a cleanly closed store has no WAL */
+      }
+    }
+    try {
+      cpSync(path.join(source, 'assets'), path.join(PLUGIN_DATA, 'assets'), { recursive: true, force: false, errorOnExist: false })
+    } catch {
+      /* no assets to adopt */
+    }
+    log(`adopted existing database from ${database}`)
+    return
   }
 }
 
@@ -270,7 +295,6 @@ async function loadBackend() {
   }
   const state = (globalThis[BACKEND_KEY] ??= { key: '', mod: null })
   if (state.mod && state.key === key) return state.mod
-  process.env.FORGE3D_SERVER_DIR = path.join(REPO_ROOT, 'server')
   // The plugin is its own stack: it never borrows the dev `agent:service`
   // process. `direct` runs the built-in loop inside this process, so the plugin
   // has exactly zero external services. Set FORGE3D_AGENT_SERVICE_URL to point
@@ -445,6 +469,11 @@ export function createHandler(options = {}) {
         }
         return proxy(req, res, upstream, rest, url.search)
       }
+      // Log which document and which bundle the tab actually asks for. A stale
+      // iframe is otherwise invisible from this side: the server is right, the
+      // browser is showing something else, and no one can tell which.
+      if (rest === '/' || rest === '') log(`GET ${ROUTE}/ (index)`)
+      if (/\.(js|css)$/.test(rest)) log(`GET ${ROUTE}${rest}`)
       if (rest === '/' || rest === '') return await sendIndex(res, dist, req)
       const file = path.resolve(dist, '.' + decodeURIComponent(rest))
       if (file !== dist && !file.startsWith(dist + path.sep)) {

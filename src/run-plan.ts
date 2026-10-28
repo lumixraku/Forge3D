@@ -1,7 +1,7 @@
 // Input nodes and frames provide data or layout; only processing and export
 // nodes enter the execution plan. Which is which comes from the node schema's
 // `executable` flag rather than a list repeated here.
-import { isExecutableNodeType, isResultNodeType } from './canvas-schema'
+import { isExecutableNodeType, isResultNodeType } from '@forge3d/canvas-core'
 
 interface PlanNode {
   id: string

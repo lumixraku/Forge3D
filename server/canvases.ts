@@ -1,6 +1,6 @@
 import { randomUUID } from './ids.js'
-import { validateCanvasGraph } from '../src/canvas-nodes.js'
-import { defaultCanvasProvider } from '../src/canvas-schema.js'
+import { validateCanvasGraph } from '@forge3d/canvas-core'
+import { defaultCanvasProvider } from '@forge3d/canvas-core'
 
 function invalid(message) {
   const error = new Error(message)

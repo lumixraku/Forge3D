@@ -1,5 +1,5 @@
 import { canvasParameterJsonSchema } from './canvas-parameters.js'
-import { canvasNodeSchema } from '../src/canvas-schema.js'
+import { canvasNodeSchema } from '@forge3d/canvas-core'
 
 export const canvasNodeTypes = canvasNodeSchema.filter((node) => node.role !== 'container' && node.role !== 'result').map((node) => node.type)
 

@@ -9,7 +9,7 @@ import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-// src/canvas-schema.ts
+// packages/canvas-core/src/canvas-schema.ts
 var defaultCanvasProvider = "meshy";
 var options = (entries) => entries.map(([value, label]) => ({ value, label }));
 var imageModels = options([
@@ -304,6 +304,609 @@ function applyNodeParameter(type, config, key, value, provider = "tripo") {
   }
   return next;
 }
+
+// packages/canvas-core/src/canvas-nodes.ts
+var nodeCatalog = canvasNodeSchema;
+var nodeCategories = [...new Set(nodeCatalog.map((node) => node.category))];
+function nodeDefinition(type) {
+  return nodeCatalog.find((item) => item.type === type);
+}
+function toPortList(ports) {
+  return Object.entries(ports || {}).map(([id, port]) => ({
+    ...port,
+    id,
+    label: port.label || id[0].toUpperCase() + id.slice(1)
+  }));
+}
+function nodeInputPorts(type) {
+  return toPortList(nodeDefinition(type)?.inputs);
+}
+var namedViewPortIds = ["front", "back", "left", "right"];
+function modelInputMode(config) {
+  return config?.inputMode === "views" ? "views" : "images";
+}
+function activeInputPorts(type, config) {
+  const ports = nodeInputPorts(type);
+  if (type !== "generate-model") return ports;
+  const hidden = new Set(modelInputMode(config) === "views" ? ["image"] : namedViewPortIds);
+  return ports.filter((port) => !hidden.has(port.id));
+}
+function nodeOutputPorts(type) {
+  return toPortList(nodeDefinition(type)?.outputs);
+}
+function referenceAssetKind(uploadAssets) {
+  if (!uploadAssets) return null;
+  if (uploadAssets.assetType === "model") return "model";
+  if (uploadAssets.assetType === "image") return "image";
+  if (typeof uploadAssets.modelUrl === "string" && uploadAssets.modelUrl) return "model";
+  if (typeof uploadAssets.assetUrl === "string" && uploadAssets.assetUrl) return "image";
+  return null;
+}
+function resolveEdgePorts(sourceType, targetType, edge) {
+  const sourcePorts = sourceType ? nodeOutputPorts(sourceType) : [];
+  const targetPorts = targetType ? nodeInputPorts(targetType) : [];
+  const sourcePort = sourcePorts.find((port) => port.id === edge.source?.port) || (!edge.source?.port || edge.source.port === "output" ? sourcePorts[0] : void 0);
+  const targetPort = targetPorts.find((port) => port.id === edge.target?.port) || (!edge.target?.port || edge.target.port === "input" ? targetPorts.find((port) => sourcePort && (sourcePort.type === "any" || port.type === "any" || port.type === sourcePort.type)) : void 0);
+  return sourcePort && targetPort ? { sourcePort, targetPort } : null;
+}
+function resolveEdgePortPairs(sourceType, targetType, edge) {
+  const pair = resolveEdgePorts(sourceType, targetType, edge);
+  if (!pair || !sourceType) return [];
+  const named = edge.source?.port && edge.source.port !== "output";
+  if (named || !pair.targetPort.multiple) return [pair];
+  return nodeOutputPorts(sourceType).filter((sourcePort) => sourcePort.type === "any" || pair.targetPort.type === "any" || sourcePort.type === pair.targetPort.type).map((sourcePort) => ({ sourcePort, targetPort: pair.targetPort }));
+}
+function nodeOutputPortValues(node, produced) {
+  const uploads = node.uploadAssets || {};
+  const output = node.generatedAssets || {};
+  if (node.type === "reference-image") {
+    const kind = referenceAssetKind(uploads);
+    const raw = kind === "model" ? uploads.modelUrl ?? uploads.assetUrl : kind === "image" ? uploads.assetUrl ?? output.preview : null;
+    const value = typeof raw === "string" ? raw.trim() : raw;
+    return kind && value ? { [kind]: value } : {};
+  }
+  const ports = nodeOutputPorts(node.type);
+  if (!ports.length) return {};
+  const fromPorts = produced?.ports || null;
+  const values = {};
+  const config = node.config || {};
+  const viewPreviews = output.viewPreviews || {};
+  const previews = Array.isArray(output.previews) ? output.previews : [];
+  for (const port of ports) {
+    if (fromPorts && fromPorts[port.id] != null) {
+      values[port.id] = fromPorts[port.id];
+      continue;
+    }
+    const fallback = port.type === "model" ? produced?.modelUrl ?? uploads.modelUrl ?? output.modelUrl : port.type === "text" ? produced?.text ?? config.prompt : viewPreviews[port.id] ?? produced?.preview ?? output.selectedPreview ?? output.preview ?? previews[0];
+    const value = typeof fallback === "string" ? fallback.trim() : fallback;
+    if (value != null && value !== "") values[port.id] = value;
+  }
+  return values;
+}
+function resolveInputSources(node, canvas) {
+  const byId = new Map(canvas.nodes.map((item) => [item.id, item]));
+  const sources = {};
+  for (const port of nodeInputPorts(node.type)) sources[port.id] = [];
+  for (const edge of canvas.edges || []) {
+    if (edge.target?.nodeId !== node.id) continue;
+    const source = byId.get(edge.source?.nodeId || "");
+    if (!source) continue;
+    for (const pair of resolveEdgePortPairs(source.type, node.type, edge)) {
+      const found = sources[pair.targetPort.id];
+      if (!found || found.some((item) => item.node.id === source.id && item.portId === pair.sourcePort.id)) continue;
+      found.push({ node: source, portId: pair.sourcePort.id });
+    }
+  }
+  return sources;
+}
+function resolveNodeInputs(node, canvas, producedByNodeId = /* @__PURE__ */ new Map()) {
+  const produced = producedByNodeId instanceof Map ? producedByNodeId : new Map(Object.entries(producedByNodeId));
+  const sources = resolveInputSources(node, canvas);
+  const resolved = {};
+  for (const port of nodeInputPorts(node.type)) {
+    const values = [];
+    for (const source of sources[port.id] || []) {
+      const value = nodeOutputPortValues(source.node, produced.get(source.node.id))[source.portId];
+      if (value != null && !values.includes(value)) values.push(value);
+    }
+    if (!values.length && port.fallbackConfig) {
+      const fallback = node.config?.[port.fallbackConfig];
+      if (typeof fallback === "string" ? fallback.trim() : fallback != null) values.push(fallback);
+    }
+    if (values.length) resolved[port.id] = port.multiple ? values : values[0];
+  }
+  return resolved;
+}
+function parameterLabel(type, key) {
+  const port = nodeInputPorts(type).find((candidate) => candidate.id === key);
+  if (port) return port.label;
+  const parameter = allParameters(nodeSchema(type)?.parameters).find((candidate) => candidate.key === key);
+  return parameter?.label || key[0].toUpperCase() + key.slice(1);
+}
+function labelChoices(labels) {
+  if (labels.length > 2) return `${labels.slice(0, -1).join(", ")}, or ${labels.at(-1)}`;
+  return labels.length === 2 ? `${labels[0]} or ${labels[1]}` : labels[0];
+}
+var hasValue = (value) => typeof value === "string" ? Boolean(value.trim()) : value != null;
+function validateCanvasGraph(nodes, edges, { requireParameters = false } = {}) {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const issues = [];
+  const inputCounts = /* @__PURE__ */ new Map();
+  const outgoing = new Map(nodes.map((node) => [node.id, []]));
+  for (const edge of edges) {
+    const source = byId.get(edge.source?.nodeId || "");
+    const target = byId.get(edge.target?.nodeId || "");
+    const ports = source && target ? resolveEdgePorts(source.type, target.type, edge) : null;
+    const { sourcePort, targetPort } = ports || {};
+    if (!source || !target || !sourcePort || !targetPort) {
+      issues.push({ nodeId: target?.id, port: edge.target?.port, code: "invalid_edge", message: "Connection references a node or port that does not exist." });
+      continue;
+    }
+    if (sourcePort.type !== "any" && targetPort.type !== "any" && targetPort.type !== sourcePort.type) {
+      issues.push({ nodeId: target.id, port: targetPort.id, code: "incompatible_ports", message: `${targetPort.label} accepts ${targetPort.type}, not ${sourcePort.type}.` });
+      continue;
+    }
+    const key = `${target.id}:${targetPort.id}`;
+    inputCounts.set(key, (inputCounts.get(key) || 0) + 1);
+    if (!targetPort.multiple && inputCounts.get(key) > 1) {
+      issues.push({ nodeId: target.id, port: targetPort.id, code: "duplicate_input", message: `${targetPort.label} accepts only one connection.` });
+    }
+    outgoing.get(source.id)?.push(target.id);
+  }
+  if (requireParameters) {
+    const scope = typeof requireParameters === "boolean" ? null : new Set(requireParameters);
+    for (const node of nodes) {
+      if (scope && !scope.has(node.id)) continue;
+      const ports = new Map(nodeInputPorts(node.type).map((port) => [port.id, port]));
+      const satisfied = (key) => {
+        const port = ports.get(key);
+        if (!port) return hasValue(node.config?.[key]);
+        if (inputCounts.get(`${node.id}:${key}`)) return true;
+        return port.fallbackConfig ? hasValue(node.config?.[port.fallbackConfig]) : false;
+      };
+      for (const requirement of nodeSchema(node.type)?.requires || []) {
+        const keys = Array.isArray(requirement) ? requirement : [requirement];
+        if (keys.some(satisfied)) continue;
+        const choices = labelChoices(keys.map((key) => parameterLabel(node.type, key)));
+        issues.push({ nodeId: node.id, parameter: keys[0], code: "required_parameter_missing", message: `${node.name || node.type} requires ${choices}.` });
+      }
+    }
+  }
+  const visiting = /* @__PURE__ */ new Set();
+  const visited = /* @__PURE__ */ new Set();
+  const visit = (id) => {
+    if (visiting.has(id)) return true;
+    if (visited.has(id)) return false;
+    visiting.add(id);
+    const cyclic = outgoing.get(id)?.some(visit);
+    visiting.delete(id);
+    visited.add(id);
+    return Boolean(cyclic);
+  };
+  if (nodes.some((node) => visit(node.id))) issues.push({ code: "cycle", message: "Canvas connections must not contain a cycle." });
+  return issues;
+}
+
+// packages/canvas-core/src/canvas-graph.ts
+var nodePresentation = Object.fromEntries(nodeCatalog.map((node) => [node.type, [node.presentation.kind, node.presentation.detail, node.presentation.tone]]));
+
+// packages/canvas-core/src/canvas-results.ts
+var MULTI_VIEW_KEYS = ["front", "back", "left", "right"];
+var VIEW_LABELS = { front: "Front", back: "Back", left: "Left", right: "Right" };
+var DEFAULT_IMAGE_COUNT = 1;
+var EXPORT_RESULT = "Export file";
+function mediaPorts(type) {
+  return nodeOutputPorts(type).filter((port) => port.type === "image" || port.type === "model");
+}
+function imageSpec(index, count, view) {
+  return {
+    type: "generated-image",
+    slot: view ? `view:${view}` : `image:${index}`,
+    name: view ? `${VIEW_LABELS[view]} view` : count > 1 ? `Image ${index + 1}` : "Image",
+    produces: "image",
+    ...view ? { view } : {}
+  };
+}
+function imageCount(config) {
+  const amount = Number(config?.amount);
+  return Number.isInteger(amount) && amount > 0 ? amount : DEFAULT_IMAGE_COUNT;
+}
+function resultSpecs(type, config) {
+  if (!isExecutableNodeType(type)) return [];
+  const views = MULTI_VIEW_KEYS.filter((key) => nodeOutputPorts(type).some((port) => port.id === key));
+  if (type === "export-model") {
+    return [{ type: "generated-export", slot: "export", name: EXPORT_RESULT, produces: "model" }];
+  }
+  if (views.length) return views.map((view) => imageSpec(0, 1, view));
+  const media = mediaPorts(type);
+  if (media.some((port) => port.type === "model")) {
+    return [{ type: "generated-model", slot: "model", name: "Model", produces: "model" }];
+  }
+  if (!media.length) return [];
+  const count = imageCount(config);
+  return Array.from({ length: count }, (_, index) => imageSpec(index, count));
+}
+function isResultType(type) {
+  return nodeRole(type) === "result";
+}
+
+// packages/canvas-core/src/canvas-result-slots.ts
+var COLUMN_GAP = 340;
+var ROW_GAP = 270;
+function shapeOf(canvas) {
+  return canvas.nodes.some((node) => node.type === "canvas") ? "canvas" : "domain";
+}
+function typeOf(node, shape) {
+  return shape === "canvas" ? node.data?.canvasType || node.type : node.type;
+}
+function configOf(node, shape) {
+  return (shape === "canvas" ? node.data?.config : node.config) || {};
+}
+function generatedOf(node, shape) {
+  return (shape === "canvas" ? node.data?.generatedAssets : node.generatedAssets) || {};
+}
+function setGenerated(node, shape, generated) {
+  if (shape === "canvas") node.data = { ...node.data, generatedAssets: generated };
+  else node.generatedAssets = generated;
+}
+function positionOf(node, shape) {
+  if (shape === "canvas") return node.position || { x: 0, y: 0 };
+  const ui = node.ui || {};
+  return ui.position || { x: 0, y: 0 };
+}
+function setPosition(node, shape, position) {
+  if (shape === "canvas") node.position = position;
+  else node.ui = { ...node.ui || {}, position };
+}
+function parentOf(node, shape) {
+  if (shape === "canvas") return node.parentNode;
+  return node.ui?.parentFrameId;
+}
+function stageOf(node, shape) {
+  const origin = generatedOf(node, shape).resultOf;
+  return origin?.sourceId || null;
+}
+function edgesOf(canvas, shape) {
+  return (canvas.edges || []).map((edge) => shape === "canvas" ? { ...edge, source: { nodeId: edge.source, port: edge.sourceHandle || "output" }, target: { nodeId: edge.target, port: edge.targetHandle || "input" } } : edge);
+}
+function sameSpec(node, shape, spec) {
+  const generated = generatedOf(node, shape);
+  if (typeof generated.slot === "string") return generated.slot === spec.slot;
+  return typeOf(node, shape) === spec.type;
+}
+function downstreamOf(startId, edges) {
+  const found = /* @__PURE__ */ new Set();
+  const queue = [startId];
+  while (queue.length) {
+    const current = queue.shift();
+    for (const edge of edges) {
+      if (edge.source?.nodeId !== current || found.has(edge.target.nodeId)) continue;
+      found.add(edge.target.nodeId);
+      queue.push(edge.target.nodeId);
+    }
+  }
+  found.delete(startId);
+  return found;
+}
+function outputPortOf(type) {
+  return nodeOutputPorts(type)[0];
+}
+function inputPortOf(type) {
+  return nodeInputPorts(type)[0];
+}
+function mediaPair(sourceType, targetType) {
+  const source = nodeOutputPorts(sourceType).find((port) => port.type === "image" || port.type === "model");
+  const target = nodeInputPorts(targetType).find((port) => port.id === source?.id) || nodeInputPorts(targetType).find((port) => source && (port.type === source.type || port.type === "any"));
+  return source && target ? { sourcePort: source.id, targetPort: target.id, multiple: Boolean(target.multiple) } : null;
+}
+function reconcileResultSlots(canvas, { filled = /* @__PURE__ */ new Map(), materialize = null } = {}) {
+  const shape = shapeOf(canvas);
+  const provider = canvas.provider || "tripo";
+  const edges = edgesOf(canvas, shape);
+  const taken = new Set(canvas.nodes.map((node) => node.id));
+  const added = [];
+  const removed = [];
+  const materialized = [];
+  const nodes = canvas.nodes.slice();
+  const all = () => [...nodes, ...added];
+  const byId = /* @__PURE__ */ new Map();
+  for (const node of all()) byId.set(node.id, node);
+  const typeById = (id) => {
+    const node = byId.get(id);
+    return node ? typeOf(node, shape) || "" : "";
+  };
+  const owned = /* @__PURE__ */ new Map();
+  for (const node of nodes) {
+    if (!isResultType(typeOf(node, shape) || "")) continue;
+    const stage = stageOf(node, shape);
+    if (!stage) continue;
+    owned.set(stage, [...owned.get(stage) || [], node]);
+  }
+  const wanted = /* @__PURE__ */ new Map();
+  for (const node of nodes) {
+    const type = typeOf(node, shape) || "";
+    if (nodeRole(type) !== "execution") continue;
+    const specs = resultSpecs(type, normalizeNodeConfig(type, configOf(node, shape), provider));
+    const existing = owned.get(node.id) || [];
+    const keep = [];
+    for (const spec of specs) {
+      const match = existing.find((slot2) => sameSpec(slot2, shape, spec));
+      if (match) {
+        keep.push(match);
+        continue;
+      }
+      const slot = createSlot(canvas, shape, node, type, spec, taken, filled.get(node.id), materialize);
+      added.push(slot);
+      byId.set(slot.id, slot);
+      keep.push(slot);
+      materialized.push(slot.id);
+    }
+    for (const slot of existing) if (!keep.includes(slot)) removed.push(slot.id);
+    wanted.set(node.id, keep);
+  }
+  const baseEdges = edges.filter((edge) => !isResultType(typeById(edge.source?.nodeId || "")) && !isResultType(typeById(edge.target?.nodeId || "")));
+  for (const [stageId, slots] of wanted) {
+    const stage = byId.get(stageId);
+    if (!stage || !slots.length) continue;
+    const stageX = positionOf(stage, shape).x;
+    const feeds = [...downstreamOf(stageId, baseEdges)].map((id) => byId.get(id)).filter((node) => Boolean(node)).map((node) => positionOf(node, shape).x).filter((x) => x > stageX);
+    const targetX = feeds.length ? Math.min(...feeds) : Infinity;
+    if (targetX < stageX + COLUMN_GAP * 2) {
+      const push = stageX + COLUMN_GAP * 2 - targetX;
+      for (const nodeId of downstreamOf(stageId, baseEdges)) {
+        const node = byId.get(nodeId);
+        if (node) setPosition(node, shape, { x: positionOf(node, shape).x + push, y: positionOf(node, shape).y });
+      }
+    }
+    const wantedX = stageX + COLUMN_GAP;
+    slots.forEach((slot, index) => {
+      const current = positionOf(slot, shape);
+      const inGap = current.x > stageX + 8 && current.x < targetX - 8;
+      if (inGap) return;
+      setPosition(slot, shape, { x: wantedX, y: positionOf(stage, shape).y + index * ROW_GAP });
+    });
+  }
+  for (const [stageId, slots] of owned) {
+    if (wanted.has(stageId)) continue;
+    if (nodes.some((node) => node.id === stageId)) continue;
+    for (const slot of slots) removed.push(slot.id);
+  }
+  for (const [stageId, slots] of wanted) {
+    const output = filled.get(stageId);
+    if (!output || !materialize) continue;
+    const specs = resultSpecs(typeById(stageId), normalizeNodeConfig(typeById(stageId), configOf(byId.get(stageId), shape), provider));
+    for (const slot of slots) {
+      const generated = generatedOf(slot, shape);
+      if (generated.preview || generated.modelUrl || generated.outputs) continue;
+      const spec = specs.find((candidate) => sameSpec(slot, shape, candidate));
+      const media = spec && materialize(spec, output);
+      if (!media) continue;
+      setGenerated(slot, shape, { ...generated, ...media, resultOf: { ...generated.resultOf || {}, sourceId: stageId }, slot: spec.slot, ...spec.view ? { view: spec.view } : {} });
+      materialized.push(slot.id);
+    }
+  }
+  const nextEdges = [];
+  const connected = /* @__PURE__ */ new Set();
+  const linked = edges.filter((edge) => byId.has(edge.source?.nodeId || "") && byId.has(edge.target?.nodeId || ""));
+  const stageEdges = linked.filter((edge) => !isResultType(typeById(edge.source.nodeId)) && !isResultType(typeById(edge.target.nodeId)));
+  const slotEdges = linked.filter((edge) => isResultType(typeById(edge.source.nodeId)));
+  const dropped = new Set(removed);
+  for (const [stageId, slots] of wanted) {
+    const stageType = typeById(stageId);
+    for (const slot of slots) {
+      const slotType = typeOf(slot, shape) || "";
+      const view = generatedOf(slot, shape).view;
+      const ports = nodeOutputPorts(stageType);
+      const source = view && ports.find((port) => port.id === view) || ports.find((port) => {
+        const forward = outputPortOf(slotType);
+        return forward && (port.type === forward.type || port.type === "any" || forward.type === "any");
+      });
+      const target = outputPortOf(slotType);
+      if (!source || !target) continue;
+      const id = `edge-${stageId}-${slot.id}`;
+      if (nextEdges.some((edge) => edge.id === id) || connected.has(id)) continue;
+      connected.add(id);
+      nextEdges.push(slotLink(stageId, slot.id, source.id, target.id, shape, id));
+    }
+  }
+  for (const edge of stageEdges) {
+    const sourceId = edge.source.nodeId;
+    const targetId = edge.target.nodeId;
+    const slots = wanted.get(sourceId);
+    if (!slots?.length) {
+      nextEdges.push(edge);
+      continue;
+    }
+    const targetType = typeById(targetId);
+    if (!targetType) continue;
+    const pair = mediaPair(typeById(sourceId), targetType);
+    if (!pair) continue;
+    const targetPort = nodeInputPorts(targetType).find((port) => port.id === edge.target.port);
+    const collects = Boolean(targetPort?.multiple);
+    const viewSlots = slots.filter((slot) => generatedOf(slot, shape).view);
+    const usable = collects ? slots : viewSlots.length ? viewSlots : slots.slice(0, 1);
+    for (const slot of usable) {
+      const slotType = typeOf(slot, shape) || "";
+      const output = outputPortOf(slotType);
+      if (!output) continue;
+      const view = generatedOf(slot, shape).view;
+      const inputs = activeInputPorts(targetType, configOf(byId.get(targetId), shape));
+      const viewPort = view && inputs.find((port) => port.id === view && (port.type === output.type || port.type === "any"));
+      const openInput = viewPort || inputs.find((port) => port.id === output.id && (port.type === output.type || port.type === "any")) || inputs.find((port) => port.type === output.type || port.type === "any");
+      const target = viewPort || (targetPort && (targetPort.type === output.type || targetPort.type === "any") ? targetPort : null) || openInput;
+      if (!target) continue;
+      const id = `edge-${slot.id}-${targetId}-${target.id}`;
+      if (connected.has(id)) continue;
+      connected.add(id);
+      nextEdges.push(slotLink(slot.id, targetId, output.id, target.id, shape, id));
+    }
+  }
+  for (const [stageId, slots] of wanted) {
+    const stageType = typeById(stageId);
+    if (!stageType || !slots.length) continue;
+    const downstream = nodes.filter((node) => {
+      const type = typeOf(node, shape) || "";
+      return !isResultType(type) && node.id !== stageId && mediaPair(stageType, type);
+    });
+    for (const node of downstream) {
+      const type = typeOf(node, shape) || "";
+      if (linked.some((edge) => edge.target?.nodeId === node.id)) continue;
+      const config = configOf(node, shape);
+      const inputs = activeInputPorts(type, config);
+      for (const slot of slots) {
+        const slotType = typeOf(slot, shape) || "";
+        const output = outputPortOf(slotType);
+        if (!output) continue;
+        const view = generatedOf(slot, shape).view;
+        const target = view && inputs.find((port) => port.id === view && (port.type === output.type || port.type === "any")) || inputs.find((port) => port.id === output.id && (port.type === output.type || port.type === "any")) || inputs.find((port) => port.type === output.type || port.type === "any");
+        if (!target) continue;
+        const id = `edge-${slot.id}-${node.id}-${target.id}`;
+        if (connected.has(id)) continue;
+        connected.add(id);
+        nextEdges.push(slotLink(slot.id, node.id, output.id, target.id, shape, id));
+      }
+    }
+  }
+  for (const edge of slotEdges) {
+    if (dropped.has(edge.source.nodeId) || dropped.has(edge.target.nodeId)) continue;
+    const slot = byId.get(edge.target.nodeId);
+    const slotStage = slot && stageOf(slot, shape);
+    if (slotStage && nodeRole(typeById(slotStage)) === "execution") continue;
+    nextEdges.push(edge);
+  }
+  canvas.nodes = [...nodes.filter((node) => !dropped.has(node.id)), ...added];
+  const untouched = edges.filter((edge) => !byId.has(edge.source?.nodeId || "") || !byId.has(edge.target?.nodeId || ""));
+  canvas.edges = shape === "canvas" ? nextEdges.map((edge) => ({ ...edge, source: edge.source.nodeId, target: edge.target.nodeId, sourceHandle: "output", targetHandle: "input" })) : nextEdges;
+  if (untouched.length) canvas.edges = [...canvas.edges, ...untouched];
+  return { canvas, added, removed, materialized };
+}
+function slotLink(sourceId, targetId, sourcePort, targetPort, shape, id = `edge-${sourceId}-${targetId}`) {
+  if (shape === "canvas") {
+    return { id, source: { nodeId: sourceId, port: sourcePort }, target: { nodeId: targetId, port: targetPort }, sourceHandle: "output", targetHandle: "input", data: { logicalConnections: [{ sourcePort, targetPort }] }, selectable: true, type: "execution" };
+  }
+  return { id, source: { nodeId: sourceId, port: sourcePort }, target: { nodeId: targetId, port: targetPort } };
+}
+function createSlot(canvas, shape, stage, stageType, spec, taken, output, materialize, shiftX = 0) {
+  const base = `${spec.type}-${stage.id}-${spec.slot.replace(/[^a-z0-9]+/gi, "-")}`;
+  let id = base;
+  let index = 2;
+  while (taken.has(id)) id = `${base}-${index++}`;
+  taken.add(id);
+  const siblings = canvas.nodes.filter((node) => stageOf(node, shape) === stage.id);
+  const origin = { ...positionOf(stage, shape), x: positionOf(stage, shape).x + shiftX };
+  const media = spec && output && materialize ? materialize(spec, output) : null;
+  const generated = {
+    resultOf: { sourceId: stage.id },
+    slot: spec.slot,
+    ...spec.view ? { view: spec.view } : {},
+    ...media || {}
+  };
+  const siblingX = siblings.map((node) => positionOf(node, shape).x).filter((x) => x > origin.x + 1);
+  const columnX = COLUMN_GAP;
+  const position = { x: origin.x + columnX, y: origin.y + siblings.length * ROW_GAP };
+  if (shape === "canvas") {
+    return {
+      id,
+      type: "canvas",
+      position,
+      parentNode: parentOf(stage, shape),
+      data: {
+        kind: "OUTPUT",
+        label: spec.name,
+        detail: spec.type === "generated-model" ? "Generated model" : spec.type === "generated-export" ? "Exported file" : "Generated image",
+        tone: spec.type === "generated-model" ? "green" : "amber",
+        status: "ready",
+        canvasType: spec.type,
+        provider: canvas.provider || "tripo",
+        config: {},
+        uploadAssets: {},
+        generatedAssets: generated,
+        inputPorts: [{ ...inputPortOf(spec.type) || { id: "input", type: "image", label: "Input" }, id: "input" }],
+        outputPorts: nodeOutputPorts(spec.type)
+      }
+    };
+  }
+  return {
+    id,
+    type: spec.type,
+    name: spec.name,
+    config: {},
+    generatedAssets: generated,
+    ui: { position, ...parentOf(stage, shape) ? { parentFrameId: parentOf(stage, shape) } : {} }
+  };
+}
+
+// packages/canvas-core/src/wire-tie.ts
+var PIN_TURNS = [15, -15, 30, -30, 45, -45, 60, -60].map((degrees) => degrees * Math.PI / 180);
+
+// packages/canvas-core/src/starter-canvas.ts
+var COL = [48, 360, 672];
+var TOP = 56;
+var FRAME_W = 980;
+var SINGLE_H = 720;
+var MULTI_H = 1180;
+var ROW = 270;
+function imageAsset(path6) {
+  return { assetType: "image", assetUrl: path6, reference: path6.slice(1) };
+}
+function step(id, type, x, y, frameId, config = {}, name = "", uploadAssets = null) {
+  return {
+    id,
+    type,
+    name: name || nodeSchema(type, "meshy")?.label || type,
+    config: { ...nodeDefaults(type, "meshy"), ...config },
+    ...uploadAssets ? { uploadAssets } : {},
+    ui: { position: { x, y }, parentFrameId: frameId }
+  };
+}
+function frame(id, name, description, x, y, width, height) {
+  return {
+    id,
+    type: "frame",
+    name,
+    config: { description },
+    ui: { position: { x, y }, size: { width, height } }
+  };
+}
+function link(id, sourceId, sourcePort, targetId, targetPort) {
+  return {
+    id,
+    source: { nodeId: sourceId, port: sourcePort },
+    target: { nodeId: targetId, port: targetPort }
+  };
+}
+function starterCanvasGraph() {
+  const nodes = [
+    frame("starter-image", "Image to 3D", "One reference image becomes a textured model.", 0, 0, FRAME_W, SINGLE_H),
+    step("starter-image-upload", "reference-image", COL[0], TOP, "starter-image", {}, "Reference image", imageAsset("/shark-reference.png")),
+    step("starter-image-model", "generate-model", COL[1], TOP, "starter-image"),
+    step("starter-image-export", "export-model", COL[2], TOP, "starter-image", { fileName: "image-to-3d" }),
+    frame("starter-text", "Text to 3D", "A text prompt becomes a textured model.", FRAME_W + 48, 0, FRAME_W, SINGLE_H),
+    step("starter-text-prompt", "prompt", COL[0], TOP, "starter-text"),
+    step("starter-text-model", "text-to-3d", COL[1], TOP, "starter-text"),
+    step("starter-text-export", "export-model", COL[2], TOP, "starter-text", { fileName: "text-to-3d" }),
+    frame("starter-multiview", "Multi-view to 3D", "Front, back, left, and right views of the same object become a model.", 0, SINGLE_H + 48, FRAME_W, MULTI_H),
+    step("starter-mv-front", "reference-image", COL[0], TOP, "starter-multiview", {}, "Front", imageAsset("/shark-concept-front.png")),
+    step("starter-mv-back", "reference-image", COL[0], TOP + ROW, "starter-multiview", {}, "Back", imageAsset("/shark-concept-back.png")),
+    step("starter-mv-left", "reference-image", COL[0], TOP + ROW * 2, "starter-multiview", {}, "Left", imageAsset("/shark-concept-left.png")),
+    step("starter-mv-right", "reference-image", COL[0], TOP + ROW * 3, "starter-multiview", {}, "Right", imageAsset("/shark-concept-right.png")),
+    step("starter-mv-model", "multiview-to-3d", COL[1], TOP + ROW, "starter-multiview"),
+    step("starter-mv-export", "export-model", COL[2], TOP + ROW, "starter-multiview", { fileName: "multiview" })
+  ];
+  const edges = [
+    link("starter-edge-image", "starter-image-upload", "image", "starter-image-model", "image"),
+    link("starter-edge-image-export", "starter-image-model", "model", "starter-image-export", "model"),
+    link("starter-edge-text", "starter-text-prompt", "text", "starter-text-model", "text"),
+    link("starter-edge-text-export", "starter-text-model", "model", "starter-text-export", "model"),
+    link("starter-edge-mv-front", "starter-mv-front", "image", "starter-mv-model", "front"),
+    link("starter-edge-mv-back", "starter-mv-back", "image", "starter-mv-model", "back"),
+    link("starter-edge-mv-left", "starter-mv-left", "image", "starter-mv-model", "left"),
+    link("starter-edge-mv-right", "starter-mv-right", "image", "starter-mv-model", "right"),
+    link("starter-edge-mv-export", "starter-mv-model", "model", "starter-mv-export", "model")
+  ];
+  return { nodes, edges };
+}
+var starterCanvasViewport = { x: 48, y: 36, zoom: 0.6 };
 
 // server/migrations.ts
 function migrateCanvasRefs(records) {
@@ -983,188 +1586,6 @@ function tripoNodeOutput(node, task, { preview = null, modelUrl = null, fallback
     message: `${node.name || node.type} generated`,
     outputs: taskId && resolvedModel ? [{ format: "glb", filename: "model.glb", downloadUrl: `/api/tripo/tasks/${encodeURIComponent(taskId)}/download` }] : []
   };
-}
-
-// src/canvas-nodes.ts
-var nodeCatalog = canvasNodeSchema;
-var nodeCategories = [...new Set(nodeCatalog.map((node) => node.category))];
-function nodeDefinition(type) {
-  return nodeCatalog.find((item) => item.type === type);
-}
-function toPortList(ports) {
-  return Object.entries(ports || {}).map(([id, port]) => ({
-    ...port,
-    id,
-    label: port.label || id[0].toUpperCase() + id.slice(1)
-  }));
-}
-function nodeInputPorts(type) {
-  return toPortList(nodeDefinition(type)?.inputs);
-}
-var namedViewPortIds = ["front", "back", "left", "right"];
-function modelInputMode(config) {
-  return config?.inputMode === "views" ? "views" : "images";
-}
-function activeInputPorts(type, config) {
-  const ports = nodeInputPorts(type);
-  if (type !== "generate-model") return ports;
-  const hidden = new Set(modelInputMode(config) === "views" ? ["image"] : namedViewPortIds);
-  return ports.filter((port) => !hidden.has(port.id));
-}
-function nodeOutputPorts(type) {
-  return toPortList(nodeDefinition(type)?.outputs);
-}
-function referenceAssetKind(uploadAssets) {
-  if (!uploadAssets) return null;
-  if (uploadAssets.assetType === "model") return "model";
-  if (uploadAssets.assetType === "image") return "image";
-  if (typeof uploadAssets.modelUrl === "string" && uploadAssets.modelUrl) return "model";
-  if (typeof uploadAssets.assetUrl === "string" && uploadAssets.assetUrl) return "image";
-  return null;
-}
-function resolveEdgePorts(sourceType, targetType, edge) {
-  const sourcePorts = sourceType ? nodeOutputPorts(sourceType) : [];
-  const targetPorts = targetType ? nodeInputPorts(targetType) : [];
-  const sourcePort = sourcePorts.find((port) => port.id === edge.source?.port) || (!edge.source?.port || edge.source.port === "output" ? sourcePorts[0] : void 0);
-  const targetPort = targetPorts.find((port) => port.id === edge.target?.port) || (!edge.target?.port || edge.target.port === "input" ? targetPorts.find((port) => sourcePort && (sourcePort.type === "any" || port.type === "any" || port.type === sourcePort.type)) : void 0);
-  return sourcePort && targetPort ? { sourcePort, targetPort } : null;
-}
-function resolveEdgePortPairs(sourceType, targetType, edge) {
-  const pair = resolveEdgePorts(sourceType, targetType, edge);
-  if (!pair || !sourceType) return [];
-  const named = edge.source?.port && edge.source.port !== "output";
-  if (named || !pair.targetPort.multiple) return [pair];
-  return nodeOutputPorts(sourceType).filter((sourcePort) => sourcePort.type === "any" || pair.targetPort.type === "any" || sourcePort.type === pair.targetPort.type).map((sourcePort) => ({ sourcePort, targetPort: pair.targetPort }));
-}
-function nodeOutputPortValues(node, produced) {
-  const uploads = node.uploadAssets || {};
-  const output = node.generatedAssets || {};
-  if (node.type === "reference-image") {
-    const kind = referenceAssetKind(uploads);
-    const raw = kind === "model" ? uploads.modelUrl ?? uploads.assetUrl : kind === "image" ? uploads.assetUrl ?? output.preview : null;
-    const value = typeof raw === "string" ? raw.trim() : raw;
-    return kind && value ? { [kind]: value } : {};
-  }
-  const ports = nodeOutputPorts(node.type);
-  if (!ports.length) return {};
-  const fromPorts = produced?.ports || null;
-  const values = {};
-  const config = node.config || {};
-  const viewPreviews = output.viewPreviews || {};
-  const previews = Array.isArray(output.previews) ? output.previews : [];
-  for (const port of ports) {
-    if (fromPorts && fromPorts[port.id] != null) {
-      values[port.id] = fromPorts[port.id];
-      continue;
-    }
-    const fallback = port.type === "model" ? produced?.modelUrl ?? uploads.modelUrl ?? output.modelUrl : port.type === "text" ? produced?.text ?? config.prompt : viewPreviews[port.id] ?? produced?.preview ?? output.selectedPreview ?? output.preview ?? previews[0];
-    const value = typeof fallback === "string" ? fallback.trim() : fallback;
-    if (value != null && value !== "") values[port.id] = value;
-  }
-  return values;
-}
-function resolveInputSources(node, canvas) {
-  const byId = new Map(canvas.nodes.map((item) => [item.id, item]));
-  const sources = {};
-  for (const port of nodeInputPorts(node.type)) sources[port.id] = [];
-  for (const edge of canvas.edges || []) {
-    if (edge.target?.nodeId !== node.id) continue;
-    const source = byId.get(edge.source?.nodeId || "");
-    if (!source) continue;
-    for (const pair of resolveEdgePortPairs(source.type, node.type, edge)) {
-      const found = sources[pair.targetPort.id];
-      if (!found || found.some((item) => item.node.id === source.id && item.portId === pair.sourcePort.id)) continue;
-      found.push({ node: source, portId: pair.sourcePort.id });
-    }
-  }
-  return sources;
-}
-function resolveNodeInputs(node, canvas, producedByNodeId = /* @__PURE__ */ new Map()) {
-  const produced = producedByNodeId instanceof Map ? producedByNodeId : new Map(Object.entries(producedByNodeId));
-  const sources = resolveInputSources(node, canvas);
-  const resolved = {};
-  for (const port of nodeInputPorts(node.type)) {
-    const values = [];
-    for (const source of sources[port.id] || []) {
-      const value = nodeOutputPortValues(source.node, produced.get(source.node.id))[source.portId];
-      if (value != null && !values.includes(value)) values.push(value);
-    }
-    if (!values.length && port.fallbackConfig) {
-      const fallback = node.config?.[port.fallbackConfig];
-      if (typeof fallback === "string" ? fallback.trim() : fallback != null) values.push(fallback);
-    }
-    if (values.length) resolved[port.id] = port.multiple ? values : values[0];
-  }
-  return resolved;
-}
-function parameterLabel(type, key) {
-  const port = nodeInputPorts(type).find((candidate) => candidate.id === key);
-  if (port) return port.label;
-  const parameter = allParameters(nodeSchema(type)?.parameters).find((candidate) => candidate.key === key);
-  return parameter?.label || key[0].toUpperCase() + key.slice(1);
-}
-function labelChoices(labels) {
-  if (labels.length > 2) return `${labels.slice(0, -1).join(", ")}, or ${labels.at(-1)}`;
-  return labels.length === 2 ? `${labels[0]} or ${labels[1]}` : labels[0];
-}
-var hasValue = (value) => typeof value === "string" ? Boolean(value.trim()) : value != null;
-function validateCanvasGraph(nodes, edges, { requireParameters = false } = {}) {
-  const byId = new Map(nodes.map((node) => [node.id, node]));
-  const issues = [];
-  const inputCounts = /* @__PURE__ */ new Map();
-  const outgoing = new Map(nodes.map((node) => [node.id, []]));
-  for (const edge of edges) {
-    const source = byId.get(edge.source?.nodeId || "");
-    const target = byId.get(edge.target?.nodeId || "");
-    const ports = source && target ? resolveEdgePorts(source.type, target.type, edge) : null;
-    const { sourcePort, targetPort } = ports || {};
-    if (!source || !target || !sourcePort || !targetPort) {
-      issues.push({ nodeId: target?.id, port: edge.target?.port, code: "invalid_edge", message: "Connection references a node or port that does not exist." });
-      continue;
-    }
-    if (sourcePort.type !== "any" && targetPort.type !== "any" && targetPort.type !== sourcePort.type) {
-      issues.push({ nodeId: target.id, port: targetPort.id, code: "incompatible_ports", message: `${targetPort.label} accepts ${targetPort.type}, not ${sourcePort.type}.` });
-      continue;
-    }
-    const key = `${target.id}:${targetPort.id}`;
-    inputCounts.set(key, (inputCounts.get(key) || 0) + 1);
-    if (!targetPort.multiple && inputCounts.get(key) > 1) {
-      issues.push({ nodeId: target.id, port: targetPort.id, code: "duplicate_input", message: `${targetPort.label} accepts only one connection.` });
-    }
-    outgoing.get(source.id)?.push(target.id);
-  }
-  if (requireParameters) {
-    const scope = typeof requireParameters === "boolean" ? null : new Set(requireParameters);
-    for (const node of nodes) {
-      if (scope && !scope.has(node.id)) continue;
-      const ports = new Map(nodeInputPorts(node.type).map((port) => [port.id, port]));
-      const satisfied = (key) => {
-        const port = ports.get(key);
-        if (!port) return hasValue(node.config?.[key]);
-        if (inputCounts.get(`${node.id}:${key}`)) return true;
-        return port.fallbackConfig ? hasValue(node.config?.[port.fallbackConfig]) : false;
-      };
-      for (const requirement of nodeSchema(node.type)?.requires || []) {
-        const keys = Array.isArray(requirement) ? requirement : [requirement];
-        if (keys.some(satisfied)) continue;
-        const choices = labelChoices(keys.map((key) => parameterLabel(node.type, key)));
-        issues.push({ nodeId: node.id, parameter: keys[0], code: "required_parameter_missing", message: `${node.name || node.type} requires ${choices}.` });
-      }
-    }
-  }
-  const visiting = /* @__PURE__ */ new Set();
-  const visited = /* @__PURE__ */ new Set();
-  const visit = (id) => {
-    if (visiting.has(id)) return true;
-    if (visited.has(id)) return false;
-    visiting.add(id);
-    const cyclic = outgoing.get(id)?.some(visit);
-    visiting.delete(id);
-    visited.add(id);
-    return Boolean(cyclic);
-  };
-  if (nodes.some((node) => visit(node.id))) issues.push({ code: "cycle", message: "Canvas connections must not contain a cycle." });
-  return issues;
 }
 
 // server/run-inputs.ts
@@ -2892,75 +3313,6 @@ function createInitialSession(canvas) {
   };
 }
 
-// src/starter-canvas.ts
-var COL = [48, 360, 672];
-var TOP = 56;
-var FRAME_W = 980;
-var SINGLE_H = 720;
-var MULTI_H = 1180;
-var ROW = 270;
-function imageAsset(path6) {
-  return { assetType: "image", assetUrl: path6, reference: path6.slice(1) };
-}
-function step(id, type, x, y, frameId, config = {}, name = "", uploadAssets = null) {
-  return {
-    id,
-    type,
-    name: name || nodeSchema(type, "meshy")?.label || type,
-    config: { ...nodeDefaults(type, "meshy"), ...config },
-    ...uploadAssets ? { uploadAssets } : {},
-    ui: { position: { x, y }, parentFrameId: frameId }
-  };
-}
-function frame(id, name, description, x, y, width, height) {
-  return {
-    id,
-    type: "frame",
-    name,
-    config: { description },
-    ui: { position: { x, y }, size: { width, height } }
-  };
-}
-function link(id, sourceId, sourcePort, targetId, targetPort) {
-  return {
-    id,
-    source: { nodeId: sourceId, port: sourcePort },
-    target: { nodeId: targetId, port: targetPort }
-  };
-}
-function starterCanvasGraph() {
-  const nodes = [
-    frame("starter-image", "Image to 3D", "One reference image becomes a textured model.", 0, 0, FRAME_W, SINGLE_H),
-    step("starter-image-upload", "reference-image", COL[0], TOP, "starter-image", {}, "Reference image", imageAsset("/shark-reference.png")),
-    step("starter-image-model", "generate-model", COL[1], TOP, "starter-image"),
-    step("starter-image-export", "export-model", COL[2], TOP, "starter-image", { fileName: "image-to-3d" }),
-    frame("starter-text", "Text to 3D", "A text prompt becomes a textured model.", FRAME_W + 48, 0, FRAME_W, SINGLE_H),
-    step("starter-text-prompt", "prompt", COL[0], TOP, "starter-text"),
-    step("starter-text-model", "text-to-3d", COL[1], TOP, "starter-text"),
-    step("starter-text-export", "export-model", COL[2], TOP, "starter-text", { fileName: "text-to-3d" }),
-    frame("starter-multiview", "Multi-view to 3D", "Front, back, left, and right views of the same object become a model.", 0, SINGLE_H + 48, FRAME_W, MULTI_H),
-    step("starter-mv-front", "reference-image", COL[0], TOP, "starter-multiview", {}, "Front", imageAsset("/shark-concept-front.png")),
-    step("starter-mv-back", "reference-image", COL[0], TOP + ROW, "starter-multiview", {}, "Back", imageAsset("/shark-concept-back.png")),
-    step("starter-mv-left", "reference-image", COL[0], TOP + ROW * 2, "starter-multiview", {}, "Left", imageAsset("/shark-concept-left.png")),
-    step("starter-mv-right", "reference-image", COL[0], TOP + ROW * 3, "starter-multiview", {}, "Right", imageAsset("/shark-concept-right.png")),
-    step("starter-mv-model", "multiview-to-3d", COL[1], TOP + ROW, "starter-multiview"),
-    step("starter-mv-export", "export-model", COL[2], TOP + ROW, "starter-multiview", { fileName: "multiview" })
-  ];
-  const edges = [
-    link("starter-edge-image", "starter-image-upload", "image", "starter-image-model", "image"),
-    link("starter-edge-image-export", "starter-image-model", "model", "starter-image-export", "model"),
-    link("starter-edge-text", "starter-text-prompt", "text", "starter-text-model", "text"),
-    link("starter-edge-text-export", "starter-text-model", "model", "starter-text-export", "model"),
-    link("starter-edge-mv-front", "starter-mv-front", "image", "starter-mv-model", "front"),
-    link("starter-edge-mv-back", "starter-mv-back", "image", "starter-mv-model", "back"),
-    link("starter-edge-mv-left", "starter-mv-left", "image", "starter-mv-model", "left"),
-    link("starter-edge-mv-right", "starter-mv-right", "image", "starter-mv-model", "right"),
-    link("starter-edge-mv-export", "starter-mv-model", "model", "starter-mv-export", "model")
-  ];
-  return { nodes, edges };
-}
-var starterCanvasViewport = { x: 48, y: 36, zoom: 0.6 };
-
 // server/canvas-parameters.ts
 function parameterKind(parameter) {
   if (parameter.control === "toggle") return "boolean";
@@ -3250,7 +3602,7 @@ var PREVIEW_TYPES = new Set(canvasNodeSchema.filter((node) => node.role === "res
 function wireKeyOf(edge) {
   return `${edge.source.nodeId}:${edge.source.port}->${edge.target.nodeId}:${edge.target.port}`;
 }
-var COLUMN_GAP = 340;
+var COLUMN_GAP2 = 340;
 function compactFrames(nodes, options2 = {}) {
   if (options2.compact === false) return;
   for (const frame2 of nodes.filter((node) => node.type === "frame")) {
@@ -3261,7 +3613,7 @@ function compactFrames(nodes, options2 = {}) {
     const singleRow = ordered.every((node) => Math.abs(node.ui.position.y - baseline) < 80);
     if (singleRow) {
       ordered.forEach((node, index) => {
-        node.ui.position.x = ordered[0].ui.position.x + index * COLUMN_GAP;
+        node.ui.position.x = ordered[0].ui.position.x + index * COLUMN_GAP2;
         node.ui.position.y = baseline;
       });
     }
@@ -3797,352 +4149,6 @@ async function cancelAgentViaService(serviceUrl, turnId) {
   if (!response.ok) throw new Error("Agent service could not stop the run");
 }
 
-// src/canvas-results.ts
-var MULTI_VIEW_KEYS = ["front", "back", "left", "right"];
-var VIEW_LABELS = { front: "Front", back: "Back", left: "Left", right: "Right" };
-var DEFAULT_IMAGE_COUNT = 1;
-var EXPORT_RESULT = "Export file";
-function mediaPorts(type) {
-  return nodeOutputPorts(type).filter((port) => port.type === "image" || port.type === "model");
-}
-function imageSpec(index, count, view) {
-  return {
-    type: "generated-image",
-    slot: view ? `view:${view}` : `image:${index}`,
-    name: view ? `${VIEW_LABELS[view]} view` : count > 1 ? `Image ${index + 1}` : "Image",
-    produces: "image",
-    ...view ? { view } : {}
-  };
-}
-function imageCount(config) {
-  const amount = Number(config?.amount);
-  return Number.isInteger(amount) && amount > 0 ? amount : DEFAULT_IMAGE_COUNT;
-}
-function resultSpecs(type, config) {
-  if (!isExecutableNodeType(type)) return [];
-  const views = MULTI_VIEW_KEYS.filter((key) => nodeOutputPorts(type).some((port) => port.id === key));
-  if (type === "export-model") {
-    return [{ type: "generated-export", slot: "export", name: EXPORT_RESULT, produces: "model" }];
-  }
-  if (views.length) return views.map((view) => imageSpec(0, 1, view));
-  const media = mediaPorts(type);
-  if (media.some((port) => port.type === "model")) {
-    return [{ type: "generated-model", slot: "model", name: "Model", produces: "model" }];
-  }
-  if (!media.length) return [];
-  const count = imageCount(config);
-  return Array.from({ length: count }, (_, index) => imageSpec(index, count));
-}
-function isResultType(type) {
-  return nodeRole(type) === "result";
-}
-
-// src/canvas-result-slots.ts
-var COLUMN_GAP2 = 340;
-var ROW_GAP = 270;
-function shapeOf(canvas) {
-  return canvas.nodes.some((node) => node.type === "canvas") ? "canvas" : "domain";
-}
-function typeOf(node, shape) {
-  return shape === "canvas" ? node.data?.canvasType || node.type : node.type;
-}
-function configOf(node, shape) {
-  return (shape === "canvas" ? node.data?.config : node.config) || {};
-}
-function generatedOf(node, shape) {
-  return (shape === "canvas" ? node.data?.generatedAssets : node.generatedAssets) || {};
-}
-function setGenerated(node, shape, generated) {
-  if (shape === "canvas") node.data = { ...node.data, generatedAssets: generated };
-  else node.generatedAssets = generated;
-}
-function positionOf(node, shape) {
-  if (shape === "canvas") return node.position || { x: 0, y: 0 };
-  const ui = node.ui || {};
-  return ui.position || { x: 0, y: 0 };
-}
-function setPosition(node, shape, position) {
-  if (shape === "canvas") node.position = position;
-  else node.ui = { ...node.ui || {}, position };
-}
-function parentOf(node, shape) {
-  if (shape === "canvas") return node.parentNode;
-  return node.ui?.parentFrameId;
-}
-function stageOf(node, shape) {
-  const origin = generatedOf(node, shape).resultOf;
-  return origin?.sourceId || null;
-}
-function edgesOf(canvas, shape) {
-  return (canvas.edges || []).map((edge) => shape === "canvas" ? { ...edge, source: { nodeId: edge.source, port: edge.sourceHandle || "output" }, target: { nodeId: edge.target, port: edge.targetHandle || "input" } } : edge);
-}
-function sameSpec(node, shape, spec) {
-  const generated = generatedOf(node, shape);
-  if (typeof generated.slot === "string") return generated.slot === spec.slot;
-  return typeOf(node, shape) === spec.type;
-}
-function downstreamOf(startId, edges) {
-  const found = /* @__PURE__ */ new Set();
-  const queue = [startId];
-  while (queue.length) {
-    const current = queue.shift();
-    for (const edge of edges) {
-      if (edge.source?.nodeId !== current || found.has(edge.target.nodeId)) continue;
-      found.add(edge.target.nodeId);
-      queue.push(edge.target.nodeId);
-    }
-  }
-  found.delete(startId);
-  return found;
-}
-function outputPortOf(type) {
-  return nodeOutputPorts(type)[0];
-}
-function inputPortOf(type) {
-  return nodeInputPorts(type)[0];
-}
-function mediaPair(sourceType, targetType) {
-  const source = nodeOutputPorts(sourceType).find((port) => port.type === "image" || port.type === "model");
-  const target = nodeInputPorts(targetType).find((port) => port.id === source?.id) || nodeInputPorts(targetType).find((port) => source && (port.type === source.type || port.type === "any"));
-  return source && target ? { sourcePort: source.id, targetPort: target.id, multiple: Boolean(target.multiple) } : null;
-}
-function reconcileResultSlots(canvas, { filled = /* @__PURE__ */ new Map(), materialize = null } = {}) {
-  const shape = shapeOf(canvas);
-  const provider = canvas.provider || "tripo";
-  const edges = edgesOf(canvas, shape);
-  const taken = new Set(canvas.nodes.map((node) => node.id));
-  const added = [];
-  const removed = [];
-  const materialized = [];
-  const nodes = canvas.nodes.slice();
-  const all = () => [...nodes, ...added];
-  const byId = /* @__PURE__ */ new Map();
-  for (const node of all()) byId.set(node.id, node);
-  const typeById = (id) => {
-    const node = byId.get(id);
-    return node ? typeOf(node, shape) || "" : "";
-  };
-  const owned = /* @__PURE__ */ new Map();
-  for (const node of nodes) {
-    if (!isResultType(typeOf(node, shape) || "")) continue;
-    const stage = stageOf(node, shape);
-    if (!stage) continue;
-    owned.set(stage, [...owned.get(stage) || [], node]);
-  }
-  const wanted = /* @__PURE__ */ new Map();
-  for (const node of nodes) {
-    const type = typeOf(node, shape) || "";
-    if (nodeRole(type) !== "execution") continue;
-    const specs = resultSpecs(type, normalizeNodeConfig(type, configOf(node, shape), provider));
-    const existing = owned.get(node.id) || [];
-    const keep = [];
-    for (const spec of specs) {
-      const match = existing.find((slot2) => sameSpec(slot2, shape, spec));
-      if (match) {
-        keep.push(match);
-        continue;
-      }
-      const slot = createSlot(canvas, shape, node, type, spec, taken, filled.get(node.id), materialize);
-      added.push(slot);
-      byId.set(slot.id, slot);
-      keep.push(slot);
-      materialized.push(slot.id);
-    }
-    for (const slot of existing) if (!keep.includes(slot)) removed.push(slot.id);
-    wanted.set(node.id, keep);
-  }
-  const baseEdges = edges.filter((edge) => !isResultType(typeById(edge.source?.nodeId || "")) && !isResultType(typeById(edge.target?.nodeId || "")));
-  for (const [stageId, slots] of wanted) {
-    const stage = byId.get(stageId);
-    if (!stage || !slots.length) continue;
-    const stageX = positionOf(stage, shape).x;
-    const feeds = [...downstreamOf(stageId, baseEdges)].map((id) => byId.get(id)).filter((node) => Boolean(node)).map((node) => positionOf(node, shape).x).filter((x) => x > stageX);
-    const targetX = feeds.length ? Math.min(...feeds) : Infinity;
-    if (targetX < stageX + COLUMN_GAP2 * 2) {
-      const push = stageX + COLUMN_GAP2 * 2 - targetX;
-      for (const nodeId of downstreamOf(stageId, baseEdges)) {
-        const node = byId.get(nodeId);
-        if (node) setPosition(node, shape, { x: positionOf(node, shape).x + push, y: positionOf(node, shape).y });
-      }
-    }
-    const wantedX = stageX + COLUMN_GAP2;
-    slots.forEach((slot, index) => {
-      const current = positionOf(slot, shape);
-      const inGap = current.x > stageX + 8 && current.x < targetX - 8;
-      if (inGap) return;
-      setPosition(slot, shape, { x: wantedX, y: positionOf(stage, shape).y + index * ROW_GAP });
-    });
-  }
-  for (const [stageId, slots] of owned) {
-    if (wanted.has(stageId)) continue;
-    if (nodes.some((node) => node.id === stageId)) continue;
-    for (const slot of slots) removed.push(slot.id);
-  }
-  for (const [stageId, slots] of wanted) {
-    const output = filled.get(stageId);
-    if (!output || !materialize) continue;
-    const specs = resultSpecs(typeById(stageId), normalizeNodeConfig(typeById(stageId), configOf(byId.get(stageId), shape), provider));
-    for (const slot of slots) {
-      const generated = generatedOf(slot, shape);
-      if (generated.preview || generated.modelUrl || generated.outputs) continue;
-      const spec = specs.find((candidate) => sameSpec(slot, shape, candidate));
-      const media = spec && materialize(spec, output);
-      if (!media) continue;
-      setGenerated(slot, shape, { ...generated, ...media, resultOf: { ...generated.resultOf || {}, sourceId: stageId }, slot: spec.slot, ...spec.view ? { view: spec.view } : {} });
-      materialized.push(slot.id);
-    }
-  }
-  const nextEdges = [];
-  const connected = /* @__PURE__ */ new Set();
-  const linked = edges.filter((edge) => byId.has(edge.source?.nodeId || "") && byId.has(edge.target?.nodeId || ""));
-  const stageEdges = linked.filter((edge) => !isResultType(typeById(edge.source.nodeId)) && !isResultType(typeById(edge.target.nodeId)));
-  const slotEdges = linked.filter((edge) => isResultType(typeById(edge.source.nodeId)));
-  const dropped = new Set(removed);
-  for (const [stageId, slots] of wanted) {
-    const stageType = typeById(stageId);
-    for (const slot of slots) {
-      const slotType = typeOf(slot, shape) || "";
-      const view = generatedOf(slot, shape).view;
-      const ports = nodeOutputPorts(stageType);
-      const source = view && ports.find((port) => port.id === view) || ports.find((port) => {
-        const forward = outputPortOf(slotType);
-        return forward && (port.type === forward.type || port.type === "any" || forward.type === "any");
-      });
-      const target = outputPortOf(slotType);
-      if (!source || !target) continue;
-      const id = `edge-${stageId}-${slot.id}`;
-      if (nextEdges.some((edge) => edge.id === id) || connected.has(id)) continue;
-      connected.add(id);
-      nextEdges.push(slotLink(stageId, slot.id, source.id, target.id, shape, id));
-    }
-  }
-  for (const edge of stageEdges) {
-    const sourceId = edge.source.nodeId;
-    const targetId = edge.target.nodeId;
-    const slots = wanted.get(sourceId);
-    if (!slots?.length) {
-      nextEdges.push(edge);
-      continue;
-    }
-    const targetType = typeById(targetId);
-    if (!targetType) continue;
-    const pair = mediaPair(typeById(sourceId), targetType);
-    if (!pair) continue;
-    const targetPort = nodeInputPorts(targetType).find((port) => port.id === edge.target.port);
-    const collects = Boolean(targetPort?.multiple);
-    const viewSlots = slots.filter((slot) => generatedOf(slot, shape).view);
-    const usable = collects ? slots : viewSlots.length ? viewSlots : slots.slice(0, 1);
-    for (const slot of usable) {
-      const slotType = typeOf(slot, shape) || "";
-      const output = outputPortOf(slotType);
-      if (!output) continue;
-      const view = generatedOf(slot, shape).view;
-      const inputs = activeInputPorts(targetType, configOf(byId.get(targetId), shape));
-      const viewPort = view && inputs.find((port) => port.id === view && (port.type === output.type || port.type === "any"));
-      const openInput = viewPort || inputs.find((port) => port.id === output.id && (port.type === output.type || port.type === "any")) || inputs.find((port) => port.type === output.type || port.type === "any");
-      const target = viewPort || (targetPort && (targetPort.type === output.type || targetPort.type === "any") ? targetPort : null) || openInput;
-      if (!target) continue;
-      const id = `edge-${slot.id}-${targetId}-${target.id}`;
-      if (connected.has(id)) continue;
-      connected.add(id);
-      nextEdges.push(slotLink(slot.id, targetId, output.id, target.id, shape, id));
-    }
-  }
-  for (const [stageId, slots] of wanted) {
-    const stageType = typeById(stageId);
-    if (!stageType || !slots.length) continue;
-    const downstream = nodes.filter((node) => {
-      const type = typeOf(node, shape) || "";
-      return !isResultType(type) && node.id !== stageId && mediaPair(stageType, type);
-    });
-    for (const node of downstream) {
-      const type = typeOf(node, shape) || "";
-      if (linked.some((edge) => edge.target?.nodeId === node.id)) continue;
-      const config = configOf(node, shape);
-      const inputs = activeInputPorts(type, config);
-      for (const slot of slots) {
-        const slotType = typeOf(slot, shape) || "";
-        const output = outputPortOf(slotType);
-        if (!output) continue;
-        const view = generatedOf(slot, shape).view;
-        const target = view && inputs.find((port) => port.id === view && (port.type === output.type || port.type === "any")) || inputs.find((port) => port.id === output.id && (port.type === output.type || port.type === "any")) || inputs.find((port) => port.type === output.type || port.type === "any");
-        if (!target) continue;
-        const id = `edge-${slot.id}-${node.id}-${target.id}`;
-        if (connected.has(id)) continue;
-        connected.add(id);
-        nextEdges.push(slotLink(slot.id, node.id, output.id, target.id, shape, id));
-      }
-    }
-  }
-  for (const edge of slotEdges) {
-    if (dropped.has(edge.source.nodeId) || dropped.has(edge.target.nodeId)) continue;
-    const slot = byId.get(edge.target.nodeId);
-    const slotStage = slot && stageOf(slot, shape);
-    if (slotStage && nodeRole(typeById(slotStage)) === "execution") continue;
-    nextEdges.push(edge);
-  }
-  canvas.nodes = [...nodes.filter((node) => !dropped.has(node.id)), ...added];
-  const untouched = edges.filter((edge) => !byId.has(edge.source?.nodeId || "") || !byId.has(edge.target?.nodeId || ""));
-  canvas.edges = shape === "canvas" ? nextEdges.map((edge) => ({ ...edge, source: edge.source.nodeId, target: edge.target.nodeId, sourceHandle: "output", targetHandle: "input" })) : nextEdges;
-  if (untouched.length) canvas.edges = [...canvas.edges, ...untouched];
-  return { canvas, added, removed, materialized };
-}
-function slotLink(sourceId, targetId, sourcePort, targetPort, shape, id = `edge-${sourceId}-${targetId}`) {
-  if (shape === "canvas") {
-    return { id, source: { nodeId: sourceId, port: sourcePort }, target: { nodeId: targetId, port: targetPort }, sourceHandle: "output", targetHandle: "input", data: { logicalConnections: [{ sourcePort, targetPort }] }, selectable: true, type: "execution" };
-  }
-  return { id, source: { nodeId: sourceId, port: sourcePort }, target: { nodeId: targetId, port: targetPort } };
-}
-function createSlot(canvas, shape, stage, stageType, spec, taken, output, materialize, shiftX = 0) {
-  const base = `${spec.type}-${stage.id}-${spec.slot.replace(/[^a-z0-9]+/gi, "-")}`;
-  let id = base;
-  let index = 2;
-  while (taken.has(id)) id = `${base}-${index++}`;
-  taken.add(id);
-  const siblings = canvas.nodes.filter((node) => stageOf(node, shape) === stage.id);
-  const origin = { ...positionOf(stage, shape), x: positionOf(stage, shape).x + shiftX };
-  const media = spec && output && materialize ? materialize(spec, output) : null;
-  const generated = {
-    resultOf: { sourceId: stage.id },
-    slot: spec.slot,
-    ...spec.view ? { view: spec.view } : {},
-    ...media || {}
-  };
-  const siblingX = siblings.map((node) => positionOf(node, shape).x).filter((x) => x > origin.x + 1);
-  const columnX = COLUMN_GAP2;
-  const position = { x: origin.x + columnX, y: origin.y + siblings.length * ROW_GAP };
-  if (shape === "canvas") {
-    return {
-      id,
-      type: "canvas",
-      position,
-      parentNode: parentOf(stage, shape),
-      data: {
-        kind: "OUTPUT",
-        label: spec.name,
-        detail: spec.type === "generated-model" ? "Generated model" : spec.type === "generated-export" ? "Exported file" : "Generated image",
-        tone: spec.type === "generated-model" ? "green" : "amber",
-        status: "ready",
-        canvasType: spec.type,
-        provider: canvas.provider || "tripo",
-        config: {},
-        uploadAssets: {},
-        generatedAssets: generated,
-        inputPorts: [{ ...inputPortOf(spec.type) || { id: "input", type: "image", label: "Input" }, id: "input" }],
-        outputPorts: nodeOutputPorts(spec.type)
-      }
-    };
-  }
-  return {
-    id,
-    type: spec.type,
-    name: spec.name,
-    config: {},
-    generatedAssets: generated,
-    ui: { position, ...parentOf(stage, shape) ? { parentFrameId: parentOf(stage, shape) } : {} }
-  };
-}
-
 // server/projects.ts
 function withResultSlots(canvas) {
   const repair = reconcileResultSlots({ nodes: canvas.nodes || [], edges: canvas.edges || [], provider: canvas.provider });
@@ -4164,6 +4170,7 @@ function projectDto(canvas) {
 }
 function replaceCanvasDocument(project, input, canvasId, updatedAt) {
   const repaired = withResultSlots({ ...input, provider: input.provider ?? project.provider });
+  const changed = documentChanged(project, repaired);
   return {
     ...input,
     ...repaired.nodes === input.nodes ? {} : { nodes: repaired.nodes, edges: repaired.edges },
@@ -4172,10 +4179,13 @@ function replaceCanvasDocument(project, input, canvasId, updatedAt) {
     description: project.description,
     provider: input.provider ?? project.provider,
     createdAt: project.createdAt,
-    revision: project.revision + 1,
-    updatedAt,
+    revision: changed ? project.revision + 1 : project.revision,
+    updatedAt: changed ? updatedAt : project.updatedAt,
     ...project.ownerId ? { ownerId: project.ownerId } : {}
   };
+}
+function documentChanged(project, input) {
+  return JSON.stringify(project.nodes || []) !== JSON.stringify(input.nodes || []) || JSON.stringify(project.edges || []) !== JSON.stringify(input.edges || []) || JSON.stringify(project.wireTies || []) !== JSON.stringify(input.wireTies || []);
 }
 function applyAgentCanvas(project, canvas) {
   return withResultSlots({

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { meshyNodeOutput, meshyRequest, usesMeshy } from './meshy-mapping.js'
-import { nodeDefaults } from '../src/canvas-schema.js'
+import { nodeDefaults } from '@forge3d/canvas-core'
 
 // Nodes are built from the real schema defaults so a default change that breaks
 // the mapping fails here rather than at runtime against a billed API.

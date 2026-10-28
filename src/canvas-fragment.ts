@@ -1,5 +1,5 @@
 import { decode, encode } from '@msgpack/msgpack'
-import { nodeSize } from './frame-geometry'
+import { nodeSize } from '@forge3d/canvas-core'
 
 export const CLIPBOARD_MIME = 'web application/vnd.forge3d.canvas-fragment+msgpack'
 // Plain text so a paste event can read the fragment without a clipboard-read

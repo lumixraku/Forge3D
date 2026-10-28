@@ -1,4 +1,4 @@
-import { allParameters, applyNodeParameter, defaultCanvasProvider, nodeSchema, parameterRange, canvasNodeSchema } from '../src/canvas-schema.js'
+import { allParameters, applyNodeParameter, defaultCanvasProvider, nodeSchema, parameterRange, canvasNodeSchema } from '@forge3d/canvas-core'
 
 function parameterKind(parameter) {
   if (parameter.control === 'toggle') return 'boolean'

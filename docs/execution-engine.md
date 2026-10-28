@@ -19,7 +19,7 @@ executes the nodes in dependency order, and the client merely polls for status.
 | Validate and persist the run record | Server | `server/executions.ts` `createExecution` |
 | Execute the chain, wave by wave | Server | `server/executions.ts` `executeExecution` |
 | Simulate node work (mock) or call Tripo | Server | `server/mock-runs.ts` / Tripo provider |
-| Poll status and reflect it on the canvas | Frontend | `src/composables/useCanvasRun.ts` `pollExecution` |
+| Poll status and reflect it on the canvas | Frontend | `src/state/canvasRun.ts` `pollExecution` |
 
 The plan is recomputed on both sides. `src/run-plan.ts` and `server/mock-runs.ts`
 are two implementations of the same topological sort; the server rejects a
@@ -28,7 +28,7 @@ submitted plan that does not match its own (`409`, `server/executions.ts:150`).
 ## 2. The plan
 
 Only **executable** node types enter a plan — input nodes, result nodes, and
-frames carry no work. `isExecutableNodeType` (`src/canvas-schema.ts`) decides,
+frames carry no work. `isExecutableNodeType` (`packages/canvas-core/src/canvas-schema.ts`) decides,
 driven by the node schema's `executable` flag.
 
 `src/run-plan.ts`:
@@ -40,13 +40,13 @@ driven by the node schema's `executable` flag.
   - `scope: 'node'` with a target → run that one node alone.
   - `scope: 'downstream'` → run the target **plus every node reachable from it**
     along the edges (a `reachable` set, then filtered in topological order).
-    This is what the **Run downstream** button starts (`CanvasNode.vue:352`).
+    This is what the **Run downstream** button starts (`src/litegraph-canvas.ts`).
   - no target → the whole graph.
 
 The client sends `nodeIds` (the plan) plus `parameters` (each node's `config`)
 to `POST /api/projects/:canvasId/executions`, and immediately shows every planned
 node as `queued` (first as `running`) so the chain is visible up front
-(`useCanvasRun.ts:118-125`).
+(`canvasRun.ts`).
 
 The server recomputes the same selection independently with
 `executionNodes` / `downstreamCanvas` (`server/mock-runs.ts:86`, `:116`) and
@@ -127,9 +127,9 @@ node *reads* what it needs when it runs:
 
 - **Mock/simulated.** `executeNode` never reads a shared run record. Downstream
   resolves its inputs off the **saved canvas** — the upstream node's
-  `generatedAssets` in `config` — via `resolveNodeInputs` (`src/canvas-nodes.ts`,
+  `generatedAssets` in `config` — via `resolveNodeInputs` (`packages/canvas-core/src/canvas-nodes.ts`,
   used at `server/mock-runs.ts:26`). The client calls `saveCanvas()` alongside
-  the run request for exactly this reason (`useCanvasRun.ts:145`).
+  the run request for exactly this reason (`canvasRun.ts`).
 - **Real Tripo.** A real result only exists once the task finishes, so the server
   threads the `context` Map through the run: each successful node writes
   `{modelUrl, preview, ports, tripoTaskId}` (`server/executions.ts:250`), and the
@@ -142,14 +142,14 @@ node *reads* what it needs when it runs:
 
 What is checked is the **parameter set** the execution API is handed, not the
 wiring. Each schema declares it as `requires` — parameter keys the node cannot
-run without, a nested array meaning "one of these" (`src/canvas-schema.ts`).
+run without, a nested array meaning "one of these" (`packages/canvas-core/src/canvas-schema.ts`).
 Ports are a separate concept: they say how data flows between nodes.
 
 Two layers, both acting before anything runs:
 
-1. **Frontend** — `missingParametersByNode` (`src/canvas-nodes.ts`) reports
+1. **Frontend** — `missingParametersByNode` (`packages/canvas-core/src/canvas-nodes.ts`) reports
    `required_parameter_missing` per node; the `Run` / `Run downstream` buttons are
-   disabled with a tooltip (`CanvasNode.vue`).
+   disabled with a tooltip (`src/litegraph-canvas.ts`).
 2. **Server** — `createExecution` runs `validateCanvasGraph(nodes, edges,
    { requireParameters: planned })` (`server/executions.ts:180-185`) and throws a
    `400` if a planned node is missing one.
@@ -177,9 +177,9 @@ How the gate holds:
 
 - The run's final status becomes `waiting_review` (`server/executions.ts:267`).
 - The client's poll loop only continues for `queued / running / cancelling`
-  (`useCanvasRun.ts:175`), so on `waiting_review` it stops and the node renders
-  "Awaiting approval" (`CanvasNode.vue:308`).
-- Approval (`toggleApprove`, `CanvasNode.vue:128`) sets `approved = true` and
+  (`canvasRun.ts`), so on `waiting_review` it stops and the node renders
+  "Awaiting approval" (`src/litegraph-canvas.ts`).
+- Approval (the `approve` action in `src/litegraph-canvas.ts`) sets `approved = true` and
   **re-triggers `run-downstream`** — on the next run the review node returns
   `succeeded` and the rest of the chain proceeds.
 
@@ -207,11 +207,11 @@ How the gate holds:
 
 ## 9. Client polling
 
-`pollExecution` (`useCanvasRun.ts:172`) polls `GET /api/executions/:id` until a
-terminal state (`mock: 250ms`, `tripo: 1500ms`, `useCanvasRun.ts:9`), merging
+`pollExecution` (`canvasRun.ts`) polls `GET /api/executions/:id` until a
+terminal state (`mock: 250ms`, `tripo: 1500ms`, `canvasRun.ts`), merging
 per-node status into the canvas. On completion it materializes each stage's
 artifacts as result nodes (`resultArtifacts` in `src/run-results.ts`, via
-`materializeResults` in `App.vue`) and triggers export downloads. A rerun replaces
+`materializeResults` in `src/App.tsx`) and triggers export downloads. A rerun replaces
 a stage's previous result nodes rather than accumulating them.
 
 ## 10. API surface

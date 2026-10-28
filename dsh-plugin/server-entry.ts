@@ -11,7 +11,7 @@ import { createMeshyLocalReader } from '../server/meshy-local-file.js'
 import { applyUserKeys, readUserKeys } from '../server/user-keys.js'
 import { persistUploadedAsset, readAsset as readAssetFromDisk } from '../server/tripo-assets.js'
 import { createApi } from '../server/api-core.js'
-import { starterCanvasGraph, starterCanvasViewport } from '../src/starter-canvas.js'
+import { starterCanvasGraph, starterCanvasViewport } from '@forge3d/canvas-core'
 
 // Canvas authoring primitives the web app's own agent uses. The DSH tools reuse
 // them so a canvas built by the harness is indistinguishable from one built by

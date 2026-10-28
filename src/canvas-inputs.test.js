@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { nodeOutputPortValues, resolveInputSources, resolveNodeInputs } from './canvas-nodes.js'
+import { nodeOutputPortValues, resolveInputSources, resolveNodeInputs } from '@forge3d/canvas-core'
 
 const node = (id, type, config = {}, generatedAssets = {}, uploadAssets = {}) => ({ id, type, name: id, config, uploadAssets, generatedAssets })
 const edge = (source, sourcePort, target, targetPort) => ({

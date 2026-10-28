@@ -1,4 +1,4 @@
-import { reconcileResultSlots } from '../src/canvas-result-slots.js'
+import { reconcileResultSlots } from '@forge3d/canvas-core'
 
 /**
  * Fills in the result slots a stage must own. A stage created by a request, an

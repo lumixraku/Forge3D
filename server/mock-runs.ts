@@ -1,8 +1,8 @@
 // Inbound media is read through each node's declared input ports, so what a node
 // receives follows the graph rather than a guess about which upstream types
 // carry an image or a mesh.
-import { isExecutableNodeType } from '../src/canvas-schema.js'
-import { resolveNodeInputs } from '../src/canvas-nodes.js'
+import { isExecutableNodeType } from '@forge3d/canvas-core'
+import { resolveNodeInputs } from '@forge3d/canvas-core'
 
 // The bundled demo images this simulation hands back. They belong to the
 // simulation rather than to a node's defaults: an untouched node has produced

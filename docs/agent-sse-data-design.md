@@ -2,7 +2,7 @@
 
 ## Overview
 
-Server events travel on one long-lived SSE channel per canvas, not on the response of the request that started the work. `openCanvas()` in `src/composables/useCanvasDocument.ts` calls `subscribeCanvasEvents()`, which opens an `EventSource` against the Node server (`server/index.ts`) or Cloudflare Worker (`worker.ts`):
+Server events travel on one long-lived SSE channel per canvas, not on the response of the request that started the work. `openCanvas()` in `src/state/canvasDocument.ts` calls `subscribeCanvasEvents()`, which opens an `EventSource` against the Node server (`server/index.ts`) or Cloudflare Worker (`worker.ts`):
 
 ```http
 GET /api/canvases/{canvasId}/events
@@ -59,7 +59,7 @@ This is the intended two-turn experience. Generated Artifacts are stored directl
 
 The user says: `生成两张赛博朋克鲨鱼的概念图`.
 
-`sendMessage()` in `src/App.vue` sends:
+`sendMessage()` in `src/state/agentChat.ts` sends:
 
 ```http
 POST /api/sessions/{sessionId}/turns
@@ -149,7 +149,7 @@ The application server emits `request_user_select` only when it cannot perform t
 2. The next operation accepts exactly one Artifact but multiple eligible Artifacts exist, and the user has not identified one.
 3. The next operation requires a user-owned value that cannot be inferred, such as an export format, destination, or overwrite confirmation.
 
-Example: the user says `从这两张概念图中选一张继续生成 3D 模型`, but does not identify the image. The application server persists the turn as `waiting_for_input`, then emits `request_user_select`. The Vue frontend renders a generic selection card from `options`.
+Example: the user says `从这两张概念图中选一张继续生成 3D 模型`, but does not identify the image. The application server persists the turn as `waiting_for_input`, then emits `request_user_select`. The frontend renders a generic selection card from `options`.
 
 ```text
 event: message
@@ -162,7 +162,7 @@ The browser must retain `turn_id` and `request_id` with the card. They identify 
 
 ### 4. User Submits the Exceptional Selection
 
-The Vue frontend sends the selected Artifact IDs to the application server. `idempotency_key` must remain stable across retries.
+The frontend sends the selected Artifact IDs to the application server. `idempotency_key` must remain stable across retries.
 
 ```http
 POST /api/turns/turn-123/continue
@@ -183,7 +183,7 @@ The application server validates and persists the answer, then resumes the Agent
 
 ### 5. Server Updates the Canvas
 
-The application server uses the selected option, updates the next canvas node, persists the canvas, and emits `canvas-updated`. The Vue frontend fetches the authoritative state and redraws the canvas.
+The application server uses the selected option, updates the next canvas node, persists the canvas, and emits `canvas-updated`. The frontend fetches the authoritative state and redraws the canvas.
 
 ```text
 event: message
@@ -209,7 +209,7 @@ id: 11-0
 
 ## Event Types
 
-Every JSON `data.type` value belongs to this list. `Implemented` means the current server emits and the current Vue frontend handles it. All business values except `error` are framed as SSE `event: message`; `error` is framed as SSE `event: error`.
+Every JSON `data.type` value belongs to this list. `Implemented` means the current server emits and the current frontend handles it. All business values except `error` are framed as SSE `event: message`; `error` is framed as SSE `event: error`.
 
 Only two user actions produce events. Sending a message (`POST /api/sessions/:id/turns`) starts a turn; submitting a choice (`POST /api/turns/:id/continue`) resumes one that asked a question. Both return `202`; the events for either arrive on the canvas channel that is already open.
 
@@ -302,7 +302,7 @@ id: 3-0
 
 ```
 
-`executeAgentTurn()` sends `canvas-updated` after persistence and before `finish`. The channel handler receives it and calls `refreshCanvas()` immediately, so the Vue frontend refreshes as soon as the authoritative state exists rather than at the end of the turn.
+`executeAgentTurn()` sends `canvas-updated` after persistence and before `finish`. The channel handler receives it and calls `refreshCanvas()` immediately, so the frontend refreshes as soon as the authoritative state exists rather than at the end of the turn.
 
 The canvas and the conversation are persisted together before the event is emitted (`server/index.ts` writes both, then emits `text`, `canvas-updated`, and `finish`), so one invalidation covers both resources and either can be read back immediately.
 
@@ -318,7 +318,7 @@ The browser receives safe `progress` labels rather than raw tool calls or raw to
 
 ### `request_user_select`
 
-The application server emits this when an Agent needs a user decision before it can continue. The Vue frontend renders a generic selection card.
+The application server emits this when an Agent needs a user decision before it can continue. The frontend renders a generic selection card.
 
 Example: ask the user to choose an export format.
 
@@ -341,18 +341,18 @@ Example: ask the user to choose an export format.
 }
 ```
 
-The Vue frontend retains `turn_id` and `request.request_id`; both identify the paused server-side selection request.
+The frontend retains `turn_id` and `request.request_id`; both identify the paused server-side selection request.
 
 ## Example: "帮我创建两个图片"
 
 The desired end-to-end sequence is:
 
 ```text
-Vue frontend
+Frontend
   -> GET /api/canvases/{canvasId}/events as the canvas opens, held open
 
 User
-  -> Vue frontend: POST /api/canvases/{canvasId}/turns
+  -> Frontend: POST /api/canvases/{canvasId}/turns
   -> application server: creates the turn, answers 202
 
 Application server
@@ -362,8 +362,8 @@ Application server
    -> application server: creates a generate-image node containing both Artifacts
    -> application server: persists canvas and Session
    -> SSE canvas-updated
-  -> Vue frontend: GET /api/canvases/:canvasId as authoritative reconciliation
-  -> Vue frontend: GET /api/sessions/:sessionId/chat-history
+  -> Frontend: GET /api/canvases/:canvasId as authoritative reconciliation
+  -> Frontend: GET /api/sessions/:sessionId/chat-history
    -> SSE text
   -> SSE finish
 ```
@@ -373,9 +373,9 @@ If the Agent needs a user choice before continuing, the sequence becomes:
 ```text
 Application server
    -> SSE request_user_select for a required business choice
-   -> Vue frontend: renders a generic selection card
+   -> Frontend: renders a generic selection card
    -> user selects an option and submits an answer
-   -> Vue frontend: POST /api/turns/:turnId/continue
+   -> Frontend: POST /api/turns/:turnId/continue
    -> application server: validates turn state, request_id, option IDs, and selection count
    -> Agent resumes and emits canvas-updated, text events, and finish
 ```
@@ -392,7 +392,7 @@ The offline fixture suite runs with `pnpm agent:eval`. It uses fixed model respo
 
 ## Recovery
 
-Turns and progress are persisted. `openCanvas()` in `src/composables/useCanvasDocument.ts` loads the canvas document, lists and loads a Session, restores active turns, subscribes to the canvas channel, and performs a final Session reconciliation because SSE does not replay events:
+Turns and progress are persisted. `openCanvas()` in `src/state/canvasDocument.ts` loads the canvas document, lists and loads a Session, restores active turns, subscribes to the canvas channel, and performs a final Session reconciliation because SSE does not replay events:
 
 ```http
 GET /api/canvases/{canvasId}

@@ -7,7 +7,7 @@
 > [Progress](progress.md) for the repository work log and [Todo](todo.md) for
 > pending work.
 
-Forge3D is a local-first, conversational canvas studio for designing reusable 3D production pipelines. A DeepSeek-powered Agent translates natural-language requests into a versioned JSON directed acyclic graph (DAG), while Vue Flow renders that domain model as an editable infinite canvas.
+Forge3D is a local-first, conversational canvas studio for designing reusable 3D production pipelines. A DeepSeek-powered Agent translates natural-language requests into a versioned JSON directed acyclic graph (DAG), while a litegraph-based canvas renders that domain model as an editable infinite canvas.
 
 The repository is both a working demo and a reference implementation. This document describes the product, interaction model, data contracts, rendering rules, Agent protocol, persistence, local runtime, Cloudflare deployment, and known limitations in enough detail for another engineer or AI coding agent to reproduce the project.
 
@@ -22,7 +22,7 @@ Forge3D combines two editing modes over the same authoritative canvas document:
 1. **Conversational editing**: the Canvas Copilot inspects, builds, and updates the graph through validated tools.
 2. **Direct manipulation**: the user adds, connects, moves, groups, configures, copies, runs, imports, and exports nodes on the canvas.
 
-The important architectural boundary is that Vue Flow is a renderer and interaction surface, not the persisted data model. The server owns a framework-neutral canvas JSON document containing domain nodes, semantic edges, viewport state, revision metadata, Session history, Agent turns, and execution runs.
+The important architectural boundary is that the canvas is a renderer and interaction surface, not the persisted data model. The server owns a framework-neutral canvas JSON document containing domain nodes, semantic edges, viewport state, revision metadata, Session history, Agent turns, and execution runs.
 
 ## Current Product Surface
 
@@ -62,7 +62,7 @@ The left panel is a Tiptap-powered chat composer and Session history:
 
 ### Infinite Canvas
 
-The canvas is implemented with Vue Flow and includes:
+The canvas is implemented with litegraph.js inside a React app and includes:
 
 - Free node positioning.
 - Directed connections.
@@ -77,10 +77,9 @@ The canvas is implemented with Vue Flow and includes:
 - Fit-to-view.
 - Background grid.
 - Pannable and zoomable MiniMap.
-- Vue Flow controls.
 - Persisted viewport.
 
-The precise Vue Flow configuration is:
+The canvas configuration is:
 
 | Setting | Value |
 | --- | --- |
@@ -97,7 +96,7 @@ The precise Vue Flow configuration is:
 | MiniMap size | `160 x 100` |
 | MiniMap pan/zoom | Enabled |
 
-Drag-to-pan is enabled for coarse pointer devices. Application code handles deletion instead of Vue Flow's built-in delete key behavior.
+Drag-to-pan is enabled for coarse pointer devices. Application code handles deletion instead of the canvas library's built-in delete key behavior.
 
 ### Canvas Toolbar
 
@@ -489,12 +488,12 @@ Frames created around a selection use `Canvas frame` as the default name.
 
 ## Frame Semantics
 
-Frames are Vue Flow parent nodes and visual containers, not DAG stages:
+Frames are parent nodes and visual containers, not DAG stages:
 
 - They have no input or output handles.
 - Child node positions are persisted relative to the frame.
 - Child nodes use parent extent and expand the parent while dragged.
-- Moving a frame moves descendants through Vue Flow parent semantics.
+- Moving a frame moves its descendants with it.
 - Resizing is enabled with a minimum size of `260 x 180`.
 - Frame z-index is lower than ordinary nodes.
 - Frames can contain nested frames.
@@ -533,7 +532,7 @@ Shortcuts are ignored while typing into inputs, textareas, selects, buttons, or 
 
 ## Automatic Layout
 
-`src/canvas-layout.js` uses ELK's layered algorithm.
+`packages/canvas-core/src/canvas-layout.js` uses ELK's layered algorithm.
 
 The layout preserves frame hierarchy by building a compound graph:
 
@@ -684,7 +683,7 @@ The current editor is a visualization demo, not a persistent mesh-editing backen
 }
 ```
 
-The persisted edge shape remains semantic and does not persist Vue Flow's complete internal edge object.
+The persisted edge shape remains semantic and does not persist the canvas library's internal edge object.
 
 ### Session
 
@@ -762,7 +761,7 @@ There are two Agent execution paths.
 This is the default local development topology:
 
 ```text
-Vue app :5175
+React app :5175
   → Vite /api proxy
 Node API :8787
   → NDJSON over HTTP
@@ -1355,7 +1354,7 @@ pnpm build
 
 Tests use Node's built-in test runner with `tsx`. They cover canvas validation, migration, planner tools, DeepSeek tool dispatch, mock runs, node run recovery, node connections, layout, and run summaries without requiring a real DeepSeek key.
 
-There are currently no browser E2E tests, Vue component mounting tests, Worker/D1 integration tests, visual regression tests, or deployment smoke tests. TypeScript checking includes `worker.ts` and `server/**/*.ts`; it does not fully type-check Vue SFCs, `src/**/*.js`, or `agent-service/**/*.ts`.
+There are currently no browser E2E tests, React component tests, Worker/D1 integration tests, visual regression tests, or deployment smoke tests. TypeScript checking includes `worker.ts` and `server/**/*.ts`; it does not fully type-check `src/**/*.tsx`, `src/**/*.js`, or `agent-service/**/*.ts`.
 
 ## Cloudflare Deployment
 
@@ -1473,16 +1472,19 @@ The model default is currently not unified across `.env.example`, the direct Age
 │   └── data/                        # Ignored runtime state
 ├── src/
 │   ├── components/
-│   │   ├── ComposerAttachment.vue   # Tiptap attachment view
-│   │   ├── FrameNode.vue            # Group/frame node and resize UI
-│   │   ├── Model3D.vue              # Three.js model viewer
-│   │   ├── ModelEditor.vue          # Dedicated model workspace
-│   │   ├── NodeSelect.vue           # Reka-based node select
-│   │   ├── NodeSlider.vue           # Reka-based node slider
-│   │   └── CanvasNode.vue         # All ordinary node card variants
+│   │   ├── ChatPanel.tsx            # Copilot conversation and composer
+│   │   ├── ComposerAttachment.tsx   # Tiptap attachment view
+│   │   ├── LiteGraphCanvas.tsx      # Canvas host, minimap, uploads
+│   │   ├── Model3D.tsx              # Three.js model viewer
+│   │   ├── ModelEditor.tsx          # Dedicated model workspace
+│   │   └── NodeSelect.tsx           # Node parameter select
 │   ├── editor/attachment.js         # Tiptap attachment extension
-│   ├── App.vue                      # Product shell, canvas, chat, persistence orchestration
-│   ├── main.js                      # Vue bootstrap and Vue Flow styles
+│   ├── state/                       # Canvas document, selection, runs, chat controllers
+│   ├── App.tsx                      # Product shell, canvas, chat, persistence orchestration
+│   ├── litegraph-canvas.ts          # Node cards, wires and frames drawn on litegraph
+│   ├── store.ts                     # Mutable state that React re-renders from
+│   ├── main.tsx                     # React bootstrap (web)
+│   ├── plugin.tsx                   # DSH plugin entry (native conversation.view tab)
 │   ├── node-runs.js                 # Node run state merge helpers
 │   ├── run-summary.js               # Footer run status summaries
 │   ├── styles.css                   # Full application visual system and responsive CSS
@@ -1508,7 +1510,6 @@ The interface uses a custom, compact production-tool visual language rather than
 - Green canvas accent and node-specific status/accent colors.
 - Tailwind v4 loaded through `@tailwindcss/vite` and CSS-first directives in `src/styles.css`.
 - No separate Tailwind or PostCSS config file.
-- `<model-viewer>` is configured as a Vue custom element in Vite.
 
 Google Fonts are loaded over the network. Offline use falls back to local font stacks.
 
@@ -1538,7 +1539,7 @@ These are absolute root paths. The current Vite config assumes deployment at the
 
 An independent implementation should preserve these invariants:
 
-1. Keep canvas JSON independent from Vue Flow internals.
+1. Keep canvas JSON independent from canvas library internals.
 2. Convert domain nodes/edges to canvas objects on load and back on save.
 3. Persist positions, frame relationships, dimensions, viewport, and revision.
 4. Serialize autosaves so stale requests cannot overwrite recent edits.
@@ -1583,9 +1584,9 @@ An independent implementation should preserve these invariants:
 
 When documentation and implementation diverge, use these files in this order:
 
-1. `src/canvas-nodes.js` for visible node catalog, defaults, handles, and connection behavior.
-2. `src/App.vue` for product interaction and frontend API behavior.
-3. `src/components/CanvasNode.vue` and `FrameNode.vue` for node UI.
+1. `packages/canvas-core/src/canvas-nodes.js` for visible node catalog, defaults, handles, and connection behavior.
+2. `src/App.tsx` and `src/state/*` for product interaction and frontend API behavior.
+3. `src/litegraph-canvas.ts` for node and frame UI.
 4. `server/canvas-parameters.ts` for Agent-editable parameter validation.
 5. `server/planner.ts` and `server/deepseek.ts` for Agent graph mutation semantics.
 6. `server/index.ts` for local HTTP/SSE/turn lifecycle.

@@ -5,7 +5,7 @@
  *   - Tailwind utility：`forge:` 变体前缀，由 styles.css 的 `prefix(forge)` 编译期生成
  *   - 业务语义 class：`forge3d-` 普通前缀，即本文件
  *
- * 模板里的字面量由 scripts/prefix-classes.mjs 批量改写；但那些**值来自后端**的
+ * 组件里的字面量直接写成带前缀的形式；但那些**值来自后端**的
  * class（节点运行状态、消息角色、provider 名等）只能在运行时拼，所以走这个函数。
  */
 export const BIZ_CLASS_PREFIX = 'forge3d-';

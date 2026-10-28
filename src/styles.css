@@ -1,8 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss" prefix(forge);
-@import '@vue-flow/core/dist/style.css';
-@import '@vue-flow/core/dist/theme-default.css';
-@import '@vue-flow/controls/dist/style.css';
 
 @custom-variant dark (&:where(:root:not([data-theme='light']) *));
 @custom-variant light (&:where(:root[data-theme='light'] *));

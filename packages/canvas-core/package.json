@@ -1,0 +1,15 @@
+{
+  "name": "@forge3d/canvas-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Forge3D canvas domain: node schema, ports, graph, result slots, layout, wires. Pure TypeScript — no UI framework, no DOM, no Node APIs.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  }
+}

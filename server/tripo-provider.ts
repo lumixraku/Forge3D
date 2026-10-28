@@ -11,7 +11,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tripoNodeOutput, tripoRequest, usesTripo } from './tripo-mapping.js'
 import { assetUrlPrefix, resolveAssetPath } from './tripo-assets.js'
-import { nodeInputPorts, nodeOutputPorts, nodeOutputPortValues, resolveInputSources } from '../src/canvas-nodes.js'
+import { nodeInputPorts, nodeOutputPorts, nodeOutputPortValues, resolveInputSources } from '@forge3d/canvas-core'
 import { inboundSources, resolveGenerateModelImages, resolvePrompt, resolveUpstreamPreview } from './run-inputs.js'
 
 export { resolveGenerateModelImages, resolvePrompt, resolveUpstreamPreview }

@@ -2,10 +2,11 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
+import { apiUrl } from './api'
 
 function loadModel(url: string) {
   return new Promise<THREE.Group>((resolve, reject) => {
-    new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).load(url, ({ scene }) => resolve(scene), undefined, reject)
+    new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).load(apiUrl(url), ({ scene }) => resolve(scene), undefined, reject)
   })
 }
 

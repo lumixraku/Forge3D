@@ -1,9 +1,9 @@
 {
   "name": "@forge3d/dsh-plugin",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
-  "description": "Forge3D canvas inside DeepSeek Harness: a conversation.view tab that hosts the existing Forge3D web app.",
+  "description": "Run the Forge3D 3D-asset canvas inside DeepSeek Harness: a conversation tab, a /forge3d web route, and canvas tools for the agent.",
   "main": "lib/index.js",
   "exports": {
     ".": {
@@ -17,7 +17,9 @@
   "files": [
     "lib",
     "dist",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
   ],
   "dsh": {
     "bundle": {
@@ -27,5 +29,22 @@
       "inject": [],
       "platform": "web"
     }
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "forge3d",
+    "3d",
+    "canvas",
+    "meshy",
+    "tripo"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/forge3d/forge3d.git",
+    "directory": "dsh-plugin"
   }
 }

@@ -1,7 +1,7 @@
 import { access, mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { normalizeNodeConfig, normalizeGeneratedAssets, splitNodeTrees } from '../src/canvas-schema.js'
+import { normalizeNodeConfig, normalizeGeneratedAssets, splitNodeTrees } from '@forge3d/canvas-core'
 import { migrateCanvasRefs, migrateTurns } from './migrations.js'
 
 // Re-exported so the store stays the single entry point for migrations even
