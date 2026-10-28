@@ -1,0 +1,13 @@
+# Forge3D bundle layer.
+#
+# The package is mounted by adding it to the profile's `dsh.profile.bundles`
+# (see the desktop profile's package.json). This patch inserts the fiber that
+# owns the `/forge3d` web route, which serves the built canvas app.
+#
+# The client half (`lib/client.js`, declared by `dsh.client` and
+# `exports["./client"]`) is discovered from this same loader entry and served by
+# the host at `/plugins`.
+- insert:
+    - id: forge3d-dsh-plugin
+      name: '@forge3d/dsh-plugin'
+      config: {}

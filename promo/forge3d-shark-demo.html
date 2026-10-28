@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Forge3D · Shark Gardener demo</title>
+<style>html,body{margin:0;background:#1d2b3a;overflow:hidden}canvas{display:block;width:100vw;height:100vh;object-fit:contain}</style>
+<script type="importmap">{"imports":{"three":"/vendor/three.module.min.js","three/addons/":"/vendor/"}}</script>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script type="module">
+// Forge3D 演示视频（无声），1920x1080 @ 30fps。
+// 画布与预览界面使用真实截图（promo/assets），3D 预览里转动的是 Meshy 实际生成的 GLB。
+// renderAt(t) 在素材加载后只依赖 t；?t=<秒> 定帧，?render=1 逐帧 POST 给本地 serve.mjs。
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const W = 1920, H = 1080, FPS = 30, DURATION = 27;
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const C = {
+  ink: '#1d2b3a', sky1: '#bfe9ff', sky2: '#fff4dc',
+  teal: '#4fae9f', tealDark: '#2f8277', cream: '#fbf7ec', orange: '#ff9a3d', yellow: '#ffd34d',
+  pink: '#ffb3c1', lilac: '#e5c6ff', mint: '#c6f08a', sky: '#9fe3ff', muted: '#69716c',
+};
+const FONT = '"Arial Rounded MT Bold", "PingFang SC", sans-serif';
+const LOGO = '"Arial Rounded MT Bold", "PingFang SC", sans-serif';
+const MONO = '"SF Mono", Menlo, monospace';
+
+// ---------- 数学 ----------
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const beat = (t, a, b) => clamp((t - a) / (b - a));
+const ease = (t) => { t = clamp(t); return t * t * (3 - 2 * t); };
+const easeOut = (t) => 1 - Math.pow(1 - clamp(t), 3);
+// 闭式欠阻尼弹簧，0 → 1 带回弹
+const spring = (t, w = 13, z = 0.45) => {
+  if (t <= 0) return 0;
+  const wd = w * Math.sqrt(1 - z * z);
+  return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + (z * w / wd) * Math.sin(wd * t));
+};
+
+// ---------- 2D 工具 ----------
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
+function toonBox(x, y, w, h, r, fill, { shadow = 8, stroke = C.ink, lw = 4 } = {}) {
+  if (shadow) { ctx.fillStyle = 'rgba(29,43,58,.9)'; rr(x + shadow, y + shadow, w, h, r); ctx.fill(); }
+  ctx.fillStyle = fill; rr(x, y, w, h, r); ctx.fill();
+  if (lw) { ctx.lineWidth = lw; ctx.strokeStyle = stroke; ctx.stroke(); }
+}
+function txt(s, x, y, size, color, { align = 'left', font = FONT, weight = 700, stroke = 0, strokeColor = C.ink } = {}) {
+  ctx.font = `${weight} ${size}px ${font}`;
+  ctx.textAlign = align; ctx.textBaseline = 'middle';
+  if (stroke) { ctx.lineJoin = 'round'; ctx.lineWidth = stroke; ctx.strokeStyle = strokeColor; ctx.strokeText(s, x, y); }
+  ctx.fillStyle = color; ctx.fillText(s, x, y);
+}
+function textWidth(s, size, font = FONT, weight = 700) { ctx.font = `${weight} ${size}px ${font}`; return ctx.measureText(s).width; }
+function drawImg(img, cx, cy, h, { rot = 0, sx = 1, sy = 1, alpha = 1 } = {}) {
+  const w = h * img.width / img.height;
+  ctx.save(); ctx.globalAlpha *= alpha;
+  ctx.translate(cx, cy); ctx.rotate(rot); ctx.scale(sx, sy);
+  ctx.drawImage(img, -w / 2, -h / 2, w, h);
+  ctx.restore();
+}
+// 等比裁切铺满矩形
+function coverImg(img, x, y, w, h) {
+  const s = Math.max(w / img.width, h / img.height);
+  const iw = img.width * s, ih = img.height * s;
+  ctx.drawImage(img, x + (w - iw) / 2, y + (h - ih) / 2, iw, ih);
+}
+function sparkle(x, y, s, color = '#fff') {
+  if (s <= 0.01) return;
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
+  ctx.fillStyle = color; ctx.strokeStyle = C.ink; ctx.lineWidth = 3 / s;
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4, r = i % 2 ? 6 : 18; ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+  ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+}
+function cursor(x, y, press = 0) {
+  if (press > 0) { ctx.strokeStyle = `rgba(255,154,61,${press})`; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(x, y, 18 + 30 * (1 - press), 0, Math.PI * 2); ctx.stroke(); }
+  ctx.save(); ctx.translate(x, y); ctx.scale(1 - press * .15, 1 - press * .15);
+  ctx.fillStyle = '#fff'; ctx.strokeStyle = C.ink; ctx.lineWidth = 4; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 44); ctx.lineTo(12, 33); ctx.lineTo(22, 54); ctx.lineTo(31, 50); ctx.lineTo(21, 29); ctx.lineTo(37, 29); ctx.closePath();
+  ctx.fill(); ctx.stroke(); ctx.restore();
+}
+function skyBackground(t) {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, C.sky1); g.addColorStop(1, C.sky2);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  for (let i = 0; i < 16; i++) {
+    const x = (i * 263 + 90) % W + Math.sin(t * .8 + i) * 30;
+    const y = H + 60 - ((t * (40 + (i % 5) * 14) + i * 170) % (H + 160));
+    const r = 10 + (i % 4) * 7;
+    ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.strokeStyle = 'rgba(29,43,58,.25)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x - r * .35, y - r * .35, r * .25, 0, Math.PI * 2); ctx.fill();
+  }
+  for (let k = 0; k < 2; k++) {
+    ctx.fillStyle = k ? '#6fc6e6' : '#9ddcf2';
+    ctx.beginPath(); ctx.moveTo(0, H);
+    for (let x = 0; x <= W; x += 20) ctx.lineTo(x, H - 70 + k * 34 + Math.sin(x / 90 + t * (2 + k) + k) * 12);
+    ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+  }
+}
+// 顶部步骤标题条
+function stepTitle(t, start, num, label) {
+  const k = spring(t - start, 11, 0.55);
+  if (k <= 0) return;
+  const w = textWidth(label, 40) + 150;
+  ctx.save(); ctx.translate(W / 2, 62); ctx.scale(k, k);
+  toonBox(-w / 2, -40, w, 80, 40, '#fff', { shadow: 6 });
+  ctx.fillStyle = C.orange; ctx.beginPath(); ctx.arc(-w / 2 + 48, 0, 26, 0, Math.PI * 2); ctx.fill();
+  ctx.lineWidth = 3; ctx.strokeStyle = C.ink; ctx.stroke();
+  txt(num, -w / 2 + 48, 1, 28, '#fff', { align: 'center', font: LOGO });
+  txt(label, -w / 2 + 92, 2, 40, C.ink);
+  ctx.restore();
+}
+// 气泡标注：尖角指向 (px, py)
+function callout(k, px, py, label, { dir = 'up', color = '#fff', size = 30 } = {}) {
+  if (k <= 0) return;
+  const w = textWidth(label, size) + 48, h = size + 34;
+  const gap = 26;
+  let bx = px - w / 2, by = dir === 'up' ? py - gap - h : py + gap;
+  if (dir === 'left') { bx = px + gap; by = py - h / 2; }
+  if (dir === 'right') { bx = px - gap - w; by = py - h / 2; }
+  ctx.save();
+  ctx.translate(px, py); ctx.scale(k, k); ctx.translate(-px, -py);
+  ctx.fillStyle = color; ctx.strokeStyle = C.ink; ctx.lineWidth = 4; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  if (dir === 'up') { ctx.moveTo(px - 14, by + h - 2); ctx.lineTo(px, py - 4); ctx.lineTo(px + 14, by + h - 2); }
+  else if (dir === 'down') { ctx.moveTo(px - 14, by + 2); ctx.lineTo(px, py + 4); ctx.lineTo(px + 14, by + 2); }
+  else if (dir === 'left') { ctx.moveTo(bx + 2, py - 14); ctx.lineTo(px + 4, py); ctx.lineTo(bx + 2, py + 14); }
+  else { ctx.moveTo(bx + w - 2, py - 14); ctx.lineTo(px - 4, py); ctx.lineTo(bx + w - 2, py + 14); }
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  toonBox(bx, by, w, h, h / 2, color, { shadow: 5, lw: 4 });
+  // 盖住尖角根部的描边
+  ctx.fillStyle = color; ctx.beginPath();
+  if (dir === 'up') ctx.rect(px - 11, by + h - 6, 22, 8);
+  else if (dir === 'down') ctx.rect(px - 11, by - 2, 22, 8);
+  else if (dir === 'left') ctx.rect(bx - 2, py - 11, 8, 22);
+  else ctx.rect(bx + w - 6, py - 11, 8, 22);
+  ctx.fill();
+  txt(label, bx + w / 2, by + h / 2 + 1, size, C.ink, { align: 'center' });
+  ctx.restore();
+}
+
+// ---------- 素材 ----------
+const IMG = {};
+const imgList = {
+  ref: '/public/shark-reference.png',
+  front: '/public/shark-concept-front.png', left: '/public/shark-concept-left.png',
+  right: '/public/shark-concept-right.png', back: '/public/shark-concept-back.png',
+  canvasShot: '/assets/canvas-image-to-3d.png',
+  editorShot: '/assets/editor-empty.png',
+  meshyPreview: '/assets/meshy-preview.png',
+};
+const loadImg = (k, src) => new Promise((ok, bad) => { const i = new Image(); i.onload = () => { IMG[k] = i; ok(); }; i.onerror = () => bad(new Error(src)); i.src = src; });
+
+// 与 src/components/Model3D.vue 一致的预览场景：RoomEnvironment、半球光 + 主光、fov 38、相机 (0.4, 0.6, 4)
+const VIEW = { x: 0, y: 129, w: 1620, h: 897 }; // 截图里 3D 视口在 1920x1080 坐标下的位置
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.setClearColor(0x000000, 0);
+renderer.setSize(VIEW.w, VIEW.h, false);
+const pv = { scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(38, VIEW.w / VIEW.h, 0.1, 100), pivot: new THREE.Group() };
+pv.scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+pv.scene.add(new THREE.HemisphereLight(0xffffff, 0x6b7a68, 1.1));
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.5); keyLight.position.set(3, 5, 4); pv.scene.add(keyLight);
+pv.scene.add(pv.pivot);
+const loadModel = () => new Promise((ok, bad) => new GLTFLoader().load('/assets/meshy-model.glb', (g) => {
+  const root = g.scene;
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(root);
+  const c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3());
+  root.position.sub(c);
+  const holder = new THREE.Group(); holder.add(root);
+  holder.scale.setScalar(2 / Math.max(s.x, s.y, s.z));
+  pv.pivot.add(holder);
+  ok();
+}, undefined, bad));
+function renderModel(t, zoom) {
+  pv.pivot.rotation.y = -0.6 + t * 0.6;
+  const d = lerp(4.0, 3.2, zoom);
+  pv.camera.position.set(0.4 * d / 4, 0.6 * d / 4, d);
+  pv.camera.lookAt(0, 0, 0);
+  renderer.render(pv.scene, pv.camera);
+  return renderer.domElement;
+}
+
+// ---------- 截图镜头 ----------
+// 截图按 1920x1080 坐标绘制；镜头 {cx, cy, z} 表示放大倍数和对准的截图坐标。
+const FRAME = { s: 0.8, oy: 40 };
+function camAt(keys, t) {
+  let a = keys[0], b = keys[keys.length - 1];
+  for (let i = 0; i < keys.length - 1; i++) if (t >= keys[i].t && t <= keys[i + 1].t) { a = keys[i]; b = keys[i + 1]; break; }
+  if (t <= keys[0].t) return keys[0];
+  if (t >= keys[keys.length - 1].t) return keys[keys.length - 1];
+  const u = ease((t - a.t) / (b.t - a.t));
+  return { cx: lerp(a.cx, b.cx, u), cy: lerp(a.cy, b.cy, u), z: lerp(a.z, b.z, u) };
+}
+function shotMap(cam) {
+  const s = FRAME.s * cam.z;
+  return (x, y) => [W / 2 + (x - cam.cx) * s, H / 2 + FRAME.oy + (y - cam.cy) * s];
+}
+// 画一个卡通描边窗口，窗口内放截图（可被镜头放大）
+function shotWindow(cam, drawContent) {
+  const fw = W * FRAME.s, fh = H * FRAME.s, fx = (W - fw) / 2, fy = (H - fh) / 2 + FRAME.oy;
+  toonBox(fx - 10, fy - 10, fw + 20, fh + 20, 28, '#fff', { shadow: 12, lw: 5 });
+  ctx.save();
+  rr(fx, fy, fw, fh, 18); ctx.clip();
+  const s = FRAME.s * cam.z;
+  ctx.translate(W / 2, H / 2 + FRAME.oy); ctx.scale(s, s); ctx.translate(-cam.cx, -cam.cy);
+  drawContent();
+  ctx.restore();
+  ctx.lineWidth = 5; ctx.strokeStyle = C.ink; rr(fx, fy, fw, fh, 18); ctx.stroke();
+}
+function highlightRect(map, x0, y0, x1, y1, k, color = C.orange) {
+  if (k <= 0) return;
+  const [ax, ay] = map(x0, y0), [bx, by] = map(x1, y1);
+  ctx.save(); ctx.globalAlpha = clamp(k);
+  ctx.lineWidth = 6; ctx.strokeStyle = color; ctx.setLineDash([16, 10]);
+  rr(ax - 8, ay - 8, bx - ax + 16, by - ay + 16, 16); ctx.stroke();
+  ctx.restore();
+}
+
+// ---------- 场景 1：开场 0–3.8 ----------
+function sceneTitle(t) {
+  skyBackground(t);
+  const k = spring(t - 0.15, 10, 0.4);
+  ctx.fillStyle = 'rgba(29,43,58,.18)'; ctx.beginPath(); ctx.ellipse(W / 2 - 330, 900, 190 * clamp(k), 30 * clamp(k), 0, 0, Math.PI * 2); ctx.fill();
+  drawImg(IMG.ref, W / 2 - 330, 640 + Math.sin(t * 3) * 10 + (1 - clamp(k)) * 500, 640, { rot: Math.sin(t * 2.2) * 0.04, sx: lerp(1.15, 1, clamp(k)), sy: lerp(.8, 1, clamp(k)) });
+  const tk = spring(t - 0.6, 12, 0.42);
+  ctx.save(); ctx.translate(1240, 420); ctx.scale(tk, tk); ctx.rotate(-0.04);
+  txt('Forge3D', 0, 0, 170, '#d7ff56', { align: 'center', font: LOGO, stroke: 20 });
+  ctx.restore();
+  const sk = spring(t - 1.1, 12, 0.5);
+  ctx.save(); ctx.globalAlpha = clamp(sk); ctx.translate(1240, 570); ctx.scale(sk, sk);
+  const tw = textWidth('One sentence. One 3D model.', 46) + 90;
+  toonBox(-tw / 2, -46, tw, 92, 46, '#fff');
+  txt('One sentence. One 3D model.', 0, 2, 46, C.ink, { align: 'center' });
+  ctx.restore();
+  const ck = clamp(spring(t - 1.7, 12, 0.5));
+  ctx.save(); ctx.globalAlpha = ck;
+  txt('AI 3D workflow canvas · Agent · Nodes · Live preview', 1240, 690, 30, C.ink, { align: 'center', weight: 600 });
+  ctx.restore();
+  for (let i = 0; i < 6; i++) {
+    const s = spring(t - 0.9 - i * 0.15, 14, 0.4) * (0.7 + 0.3 * Math.sin(t * 5 + i));
+    sparkle([980, 1520, 1600, 900, 1460, 640][i], [300, 280, 520, 560, 760, 300][i], s * 1.2, i % 2 ? C.yellow : '#fff');
+  }
+}
+
+// ---------- 场景 2：真实画布 3.8–13.6 ----------
+// 下列坐标量自 assets/canvas-image-to-3d.png（换算到 1920x1080）
+const NODE = {
+  upload: [483, 240, 635, 363],
+  upload2: [483, 411, 635, 533],
+  prompt: [483, 581, 635, 676],
+  model: [693, 413, 845, 653],
+  preview: [903, 413, 1054, 535],
+  export: [1114, 413, 1264, 559],
+  composer: [12, 970, 336, 1068],
+  run: [699, 631, 725, 649],
+};
+const S2 = 3.8;
+const canvasCam = [
+  { t: S2, cx: 330, cy: 760, z: 1.7 },
+  { t: S2 + 2.9, cx: 330, cy: 760, z: 1.7 },
+  { t: S2 + 3.9, cx: 880, cy: 470, z: 1.55 },
+  { t: S2 + 8.2, cx: 880, cy: 470, z: 1.55 },
+  { t: S2 + 9.8, cx: 880, cy: 480, z: 1.62 },
+];
+function sceneCanvas(t) {
+  skyBackground(t);
+  const cam = camAt(canvasCam, t);
+  const map = shotMap(cam);
+  const msg = 'Make this shark a 3D model, export GLB';
+  const typed = Math.floor(easeOut(beat(t, S2 + 0.9, S2 + 2.6)) * msg.length);
+  shotWindow(cam, () => {
+    ctx.drawImage(IMG.canvasShot, 0, 0, W, H);
+    // 在真实输入框里打字（遮掉占位提示）
+    if (t > S2 + 0.7) {
+      const [x0, y0] = [NODE.composer[0] + 6, NODE.composer[1] + 6];
+      ctx.fillStyle = '#fffdf7'; ctx.fillRect(x0, y0, 300, 26);
+      txt(msg.slice(0, typed), x0 + 6, y0 + 14, 13, '#2c2f2c', { weight: 500 });
+      if (typed < msg.length && Math.floor(t * 4) % 2) { ctx.fillStyle = C.teal; ctx.fillRect(x0 + 8 + textWidth(msg.slice(0, typed), 13, FONT, 500), y0 + 5, 1.5, 17); }
+    }
+  });
+  if (t < S2 + 3.6) stepTitle(t, S2 + 0.2, '1', 'Tell the Canvas copilot what you want');
+  if (t < S2 + 3.2) {
+    const [px, py] = map(NODE.composer[2] - 30, NODE.composer[1]);
+    callout(spring(t - S2 - 0.6, 13, 0.5), px, py, 'Describe the 3D asset you want', { dir: 'up', color: C.yellow });
+  }
+  if (t > S2 + 3.6) {
+    stepTitle(t, S2 + 3.7, '2', 'Wire the nodes, run in one click');
+    const steps = [
+      ['upload', 'Reference image', 'up', C.sky, 4.2],
+      ['prompt', 'Text prompt', 'right', C.lilac, 4.8],
+      ['model', 'Generate 3D model', 'down', C.mint, 5.4],
+      ['preview', 'Preview result', 'up', C.pink, 6.0],
+      ['export', 'Export GLB', 'down', '#ffd38a', 6.6],
+    ];
+    for (const [key, label, dir, color, at] of steps) {
+      const [x0, y0, x1, y1] = NODE[key];
+      const k = spring(t - S2 - at, 13, 0.5);
+      highlightRect(map, x0, y0, x1, y1, clamp((t - S2 - at) * 4) * (t < S2 + 8.4 ? 1 : 1 - beat(t, S2 + 8.4, S2 + 8.8)));
+      const [px, py] = dir === 'up' ? map((x0 + x1) / 2, y0) : dir === 'right' ? map(x0, (y0 + y1) / 2) : map((x0 + x1) / 2, y1);
+      const off = dir === 'up' ? [0, -10] : dir === 'right' ? [-10, 0] : [0, 10];
+      callout(k * (t < S2 + 8.4 ? 1 : 1 - beat(t, S2 + 8.4, S2 + 8.8)), px + off[0], py + off[1], label, { dir, color, size: 28 });
+    }
+    // 光标点击 Gen HD Model 的 Run
+    const [rx, ry] = map((NODE.run[0] + NODE.run[2]) / 2, (NODE.run[1] + NODE.run[3]) / 2);
+    const clickT = S2 + 8.9;
+    const mk = ease(beat(t, S2 + 7.6, clickT - 0.1));
+    const press = Math.max(0, 1 - Math.abs(t - clickT) * 5);
+    if (t > S2 + 7.5) cursor(lerp(W - 300, rx, mk), lerp(H - 120, ry, mk), press);
+    if (t > clickT) callout(spring(t - clickT, 13, 0.5), rx, ry + 34, 'Click Run to generate', { dir: 'down', color: C.yellow, size: 30 });
+  }
+}
+
+// ---------- 场景 3：生成物卡片 13.6–19.0 ----------
+const S3 = 13.6;
+const CARDS = [
+  { title: 'Reference', sub: 'Asset Upload', tone: C.sky, draw: (x, y, w, h) => { ctx.fillStyle = '#f5efe2'; ctx.fillRect(x, y, w, h); drawImg(IMG.ref, x + w / 2, y + h / 2, h * 0.95); } },
+  { title: 'Multi-view', sub: 'Front · Back · Sides', tone: '#ffd38a', draw: (x, y, w, h) => {
+    ctx.fillStyle = '#f5efe2'; ctx.fillRect(x, y, w, h);
+    ['front', 'back', 'left', 'right'].forEach((k, i) => drawImg(IMG[k], x + w / 4 + (i % 2) * w / 2, y + h / 4 + Math.floor(i / 2) * h / 2, h * 0.47));
+  } },
+  { title: '3D Model', sub: 'Generated by Meshy', tone: C.mint, draw: (x, y, w, h) => { ctx.fillStyle = '#2a2d2c'; ctx.fillRect(x, y, w, h); coverImg(IMG.meshyPreview, x, y, w, h); } },
+  { title: 'GLB File', sub: 'model.glb · 27.3 MB', tone: C.pink, draw: (x, y, w, h, t) => {
+    ctx.fillStyle = '#fff4f6'; ctx.fillRect(x, y, w, h);
+    const cx = x + w / 2, cy = y + h / 2 - 8;
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(Math.sin(t * 2) * 0.05);
+    toonBox(-62, -80, 124, 160, 14, '#fff', { shadow: 6, lw: 4 });
+    ctx.fillStyle = C.pink; ctx.beginPath(); ctx.moveTo(26, -80); ctx.lineTo(62, -44); ctx.lineTo(26, -44); ctx.closePath(); ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = C.ink; ctx.stroke();
+    txt('GLB', 0, 10, 40, C.ink, { align: 'center', font: LOGO });
+    ctx.restore();
+    txt('PBR · Downloadable', cx, y + h - 26, 22, C.muted, { align: 'center', weight: 600 });
+  } },
+];
+function sceneCards(t) {
+  skyBackground(t);
+  stepTitle(t, S3 + 0.1, '3', 'See every result along the way');
+  const cw = 360, ch = 470, gap = 70, y = 260;
+  const x0 = (W - (cw * 4 + gap * 3)) / 2;
+  CARDS.forEach((card, i) => {
+    const at = S3 + 0.5 + i * 0.75;
+    const k = spring(t - at, 11, 0.42);
+    if (k <= 0) return;
+    const x = x0 + i * (cw + gap);
+    // 卡片之间的箭头
+    if (i > 0) {
+      const ak = ease(beat(t, at - 0.25, at + 0.1));
+      const ax = x - gap + 10, ay = y + ch / 2;
+      ctx.strokeStyle = C.ink; ctx.lineWidth = 6; ctx.setLineDash([12, 9]); ctx.lineDashOffset = -t * 50;
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax + (gap - 30) * ak, ay); ctx.stroke(); ctx.setLineDash([]);
+      if (ak > 0.95) { ctx.fillStyle = C.ink; ctx.beginPath(); ctx.moveTo(x - 6, ay); ctx.lineTo(x - 24, ay - 12); ctx.lineTo(x - 24, ay + 12); ctx.closePath(); ctx.fill(); }
+    }
+    const bob = Math.sin(t * 2.4 + i) * 6;
+    ctx.save(); ctx.translate(x + cw / 2, y + ch / 2 + bob); ctx.scale(k, k); ctx.rotate((i % 2 ? 1 : -1) * 0.02); ctx.translate(-cw / 2, -ch / 2);
+    toonBox(0, 0, cw, ch, 28, '#fff', { shadow: 10, lw: 5 });
+    toonBox(0, 0, cw, 76, 28, card.tone, { shadow: 0, lw: 5 });
+    ctx.fillStyle = card.tone; ctx.fillRect(5, 50, cw - 10, 24);
+    ctx.fillStyle = C.ink; ctx.beginPath(); ctx.arc(42, 38, 20, 0, Math.PI * 2); ctx.fill();
+    txt(String(i + 1), 42, 39, 22, '#fff', { align: 'center', font: LOGO });
+    txt(card.title, 76, 40, 34, C.ink);
+    ctx.save(); rr(22, 98, cw - 44, 290, 18); ctx.clip();
+    card.draw(22, 98, cw - 44, 290, t);
+    ctx.restore();
+    ctx.lineWidth = 4; ctx.strokeStyle = C.ink; rr(22, 98, cw - 44, 290, 18); ctx.stroke();
+    txt(card.sub, cw / 2, 428, 24, C.muted, { align: 'center', weight: 600 });
+    ctx.restore();
+  });
+  const dk = spring(t - S3 - 3.8, 12, 0.5);
+  if (dk > 0) {
+    ctx.save(); ctx.translate(W / 2, 880); ctx.scale(dk, dk);
+    const bw = textWidth('Every result stays on the canvas', 34) + 90;
+    toonBox(-bw / 2, -44, bw, 88, 44, C.yellow, { shadow: 6 });
+    txt('Every result stays on the canvas', 0, 2, 34, C.ink, { align: 'center' });
+    ctx.restore();
+  }
+  drawImg(IMG.ref, 170, 900 + Math.sin(t * 4) * 8, 220 * clamp(spring(t - S3 - 0.3, 10, 0.4), 0, 1.3), { rot: -0.1 + Math.sin(t * 3) * 0.05 });
+}
+
+// ---------- 场景 4：真实 3D 预览界面 19.0–24.4 ----------
+const S4 = 19.0;
+const DOWNLOAD = [1498, 84, 1603, 112]; // editor 截图里 Download model 按钮
+const editorCam = [
+  { t: S4, cx: 960, cy: 540, z: 1.0 },
+  { t: S4 + 1.2, cx: 960, cy: 540, z: 1.0 },
+  { t: S4 + 3.0, cx: 810, cy: 560, z: 1.25 },
+  { t: S4 + 3.8, cx: 810, cy: 560, z: 1.25 },
+  { t: S4 + 4.8, cx: 1060, cy: 470, z: 1.08 },
+];
+function scenePreview(t) {
+  skyBackground(t);
+  const cam = camAt(editorCam, t);
+  const map = shotMap(cam);
+  const model = renderModel(t - S4, 0);
+  shotWindow(cam, () => {
+    ctx.drawImage(IMG.editorShot, 0, 0, W, H);
+    ctx.drawImage(model, VIEW.x, VIEW.y, VIEW.w, VIEW.h);
+  });
+  stepTitle(t, S4 + 0.1, '4', 'Open the 3D preview and spin it');
+  {
+    const [px, py] = map(1080, 860);
+    callout(spring(t - S4 - 1.4, 13, 0.5) * (1 - beat(t, S4 + 3.6, S4 + 3.9)), px, py, 'Drag to orbit · Scroll to zoom', { dir: 'down', color: C.yellow });
+    const [qx, qy] = map(420, 560);
+    callout(spring(t - S4 - 2.0, 13, 0.5) * (1 - beat(t, S4 + 3.6, S4 + 3.9)), qx, qy, 'A real GLB generated by Meshy', { dir: 'right', color: C.mint });
+  }
+  const [dx, dy] = map((DOWNLOAD[0] + DOWNLOAD[2]) / 2, (DOWNLOAD[1] + DOWNLOAD[3]) / 2);
+  const clickT = S4 + 4.6;
+  if (t > S4 + 3.8) {
+    const mk = ease(beat(t, S4 + 3.8, clickT - 0.1));
+    cursor(lerp(dx - 260, dx, mk), lerp(dy + 260, dy, mk), Math.max(0, 1 - Math.abs(t - clickT) * 5));
+  }
+  if (t > clickT) callout(spring(t - clickT, 13, 0.5), dx, dy + 30, 'Download in one click', { dir: 'down', color: C.yellow });
+}
+
+// ---------- 场景 5：结尾 24.4–27 ----------
+function sceneOutro(t) {
+  const L = 24.4;
+  skyBackground(t);
+  const k = spring(t - L - 0.1, 10, 0.4);
+  drawImg(IMG.ref, W / 2, 560 + Math.sin(t * 3) * 10, 500 * clamp(k, 0, 1.3), { rot: Math.sin(t * 2.4) * 0.05 });
+  const tk = spring(t - L - 0.4, 12, 0.45);
+  ctx.save(); ctx.translate(W / 2, 190); ctx.scale(tk, tk);
+  txt('Forge3D', 0, 0, 140, '#d7ff56', { align: 'center', font: LOGO, stroke: 18 });
+  ctx.restore();
+  const bk = spring(t - L - 0.8, 12, 0.5);
+  ctx.save(); ctx.translate(W / 2, 880); ctx.scale(bk, bk);
+  const ow = textWidth('Describe it. Get a 3D asset.', 40) + 90;
+  toonBox(-ow / 2, -44, ow, 88, 44, '#fff');
+  txt('Describe it. Get a 3D asset.', 0, 2, 40, C.ink, { align: 'center' });
+  ctx.restore();
+  for (let i = 0; i < 8; i++) {
+    const a = i / 8 * Math.PI * 2 + t * 0.6, r = 340 + Math.sin(t * 2 + i) * 20;
+    sparkle(W / 2 + Math.cos(a) * r, 560 + Math.sin(a) * r * 0.6, clamp(k) * (i % 2 ? .8 : 1.2), i % 2 ? C.yellow : '#fff');
+  }
+}
+
+// 卡通圆形转场，中心闪过小鲨鱼
+const CUTS = [3.8, 13.6, 19.0, 24.4];
+function iris(t) {
+  for (const c of CUTS) {
+    const d = Math.abs(t - c);
+    if (d > 0.35) continue;
+    const r = Math.hypot(W, H) / 2 * ease(d / 0.35);
+    ctx.save();
+    ctx.fillStyle = C.ink;
+    ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.arc(W / 2, H / 2, Math.max(r, 0.1), 0, Math.PI * 2, true);
+    ctx.fill('evenodd');
+    if (d < 0.12) drawImg(IMG.ref, W / 2, H / 2, 260 * (1 - d / 0.12));
+    ctx.restore();
+  }
+}
+
+function renderAt(t) {
+  t = clamp(t, 0, DURATION - 1e-6);
+  ctx.save();
+  if (t < CUTS[0]) sceneTitle(t);
+  else if (t < CUTS[1]) sceneCanvas(t);
+  else if (t < CUTS[2]) sceneCards(t);
+  else if (t < CUTS[3]) scenePreview(t);
+  else sceneOutro(t);
+  ctx.restore();
+  iris(t);
+}
+window.renderAt = renderAt;
+
+// ---------- 启动 ----------
+const ready = Promise.all([...Object.entries(imgList).map(([k, f]) => loadImg(k, f)), loadModel(), document.fonts.ready])
+  .then(() => { window.__ready = true; })
+  .catch((e) => { window.__error = String(e); console.error(e); });
+
+const q = new URLSearchParams(location.search);
+ready.then(async () => {
+  if (q.has('t')) { renderAt(Number(q.get('t'))); return; }
+  if (q.get('render') === '1') {
+    const total = Math.round(DURATION * FPS);
+    for (let i = 0; i < total; i++) {
+      renderAt(i / FPS);
+      const blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
+      await fetch(`/frame/${i}`, { method: 'POST', body: blob });
+      window.__frame = i;
+    }
+    await fetch('/done', { method: 'POST' });
+    window.__done = true;
+    return;
+  }
+  const t0 = performance.now();
+  const loop = (now) => { renderAt(((now - t0) / 1000) % DURATION); requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+});
+</script>
+</body>
+</html>

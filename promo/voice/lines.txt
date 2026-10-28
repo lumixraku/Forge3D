@@ -1,0 +1,6 @@
+1|Meet Forge3D. One sentence, one 3D model.
+2|Just tell the copilot what you want.
+3|Upload a picture, wire up the nodes, and hit Run.
+4|Every result stays right on your canvas.
+5|Open the 3D preview, give it a spin, and download your model.
+6|Forge3D. Describe it, and get it.
