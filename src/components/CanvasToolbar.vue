@@ -28,7 +28,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="forge:relative forge:z-[7] forge:row-start-3 forge:flex forge:min-h-0 forge:items-center forge:justify-between forge:gap-3 forge:border-t forge:border-line forge:bg-bg-secondary forge:px-[13px] forge:[&>div:last-child]:flex forge:[&>div:last-child]:items-center forge:[&>div:last-child]:gap-[5px]">
+  <div class="forge:relative forge:z-[7] forge:row-start-2 forge:flex forge:min-h-0 forge:items-center forge:justify-between forge:gap-3 forge:border-t forge:border-line forge:bg-bg-secondary forge:px-[13px] forge:[&>div:last-child]:flex forge:[&>div:last-child]:items-center forge:[&>div:last-child]:gap-[5px]">
     <div class="forge:flex forge:h-full forge:min-w-0 forge:items-center forge:gap-[9px] forge:whitespace-nowrap forge:font-mono forge:text-[10px] forge:font-medium forge:leading-none forge:text-text-muted">
       <slot />
       <b v-if="canvasView === 'assets'" class="forge:block forge:max-[1200px]:hidden forge:font-mono forge:text-[10px] forge:font-medium forge:text-text-muted">{{ assetLibrary.total }} assets · {{ assetLibrary.reference.length }} reference · {{ assetLibrary.images.length }} 2D · {{ assetLibrary.models.length }} 3D</b>

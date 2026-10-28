@@ -1062,7 +1062,7 @@ onUnmounted(() => {
         @retry="retryMessage"
       />
 
-      <section class="forge3d-canvas-panel forge:relative forge:grid forge:min-h-0 forge:min-w-0 forge:grid-rows-[minmax(0,1fr)_auto_40px] forge:overflow-hidden forge:bg-bg-secondary forge:transition-colors forge:duration-200" @pointerdown.capture="selectCanvasEdge" @pointerdown="closeContextMenu">
+      <section class="forge3d-canvas-panel forge:relative forge:grid forge:min-h-0 forge:min-w-0 forge:grid-rows-[minmax(0,1fr)_40px] forge:overflow-hidden forge:bg-bg-secondary forge:transition-colors forge:duration-200" @pointerdown.capture="selectCanvasEdge" @pointerdown="closeContextMenu">
         <CanvasContextMenu
           v-if="nodeMenuOpen && nodeMenuContext"
           ref="contextMenu"
@@ -1182,7 +1182,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.forge3d-canvas-panel :deep(.forge3d-litegraph) { grid-row: 2; height: 100%; min-height: 0; }
+.forge3d-canvas-panel :deep(.forge3d-litegraph) { grid-row: 1; height: 100%; min-height: 0; }
 .forge3d-create-mask {
   position: fixed;
   inset: 0;
