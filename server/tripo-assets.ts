@@ -9,7 +9,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
-export const assetDirectory = path.join(root, 'data', 'assets')
+export const assetDirectory = path.join(process.env.FORGE3D_DATA_DIR || path.join(root, 'data'), 'assets')
 export const assetUrlPrefix = '/api/assets/'
 
 // Only these are ever served back, so a hashed name can never take an extension

@@ -19,7 +19,11 @@
     "cf:release": "npm run test && npm run cf:d1:migrate && npm run cf:deploy",
     "test": "node --env-file-if-exists=.env --import tsx --test server/*.test.ts src/*.test.js",
     "test:postgres": "TEST_DATABASE_URL=postgresql://forge3d:forge3d@127.0.0.1:5432/forge3d node --import tsx --test server/postgres-store.test.ts server/postgres-http.test.ts",
-    "agent:eval": "node --import tsx --test server/agent-eval.test.ts"
+    "agent:eval": "node --import tsx --test server/agent-eval.test.ts",
+    "build:plugin": "npm run build:plugin-server && vite build --config vite.config.plugin.ts",
+    "watch:plugin": "vite build --watch --config vite.config.plugin.ts",
+    "build:plugin-server": "esbuild dsh-plugin/server-entry.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dsh-plugin/lib/server.bundle.mjs",
+    "dev:plugin": "concurrently -k \"esbuild dsh-plugin/server-entry.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dsh-plugin/lib/server.bundle.mjs --watch\" \"vite build --config vite.config.plugin.ts --watch\""
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^0.82.0",

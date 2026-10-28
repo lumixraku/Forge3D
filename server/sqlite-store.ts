@@ -8,10 +8,16 @@ import { recordToValues, rowToRecord, tableColumns } from './tables.js'
 import { assetContentType, assetDirectory, assetExtension, assetUrlPrefix, isAssetFileName } from './tripo-assets.js'
 
 const collections = ['canvases', 'sessions', 'runs', 'turns', 'agentTraces', 'accounts', 'creditLedger']
-const root = path.dirname(fileURLToPath(import.meta.url))
+// Bundled consumers (the DSH plugin) run this file from a different directory, so
+// the server root it reads migrations, seed data and the default database from is
+// overridable instead of being derived from the bundle's own location.
+const root = process.env.FORGE3D_SERVER_DIR || path.dirname(fileURLToPath(import.meta.url))
 const seedDirectory = path.join(root, 'seed')
 const migrationDirectory = path.join(root, '..', 'migrations')
-const defaultFile = path.join(root, 'data', 'forge3d.sqlite')
+// Where the database lives. A consumer that owns the data (the DSH plugin) points
+// this at its own directory, so removing the consumer removes the data with it.
+const dataDirectory = process.env.FORGE3D_DATA_DIR || path.join(root, 'data')
+const defaultFile = path.join(dataDirectory, 'forge3d.sqlite')
 const LEGACY_OWNER_ID = 'demo-user'
 
 const ASSET_TABLE = `
