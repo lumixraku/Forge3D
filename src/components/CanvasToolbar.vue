@@ -42,7 +42,7 @@ const emit = defineEmits<{
         </div>
         <div class="forge:relative">
           <button class="forge:[--btn-shadow:var(--acid-shadow)] forge:h-[26px] forge:min-w-[26px] forge:rounded-full forge:border forge:border-acid-line forge:bg-bg-input forge:px-[12px] forge:text-[12px] forge:font-medium forge:text-acid-dim forge:transition-colors forge:hover:border-acid forge:hover:text-acid" :disabled="!hasCanvas" @click="emit('toggle-menu')">+ Add node</button>
-          <div v-if="menuOpen" class="forge:absolute forge:right-0 forge:bottom-[calc(100%+8px)] forge:z-30 forge:grid forge:max-h-[min(510px,calc(100vh-180px))] forge:w-[236px] forge:gap-[3px] forge:overflow-y-auto forge:rounded-lg forge:border forge:border-line-strong forge:bg-bg-input forge:p-[5px] forge:shadow-popover forge:animate-[popover-in_.12s_ease-out]" @pointerdown.stop>
+          <div v-if="menuOpen" class="forge:absolute forge:right-0 forge:bottom-[calc(100%+8px)] forge:z-30 forge:grid forge:max-h-[min(510px,calc(100vh-180px))] forge:w-[260px] forge:gap-1.5 forge:overflow-y-auto forge:rounded-xl forge:border forge:border-line-strong forge:bg-bg-input forge:p-2 forge:shadow-popover forge:animate-[popover-in_.12s_ease-out]" @pointerdown.stop>
             <NodeCatalogMenu :catalog="catalog" :categories="categories" @select="emit('select-node-type', $event)" @dragstart="emit('drag-node-type', $event)" />
           </div>
         </div>

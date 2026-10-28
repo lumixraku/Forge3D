@@ -25,31 +25,31 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="forge:fixed forge:left-0 forge:top-0 forge:z-30 forge:grid forge:max-h-[calc(100vh-16px)] forge:w-[236px] forge:gap-[3px] forge:overflow-y-auto forge:rounded-lg forge:border forge:border-line-strong forge:bg-bg-input forge:p-[5px] forge:shadow-popover forge:animate-[popover-in_.12s_ease-out] forge:[&>strong]:px-[9px] forge:[&>strong]:pb-1 forge:[&>strong]:pt-2 forge:[&>strong]:text-[12px] forge:[&>strong]:font-semibold forge:[&>strong]:text-text-muted forge:[&>button]:grid forge:[&>button]:min-h-[34px] forge:[&>button]:w-full forge:[&>button]:rounded-md forge:[&>button]:border forge:[&>button]:border-transparent forge:[&>button]:bg-transparent forge:[&>button]:px-[9px] forge:[&>button]:py-[7px] forge:[&>button]:text-left forge:[&>button]:transition-colors forge:[&>button]:hover:border-acid forge:[&>button]:hover:bg-[color-mix(in_srgb,var(--acid)_10%,var(--bg-input))] forge:[&>button_span]:font-sans forge:[&>button_span]:text-[12px] forge:[&>button_span]:font-medium forge:[&>button_span]:text-text-primary" :style="{ left: `${context.left}px`, top: `${context.top}px`, maxWidth: `${context.maxWidth}px`, maxHeight: `${context.maxHeight}px` }" @pointerdown.stop>
+  <div class="forge:fixed forge:left-0 forge:top-0 forge:z-30 forge:grid forge:max-h-[calc(100vh-16px)] forge:w-[260px] forge:gap-1.5 forge:overflow-y-auto forge:rounded-xl forge:border forge:border-line-strong forge:bg-bg-input forge:p-2 forge:shadow-popover forge:animate-[popover-in_.12s_ease-out] forge:[&>strong]:px-2.5 forge:[&>strong]:pb-0.5 forge:[&>strong]:pt-2 forge:[&>strong]:text-[12px] forge:[&>strong]:font-semibold forge:[&>strong]:text-text-muted forge:[&>button]:w-full forge:[&>button]:rounded-lg forge:[&>button]:border-0 forge:[&>button]:bg-transparent forge:[&>button]:px-2.5 forge:[&>button]:py-2 forge:[&>button]:text-left forge:[&>button]:text-xs forge:[&>button]:text-text-primary forge:[&>button]:transition-colors forge:[&>button]:hover:bg-[color-mix(in_srgb,var(--acid)_6%,var(--bg-input))]" :style="{ left: `${context.left}px`, top: `${context.top}px`, maxWidth: `${context.maxWidth}px`, maxHeight: `${context.maxHeight}px` }" @pointerdown.stop>
     <template v-if="context.kind === 'selection'">
       <strong>Selection</strong>
-      <button type="button" :disabled="!canFrameSelection" @click="emit('frame-selection')"><span>Make as a section</span></button>
-      <button type="button" :disabled="!canDissolveSelection" @click="emit('dissolve-selection')"><span>Dissolve section</span></button>
-      <button type="button" @click="emit('create-canvas')"><span>Create canvas</span></button>
-      <button type="button" @click="emit('copy')"><span>Copy</span></button>
-      <button type="button" @click="emit('cut')"><span>Cut</span></button>
-      <button type="button" :disabled="!hasClipboard" @click="emit('paste')"><span>Paste</span></button>
-      <button type="button" @click="emit('duplicate')"><span>Duplicate selected</span></button>
-      <button type="button" @click="emit('delete')"><span>Delete</span></button>
+      <button type="button" class="forge3d-flat" :disabled="!canFrameSelection" @click="emit('frame-selection')"><span>Make as a section</span></button>
+      <button type="button" class="forge3d-flat" :disabled="!canDissolveSelection" @click="emit('dissolve-selection')"><span>Dissolve section</span></button>
+      <button type="button" class="forge3d-flat" @click="emit('create-canvas')"><span>Create canvas</span></button>
+      <button type="button" class="forge3d-flat" @click="emit('copy')"><span>Copy</span></button>
+      <button type="button" class="forge3d-flat" @click="emit('cut')"><span>Cut</span></button>
+      <button type="button" class="forge3d-flat" :disabled="!hasClipboard" @click="emit('paste')"><span>Paste</span></button>
+      <button type="button" class="forge3d-flat" @click="emit('duplicate')"><span>Duplicate selected</span></button>
+      <button type="button" class="forge3d-flat" @click="emit('delete')"><span>Delete</span></button>
     </template>
     <template v-else-if="context.kind === 'section'">
       <strong>Section</strong>
-      <button type="button" @click="emit('rename')"><span>Rename</span></button>
-      <button type="button" @click="emit('dissolve-selection')"><span>Dissolve section</span></button>
-      <button type="button" @click="emit('copy')"><span>Copy</span></button>
-      <button type="button" @click="emit('cut')"><span>Cut</span></button>
-      <button type="button" @click="emit('duplicate')"><span>Duplicate</span></button>
-      <button type="button" @click="emit('create-canvas')"><span>Create canvas</span></button>
-      <button type="button" @click="emit('delete')"><span>Delete section</span></button>
+      <button type="button" class="forge3d-flat" @click="emit('rename')"><span>Rename</span></button>
+      <button type="button" class="forge3d-flat" @click="emit('dissolve-selection')"><span>Dissolve section</span></button>
+      <button type="button" class="forge3d-flat" @click="emit('copy')"><span>Copy</span></button>
+      <button type="button" class="forge3d-flat" @click="emit('cut')"><span>Cut</span></button>
+      <button type="button" class="forge3d-flat" @click="emit('duplicate')"><span>Duplicate</span></button>
+      <button type="button" class="forge3d-flat" @click="emit('create-canvas')"><span>Create canvas</span></button>
+      <button type="button" class="forge3d-flat" @click="emit('delete')"><span>Delete section</span></button>
     </template>
     <template v-else>
       <strong>Canvas</strong>
-      <button type="button" :disabled="!hasClipboard" @click="emit('paste')"><span>Paste</span></button>
+      <button type="button" class="forge3d-flat" :disabled="!hasClipboard" @click="emit('paste')"><span>Paste</span></button>
       <NodeCatalogMenu :catalog="catalog" :categories="categories" @select="emit('select-node-type', $event)" @dragstart="emit('drag-node-type', $event)" />
       <small v-if="!catalog.length" class="forge:px-[9px] forge:py-3 forge:text-text-muted">No compatible node types</small>
     </template>
