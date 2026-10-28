@@ -1,57 +1,30 @@
-# Docker and the Local Database
+# Local Database
 
-This directory documents the Docker-based PostgreSQL environment used by Forge3D. The repository-root [`README.md`](../README.md) is the user guide; architecture, data-model, and deployment details are available in [`docs/`](../docs/README.md).
+The Node API stores application data and uploaded assets in one SQLite file. Docker is not required. The repository-root [`README.md`](../README.md) is the user guide; architecture and deployment details are in [`docs/`](../docs/README.md).
 
-## Start PostgreSQL
+## File
 
-The Docker Compose file is located in the repository root:
-
-```bash
-docker compose up -d postgres
-```
-
-Default connection settings:
+By default the file is:
 
 ```text
-host: 127.0.0.1
-port: 5432
-database: forge3d
-user: forge3d
-password: forge3d
+server/data/forge3d.sqlite
 ```
 
-Connection string:
+`server/data/` is gitignored, so the file stays on this machine. To put it somewhere else, set `SQLITE_PATH` in `.env`.
 
-```text
-postgresql://forge3d:forge3d@127.0.0.1:5432/forge3d
-```
+The service creates the file on startup, applies the SQLite migrations in [`../migrations/`](../migrations/), and copies `server/seed/` into an empty database. Stopping the process does not delete the file. Delete `server/data/forge3d.sqlite` (and its `-wal` and `-shm` siblings, if present) to start over.
 
-Data is persisted in the `forge3d-postgres` Docker volume. Stopping the container does not delete the data. To remove the local database and its data:
+## What is stored
 
-```bash
-docker compose down -v
-```
+- Canvases, sessions, runs, turns, Agent traces, accounts, and the credit ledger live in the tables defined by `migrations/`. Nested graphs and messages are JSON text. This is the same schema Cloudflare D1 applies.
+- `forge3d_assets` stores image and model bytes. That table is created by the Node process only; the Worker does not upload assets.
+- The JSON store in `server/store.ts` is not used by the running API.
 
-## Storage Responsibilities
-
-The local Node API requires `DATABASE_URL` and uses PostgreSQL:
-
-- `forge3d_documents` stores canvases, sessions, execution records, Agent traces, accounts, credit-ledger entries, and other application documents.
-- `forge3d_assets` stores binary image and model assets.
-- Application documents use `JSONB`; binary assets use `BYTEA`.
-- The service applies migrations from `server/migrations/` at startup.
-- An empty database is initialized from the read-only data in `server/seed/`.
-
-PostgreSQL is used by the local Node runtime, not by the Cloudflare web deployment. The Cloudflare Worker uses the D1 binding from `wrangler.toml`; these databases do not synchronize automatically.
-
-## No File-store Fallback
-
-The Node API does not fall back to local files. Without `DATABASE_URL`, or without a reachable PostgreSQL server, startup exits with a message and does not serve the API. The JSON store in `server/store.ts` is used by tests only.
+The local file and the Cloudflare D1 database do not synchronize. Deploying does not upload local canvases.
 
 ## Related Files
 
-- [`../docker-compose.yml`](../docker-compose.yml): PostgreSQL 16 container definition.
-- [`../server/postgres-store.ts`](../server/postgres-store.ts): PostgreSQL store implementation.
-- [`../server/migrations/`](../server/migrations/): PostgreSQL migrations.
+- [`../server/sqlite-store.ts`](../server/sqlite-store.ts): local SQLite store.
+- [`../migrations/`](../migrations/): schema shared with D1.
 - [`../server/seed/`](../server/seed/): initial data for an empty local database.
 - [`../.env.example`](../.env.example): local environment variable example.

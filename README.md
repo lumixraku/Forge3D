@@ -60,10 +60,10 @@ The local Node runtime provides the complete development and generation experien
 - DeepSeek Agent support.
 - Mock, Tripo API, and Meshy API providers.
 - Image and 3D file uploads.
-- Binary persistence for uploaded assets and generated results in PostgreSQL.
+- Binary persistence for uploaded assets and generated results in a local SQLite file.
 - Local debugging, testing, and frontend or backend development.
 
-The local service requires PostgreSQL for application data and assets. Startup stops with an actionable message when `DATABASE_URL` is missing or the database is unreachable.
+Application data and assets live in `server/data/forge3d.sqlite`. The file is created on first start. No database server is required.
 
 ### Cloudflare Web Deployment
 
@@ -76,7 +76,7 @@ The [live application](https://forge3d.lumixraku.org/) runs on Cloudflare Worker
 - R2 is not currently bound, so user-uploaded images and models cannot be persisted by the Worker.
 - The Worker does not run the Node-only Tripo, Meshy, or local asset-storage paths.
 
-Cloudflare D1 and local PostgreSQL are independent stores. Deploying to Cloudflare does not upload or synchronize canvases from the local PostgreSQL database.
+Cloudflare D1 and the local SQLite file are independent stores. Both use the SQL in `migrations/`. Deploying to Cloudflare does not upload or synchronize canvases from the local file.
 
 ## Prerequisites
 
@@ -84,7 +84,7 @@ Prepare the following configuration for the features you intend to use.
 
 ### Required Configuration
 
-Create a `.env` file in the repository root. It supplies `DATABASE_URL` for the local runtime and, for the DeepSeek Agent, the API key:
+Create a `.env` file in the repository root. It supplies the DeepSeek Agent API key:
 
 ```bash
 cp .env.example .env
@@ -107,21 +107,13 @@ You may leave `DEEPSEEK_API_KEY` empty if you only want to use the canvas and Mo
 
 ### Local Database
 
-PostgreSQL is required for local persistence and for the Node API to start. Start it first:
+The Node service opens `server/data/forge3d.sqlite` (override with `SQLITE_PATH`). On startup it applies `migrations/`, then fills an empty database from `server/seed/`. The file stays on disk between runs. Uploaded images and models are stored in the same file.
 
-```bash
-docker compose up -d postgres
-```
-
-The default connection string in `.env` matches the included Docker configuration:
+Set `SQLITE_PATH` only when the database file should live somewhere else:
 
 ```dotenv
-DATABASE_URL=postgresql://forge3d:forge3d@127.0.0.1:5432/forge3d
+SQLITE_PATH=server/data/forge3d.sqlite
 ```
-
-The Node service applies migrations at startup. An empty database is initialized from `server/seed/`, and database data is retained in a Docker volume.
-
-`DATABASE_URL` is required. If it is missing, or if PostgreSQL is not running, the Node API exits with a message that names the fix; it does not fall back to local JSON files.
 
 ### Optional Generation Services
 
@@ -143,20 +135,17 @@ The application still works with the Mock provider when these keys are absent. N
 
 ## Run Locally
 
-Requirements: Node.js 20+, pnpm `11.16.0`, and Docker running (or another PostgreSQL 16 instance reachable through `DATABASE_URL`).
+Requirements: Node.js 22.5+ (the built-in `node:sqlite` module) and pnpm `11.16.0`.
 
 ```bash
 corepack enable
 corepack prepare pnpm@11.16.0 --activate
 pnpm install --frozen-lockfile
 cp .env.example .env
-docker compose up -d postgres
 pnpm dev
 ```
 
-Open the local frontend URL printed in the terminal. `pnpm dev` starts the frontend, Node API, and local Agent service together, and selects available ports automatically.
-
-`pnpm dev` exits immediately when PostgreSQL is unreachable or `DATABASE_URL` is missing, printing the command that fixes it. Run `docker compose up -d postgres` first, then retry.
+Open the local frontend URL printed in the terminal. `pnpm dev` starts the frontend, Node API, and local Agent service together, and selects available ports automatically. The API creates `server/data/forge3d.sqlite` if it is not there yet.
 
 Common verification commands:
 
@@ -195,7 +184,7 @@ pnpm run cf:d1:migrate
 pnpm run cf:deploy
 ```
 
-Cloudflare does not use `DATABASE_URL` from the local `.env` file and cannot access a PostgreSQL server on your machine. The web deployment uses the D1 binding from `wrangler.toml`; persistent image and model uploads require a future R2 integration.
+Cloudflare does not open the local SQLite file. The web deployment uses the D1 binding from `wrangler.toml`; persistent image and model uploads require a future R2 integration.
 
 ## Documentation
 
@@ -208,10 +197,10 @@ Cloudflare does not use `DATABASE_URL` from the local `.env` file and cannot acc
 - [Meshy Agent SSE](docs/meshy-agent-sse-protocol.md): Agent SSE conventions for Meshy-related execution.
 - [Todo](docs/todo.md): current limitations and planned work.
 - [Progress](docs/progress.md): current project status organized by capability.
-- [Docker and local database](docker/README.md): local PostgreSQL startup and storage responsibilities.
+- [Local database](docker/README.md): the SQLite file and what it stores.
 
 ## Current Limitations
 
 - The Cloudflare deployment uses D1 but does not have R2, so application uploads of images and 3D files cannot be persisted.
 - Real Tripo and Meshy execution is currently available only through the local Node runtime; the Cloudflare deployment can use Mock workflows.
-- Local PostgreSQL and Cloudflare D1 do not synchronize automatically.
+- The local SQLite file and Cloudflare D1 do not synchronize automatically.

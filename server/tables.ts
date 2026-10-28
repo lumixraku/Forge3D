@@ -1,4 +1,4 @@
-// Column layout for each domain table, shared by the PostgreSQL store and the
+// Column layout for each domain table, shared by the local SQLite store and the
 // D1 Worker store so the two cannot drift apart. Each entry maps an in-memory
 // field to its column. `json` columns hold nested data (graphs, messages, run
 // details); everything else is a plain scalar column.
@@ -137,8 +137,8 @@ export const tableColumns: Record<string, { table: string; orderBy: string; colu
 const keepNull = new Set(['runs.completedAt'])
 
 /**
- * Turns a database row into the in-memory record. `parseJson` is true for D1,
- * which hands JSON columns back as text; PostgreSQL JSONB arrives parsed.
+ * Turns a database row into the in-memory record. `parseJson` is true when JSON
+ * columns come back as text, which is how SQLite and D1 return them.
  */
 export function rowToRecord(collection: string, row: Record<string, unknown>, parseJson: boolean) {
   const record: Record<string, unknown> = {}

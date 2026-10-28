@@ -1,10 +1,10 @@
 // Node binding for the shared API (see api-core.ts). Everything runtime-specific
 // lives here: the http server, the IncomingMessage/ServerResponse bridge to
-// Web-standard Request/Response, PostgreSQL, Tripo, and Meshy.
+// Web-standard Request/Response, SQLite, Tripo, and Meshy.
 
 import { createServer } from 'node:http'
 import { fileURLToPath } from 'node:url'
-import { createPostgresStore } from './postgres-store.js'
+import { createSqliteStore } from './sqlite-store.js'
 import { createTripoRunner, createTripoTaskReader } from './tripo-run.js'
 import { createMeshyRunner, createMeshySubmitter, createMeshyTaskReader } from './meshy-run.js'
 import { createMeshyLocalReader } from './meshy-local-file.js'
@@ -13,24 +13,10 @@ import { persistUploadedAsset, readAsset as readAssetFromDisk } from './tripo-as
 import { createApi } from './api-core.js'
 import { listenOnAvailablePort } from './listen.js'
 
-// The local runtime stores everything in PostgreSQL. A missing or unreachable
-// database is the most common startup failure, so report it with the fix
-// instead of a raw driver stack.
+// The local runtime stores everything in one SQLite file. An empty file is
+// created and seeded on first start; no database server is required.
 async function createRuntimeStore() {
-  if (!process.env.DATABASE_URL) {
-    console.error('DATABASE_URL is not set. Copy .env.example to .env, then start PostgreSQL with "docker compose up -d postgres".')
-    process.exit(1)
-  }
-  try {
-    return await createPostgresStore()
-  } catch (error) {
-    if (error?.code === 'ECONNREFUSED') {
-      const { hostname, port } = new URL(process.env.DATABASE_URL)
-      console.error(`Cannot reach PostgreSQL at ${hostname}:${port}. Start it with "docker compose up -d postgres".`)
-      process.exit(1)
-    }
-    throw error
-  }
+  return await createSqliteStore()
 }
 
 const port = Number(process.env.PORT || 8787)

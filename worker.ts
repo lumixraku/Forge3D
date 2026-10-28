@@ -16,7 +16,7 @@ import { recordToValues, rowToRecord, tableColumns } from './server/tables.js'
 const collections = ['canvases', 'sessions', 'runs', 'turns', 'agentTraces', 'accounts', 'creditLedger']
 
 // One table per domain (migrations/0003_typed_tables.sql), the same layout as
-// the local PostgreSQL store; the column mapping is shared in server/tables.ts.
+// the local SQLite store; the column mapping is shared in server/tables.ts.
 async function readCollection(env, collection) {
   const { table, orderBy } = tableColumns[collection]
   const { results } = await env.DB.prepare(`SELECT * FROM ${table} ORDER BY ${orderBy}`).all()
