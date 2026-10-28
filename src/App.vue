@@ -82,6 +82,11 @@ function settleName(name) {
   pending.resolve(name || '')
 }
 const workspaceMode = ref('canvas')
+// Embedded inside DeepSeek Harness (`?embed`) the harness conversation drives the
+// canvas through its own tools, so the in-app copilot panel is redundant and
+// takes the space the canvas wants. The panel is hidden and the canvas spans the
+// full width; nothing else about the app changes.
+const embedded = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('embed')
 const canvasMode = ref('select')
 const canvasView = ref('canvas')
 const modelEditorNodeId = ref(null)
@@ -1045,8 +1050,9 @@ onUnmounted(() => {
       <button class="forge:min-h-[34px] forge:rounded-md forge:border forge:border-transparent forge:bg-transparent forge:px-[9px] forge:py-[7px] forge:text-left forge:text-[12px] forge:font-medium forge:text-status-failed forge:transition-colors forge:hover:border-acid forge:hover:bg-[color-mix(in_srgb,var(--status-failed)_10%,transparent)]" type="button" @click="runCanvasMenuAction(deleteCanvas)">Delete</button>
     </div>
 
-    <section v-if="workspaceMode === 'canvas'" class="forge:relative forge:grid forge:min-h-0 forge:grid-cols-[350px_minmax(0,1fr)] forge:grid-rows-[minmax(0,1fr)] forge:overflow-hidden forge:max-[1200px]:grid-cols-[310px_minmax(0,1fr)] forge:max-[760px]:grid-cols-1 forge:max-[760px]:grid-rows-[480px_620px]">
+    <section v-if="workspaceMode === 'canvas'" :class="embedded ? 'forge:relative forge:grid forge:min-h-0 forge:grid-cols-[minmax(0,1fr)] forge:grid-rows-[minmax(0,1fr)] forge:overflow-hidden' : 'forge:relative forge:grid forge:min-h-0 forge:grid-cols-[350px_minmax(0,1fr)] forge:grid-rows-[minmax(0,1fr)] forge:overflow-hidden forge:max-[1200px]:grid-cols-[310px_minmax(0,1fr)] forge:max-[760px]:grid-cols-1 forge:max-[760px]:grid-rows-[480px_620px]'">
       <ChatPanel
+        v-if="!embedded"
         :messages="messages"
         :editor="composer"
         :busy="agentBusy"
