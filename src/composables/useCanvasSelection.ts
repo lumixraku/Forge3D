@@ -8,7 +8,7 @@ import { removeSelectedElements } from '../canvas-selection'
 
 // Everything derived from, or acting on, the current canvas selection: the
 // selection computeds, deletion, and fragment copy/paste/duplicate.
-export function useCanvasSelection({ nodes, edges, activeCanvas, error, saveCanvas, fromCanvas, toCanvas, loadCanvass, focusNodes }) {
+export function useCanvasSelection({ nodes, edges, activeCanvas, error, saveCanvas, fromCanvas, toCanvas, loadCanvass, focusNodes, askName = async () => '' }) {
   const selectedNodes = computed(() => nodes.value.filter((node) => node.selected))
   const selectedEdges = computed(() => edges.value.filter((edge) => edge.selected))
   const frameableSelectedNodes = computed(() => selectedNodes.value.filter((node) => node.type !== 'frame' && !node.parentNode))
@@ -131,7 +131,7 @@ export function useCanvasSelection({ nodes, edges, activeCanvas, error, saveCanv
 
   async function createCanvasFromSelection() {
     if (!selectedNodes.value.length) return
-    const name = window.prompt('Name this canvas', 'Canvas from selection')?.trim()
+    const name = (await askName('Name this canvas', 'Canvas from selection'))?.trim()
     if (!name) return
     const selection = selectedFragmentData(name)
     if (!selection) return

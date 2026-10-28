@@ -6,6 +6,7 @@ import CanvasToolbar from './components/CanvasToolbar.vue'
 import ChatPanel from './components/ChatPanel.vue'
 import ImagePreviewOverlay from './components/ImagePreviewOverlay.vue'
 import ApiKeysDialog from './components/ApiKeysDialog.vue'
+import NameDialog from './components/NameDialog.vue'
 import DebugPanel from './components/DebugPanel.vue'
 import ExecutionOutputPanel from './components/ExecutionOutputPanel.vue'
 import RunLogPanel from './components/RunLogPanel.vue'
@@ -64,6 +65,22 @@ const nodeMenuContext = ref(null)
 const viewportDismissVersion = ref(0)
 const canvasMenu = ref(null)
 const canvasSwitcherOpen = ref(false)
+const nameDialog = ref(null)
+
+function askName(title, value) {
+  if (nameDialog.value) return Promise.resolve('')
+  canvasSwitcherOpen.value = false
+  return new Promise((resolve) => {
+    nameDialog.value = { title, value, resolve }
+  })
+}
+
+function settleName(name) {
+  const pending = nameDialog.value
+  if (!pending) return
+  nameDialog.value = null
+  pending.resolve(name || '')
+}
 const workspaceMode = ref('canvas')
 const canvasMode = ref('select')
 const canvasView = ref('canvas')
@@ -127,6 +144,7 @@ const {
   toCanvas: (canvas) => toCanvas(canvas),
   loadCanvass: (preferredId) => loadCanvass(preferredId),
   focusNodes,
+  askName,
 })
 
 const {
@@ -204,6 +222,7 @@ const {
   acquireEditLease,
   markEditActivity,
   onCanvasHydrated: (canvasId) => restoreSuccessfulResults(canvasId),
+  askName,
 })
 
 const {
@@ -911,6 +930,8 @@ useKeyboardShortcuts({
   closeCanvasSwitcher,
   closeContextMenu,
   closeCanvasMenu,
+  nameDialogOpen: nameDialog,
+  closeNameDialog: () => settleName(null),
   openNodeMenuAt,
   undo,
   redo,
@@ -1143,6 +1164,7 @@ onUnmounted(() => {
     </div>
     <ImagePreviewOverlay :preview="imagePreview" @close="closeImagePreview" />
     <ApiKeysDialog :open="apiKeysOpen" :deepseek-key="deepseekKey" :meshy-key="meshyKey" @save="saveApiKeys" @dismiss="dismissApiKeys" />
+    <NameDialog :open="Boolean(nameDialog)" :title="nameDialog?.title || ''" :initial="nameDialog?.value || ''" @confirm="settleName" @dismiss="settleName(null)" />
     <DebugPanel
       v-if="debugMode"
       v-model:open="debugPanelOpen"

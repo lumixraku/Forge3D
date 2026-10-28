@@ -18,6 +18,8 @@ export function useKeyboardShortcuts({
   closeCanvasSwitcher,
   closeContextMenu,
   closeCanvasMenu,
+  nameDialogOpen,
+  closeNameDialog,
   openNodeMenuAt,
   undo,
   redo,
@@ -34,6 +36,13 @@ export function useKeyboardShortcuts({
   }
 
   function handleKeyboard(event: KeyboardEvent) {
+    if (nameDialogOpen.value) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeNameDialog()
+      }
+      return
+    }
     if (imagePreview.value) {
       if (event.key === 'Escape') {
         event.preventDefault()

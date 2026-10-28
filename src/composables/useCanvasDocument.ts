@@ -45,6 +45,7 @@ export function useCanvasDocument({
   acquireEditLease,
   markEditActivity,
   onCanvasHydrated = async () => {},
+  askName = async () => '',
 }) {
   const hydrating = ref(false)
   const workflowDirty = ref(false)
@@ -387,7 +388,7 @@ export function useCanvasDocument({
 
   async function createCanvas() {
     if (creatingCanvas.value) return
-    const name = window.prompt('Name this canvas', 'New 3D canvas')?.trim()
+    const name = (await askName('Name this canvas', 'New 3D canvas'))?.trim()
     if (!name) return
     creatingCanvas.value = true
     try {
