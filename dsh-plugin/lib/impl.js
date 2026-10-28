@@ -148,7 +148,16 @@ async function sendFile(res, file, req) {
 
 async function sendIndex(res, dist, req) {
   const file = path.join(dist, 'index.html')
-  const html = await fsp.readFile(file, 'utf8')
+  let html
+  try {
+    html = await fsp.readFile(file, 'utf8')
+  } catch {
+    // The harness build renders the canvas as React components inside the DSH
+    // page, so it ships no standalone document. Anything that still asks for one
+    // gets a plain answer instead of a stack trace.
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
+    return res.end('forge3d: this install renders inside the harness; no standalone page\n')
+  }
   const body = Buffer.from(injectShim(html), 'utf8')
   res.writeHead(200, {
     'content-type': 'text/html; charset=utf-8',
@@ -304,6 +313,10 @@ async function loadBackend() {
   // and generated assets) lives inside the package, so removing the plugin
   // removes the data with it.
   adoptExistingData()
+  // The store reads `seed/` under this root and `migrations/` one level above
+  // it, so the package ships `runtime/` (root) and `migrations/` beside it —
+  // the same shape the checkout has, inside the package.
+  process.env.FORGE3D_SERVER_DIR = path.join(HERE, '..', 'runtime')
   process.env.FORGE3D_DATA_DIR = PLUGIN_DATA
   const mod = await import(new URL(`./server.bundle.mjs?rev=${key}`, import.meta.url).href)
   state.key = key
@@ -439,7 +452,19 @@ export function createHandler(options = {}) {
     let rest = pathname.slice(ROUTE.length)
     if (rest === '') rest = '/'
     try {
+      // Layout probe: the tab reports the box chain it is laid out in, so a
+      // sizing bug can be read from the server instead of guessed at.
+      if (rest === '/api/_debug/layout' && req.method === 'POST') {
+        let body = ''
+        for await (const chunk of req) body += chunk
+        appendFileSync(path.join(STATE_DIR, 'layout.log'), `${new Date().toISOString()} ${body}\n`)
+        res.writeHead(204, { 'cache-control': 'no-store' })
+        return res.end()
+      }
       if (rest === '/api' || rest.startsWith('/api/')) {
+        // Visible proof that the tab reloaded (HMR or a fresh window): the app
+        // asks for its canvases the moment it mounts.
+        if (rest === '/api/projects' && req.method === 'GET') log('tab mounted: GET /api/projects')
         if (options.server !== 'spawn') {
           const backend = await loadBackend()
           if (backend) {

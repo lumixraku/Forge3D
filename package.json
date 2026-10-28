@@ -23,7 +23,7 @@
     "build:plugin": "npm run build:plugin-server && vite build --config vite.config.plugin.ts",
     "watch:plugin": "vite build --watch --config vite.config.plugin.ts",
     "build:plugin-server": "esbuild dsh-plugin/server-entry.ts --bundle --platform=node --format=esm --target=node22 --packages=external --alias:@forge3d/canvas-core=./packages/canvas-core/src/index.ts --outfile=dsh-plugin/lib/server.bundle.mjs",
-    "dev:plugin": "concurrently -k \"esbuild dsh-plugin/server-entry.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dsh-plugin/lib/server.bundle.mjs --watch\" \"vite build --config vite.config.plugin.ts --watch\""
+    "dev:plugin": "concurrently -k \"esbuild dsh-plugin/server-entry.ts --bundle --platform=node --format=esm --target=node22 --packages=external --alias:@forge3d/canvas-core=./packages/canvas-core/src/index.ts --outfile=dsh-plugin/lib/server.bundle.mjs --watch\" \"vite build --config vite.config.plugin.ts --watch\""
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^0.82.0",

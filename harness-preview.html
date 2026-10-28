@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="UTF-8" /><title>harness preview</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #fff; font: 13px system-ui; }
+    /* 模拟 DSH 外壳：顶部标签条 + 内容区 + 底部悬浮输入框 */
+    .shell { display: flex; flex-direction: column; height: 100%; }
+    .tabs { height: 56px; flex: none; display: flex; align-items: flex-end; gap: 18px; padding: 0 18px; border-bottom: 1px solid #e5e5e5; }
+    .tabs b { font-weight: 600; }
+    .view { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; outline: 3px solid #e11; outline-offset: -3px; }
+    .composer { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); width: min(900px, 70%); height: 92px; background: #fff; border-radius: 16px; box-shadow: 0 6px 24px rgba(0,0,0,.12); }
+  </style>  <script>
+    window.__err = [];
+    addEventListener('error', (e) => { window.__err.push((e.message || 'error') + ' @ ' + (e.filename||'') + ':' + (e.lineno||'')); document.title = 'ERR ' + window.__err.join(' | ').slice(0,300) });
+    addEventListener('unhandledrejection', (e) => { window.__err.push('rejection: ' + String(e.reason && e.reason.message || e.reason)); document.title = 'REJ ' + window.__err.join(' | ').slice(0,300) });
+  </script>
+</head>
+  <body>
+    <script>localStorage.setItem('forge3d-api-keys-prompted','1')</script>
+    <div class="shell">
+      <div class="tabs"><b>Chat</b><b>Trajectory</b><b>Canvas</b></div>
+      <div class="view" id="view"></div>
+      <div class="composer"><textarea placeholder="Message or run a task, / commands, @ files or sessions" style="width:100%;height:100%;border:0;background:transparent;padding:16px;font:13px system-ui;resize:none"></textarea></div>
+    </div>
+    <script type="module" src="/src/harness-preview.tsx"></script>
+    <script>
+    // Simulate the shell's composer growing as it is typed into.
+    if (location.search.includes('grow')) setTimeout(() => window.growComposer(200), 2000)
+    window.growComposer = (px) => { document.querySelector('.composer').style.height = px + 'px' }
+  </script>
+</body>
+</html>

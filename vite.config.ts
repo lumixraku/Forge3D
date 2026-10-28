@@ -8,7 +8,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
-  define: { __FORGE3D_EMBED__: 'false' },
+  define: { __FORGE3D_EMBED__: 'false', __FORGE3D_CSS__: '""' },
   resolve: { alias: { '@forge3d/canvas-core': corePath } },
   plugins: [tailwindcss(), react()],
   server: {

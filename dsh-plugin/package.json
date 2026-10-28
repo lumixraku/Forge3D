@@ -16,10 +16,11 @@
   },
   "files": [
     "lib",
-    "dist",
     "cordis.patch.yml",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "migrations",
+    "runtime"
   ],
   "dsh": {
     "bundle": {

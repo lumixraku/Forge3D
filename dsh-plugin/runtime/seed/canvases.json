@@ -1,0 +1,150 @@
+[
+  {
+    "schemaVersion": "1.0",
+    "id": "canvas-stylized-character",
+    "name": "Text to Production 3D Pipeline",
+    "description": "Generate, optimize, texture, and review a production-ready 3D asset from a text prompt.",
+    "revision": 1,
+    "createdAt": "2026-07-14T08:00:00.000Z",
+    "updatedAt": "2026-07-14T08:00:00.000Z",
+    "nodes": [
+      {
+        "id": "prompt",
+        "type": "prompt",
+        "name": "Text Prompt",
+        "config": {
+          "prompt": "A stylized game-ready shark character with a clean silhouette and production-ready proportions",
+          "strength": 80
+        },
+        "ui": {
+          "position": {
+            "x": 0,
+            "y": 120
+          }
+        }
+      },
+      {
+        "id": "text-to-3d",
+        "type": "text-to-3d",
+        "name": "Text to 3D",
+        "config": {
+          "modelVersion": "Smart Mesh",
+          "textureMode": "PBR",
+          "faceType": "Triangle",
+          "faceCount": 20000,
+          "preview": "/shark-model.png"
+        },
+        "ui": {
+          "position": {
+            "x": 340,
+            "y": 120
+          }
+        }
+      },
+      {
+        "id": "retopology",
+        "type": "retopology",
+        "name": "Retopology",
+        "config": {
+          "modelVersion": "v2.0",
+          "faceType": "Triangle",
+          "faceLimit": 10000,
+          "bakeTextures": true,
+          "preview": "/shark-retopology.png"
+        },
+        "ui": {
+          "position": {
+            "x": 680,
+            "y": 120
+          }
+        }
+      },
+      {
+        "id": "texture",
+        "type": "texture",
+        "name": "Texture Model",
+        "config": {
+          "model": "Texture v2.0",
+          "resolution": "2K",
+          "style": "Original",
+          "pbr": true,
+          "preview": "/shark-textured.png"
+        },
+        "ui": {
+          "position": {
+            "x": 1020,
+            "y": 120
+          }
+        }
+      },
+      {
+        "id": "preview",
+        "type": "model-preview",
+        "name": "Model Preview",
+        "config": {
+          "environment": "Studio",
+          "autoRotate": true,
+          "wireframe": false,
+          "preview": "/shark-review.png"
+        },
+        "ui": {
+          "position": {
+            "x": 1360,
+            "y": 120
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "prompt-text-to-3d",
+        "source": {
+          "nodeId": "prompt",
+          "port": "text"
+        },
+        "target": {
+          "nodeId": "text-to-3d",
+          "port": "text"
+        }
+      },
+      {
+        "id": "text-to-3d-retopology",
+        "source": {
+          "nodeId": "text-to-3d",
+          "port": "model"
+        },
+        "target": {
+          "nodeId": "retopology",
+          "port": "model"
+        }
+      },
+      {
+        "id": "retopology-texture",
+        "source": {
+          "nodeId": "retopology",
+          "port": "model"
+        },
+        "target": {
+          "nodeId": "texture",
+          "port": "model"
+        }
+      },
+      {
+        "id": "texture-preview",
+        "source": {
+          "nodeId": "texture",
+          "port": "model"
+        },
+        "target": {
+          "nodeId": "preview",
+          "port": "model"
+        }
+      }
+    ],
+    "viewport": {
+      "x": 80,
+      "y": 160,
+      "zoom": 0.72
+    }
+  }
+]

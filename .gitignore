@@ -21,3 +21,7 @@ promo/assets/
 dsh-plugin/dist/
 dsh-plugin/data/
 dsh-plugin/lib/data/
+
+# Local layout-debug artifacts and pnpm's in-repo cache
+.dsh-artifacts/
+.pnpm-store/
