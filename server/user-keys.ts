@@ -8,6 +8,14 @@ export const USER_KEY_COOKIES = {
   meshy: 'forge3d_meshy_key',
 } as const
 
+// The harness page runs on a custom scheme, where cookies do not exist, so the
+// same keys also arrive as headers. Header first: it is the source a client can
+// always set.
+export const USER_KEY_HEADERS = {
+  deepseek: 'x-forge3d-deepseek-key',
+  meshy: 'x-forge3d-meshy-key',
+} as const
+
 // Real keys are well under this. A longer value is not a key.
 const MAX_KEY_LENGTH = 256
 
@@ -22,11 +30,14 @@ export function readUserKeys(request: Request) {
       // A malformed cookie is ignored, not fatal.
     }
   }
-  const value = (name: string) => {
-    const key = (cookies.get(name) || '').trim()
+  const value = (cookie: string, header: string) => {
+    const key = (request.headers.get(header) || cookies.get(cookie) || '').trim()
     return key.length <= MAX_KEY_LENGTH ? key : ''
   }
-  return { deepseek: value(USER_KEY_COOKIES.deepseek), meshy: value(USER_KEY_COOKIES.meshy) }
+  return {
+    deepseek: value(USER_KEY_COOKIES.deepseek, USER_KEY_HEADERS.deepseek),
+    meshy: value(USER_KEY_COOKIES.meshy, USER_KEY_HEADERS.meshy),
+  }
 }
 
 /**

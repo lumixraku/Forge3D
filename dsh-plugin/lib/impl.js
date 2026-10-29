@@ -216,6 +216,9 @@ function proxy(req, res, upstream, rest, search) {
 // function that serves a Node request. No port, no child process, no second
 // service — the plugin's own web route is the service.
 const BACKEND_KEY = Symbol.for('forge3d.dsh.backend')
+// Last Meshy key seen in this process, lent to asset reads that cannot carry a
+// header. Memory only: nothing is written to disk or to the server.
+let rememberedMeshyKey = ''
 // The database lives with the rest of this install's state, never inside the
 // package: an installed package may sit on a read-only volume, and an update
 // replaces its contents wholesale. Derived from STATE_DIR and never from
@@ -462,9 +465,20 @@ export function createHandler(options = {}) {
         return res.end()
       }
       if (rest === '/api' || rest.startsWith('/api/')) {
-        // Visible proof that the tab reloaded (HMR or a fresh window): the app
-        // asks for its canvases the moment it mounts.
         if (rest === '/api/projects' && req.method === 'GET') log('tab mounted: GET /api/projects')
+        // `<img>` and `<model-viewer>` cannot send a header and this origin has no
+        // cookies, so an asset read would arrive without the key. Keep the last
+        // one this process saw — memory only, never written anywhere — and lend
+        // it to those reads.
+        const sentKey = req.headers['x-forge3d-meshy-key']
+        if (typeof sentKey === 'string' && sentKey) rememberedMeshyKey = sentKey
+        else if (rememberedMeshyKey) req.headers['x-forge3d-meshy-key'] = rememberedMeshyKey
+        // Which user keys actually arrived: the UI stores them in cookies, and a
+        // dropped cookie reads as "provider not configured" on the server.
+        if (req.method === 'POST' && rest.endsWith('/executions')) {
+          const cookie = String(req.headers.cookie ?? '')
+          log(`run request: meshy=${/forge3d_meshy_key=(?!;|$)/.test(cookie)} deepseek=${/forge3d_deepseek_key=(?!;|$)/.test(cookie)}`)
+        }
         if (options.server !== 'spawn') {
           const backend = await loadBackend()
           if (backend) {

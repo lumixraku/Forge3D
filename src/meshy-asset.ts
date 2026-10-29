@@ -16,5 +16,8 @@ export function meshyAssetHref(generated: { resultOf?: { runId?: string; sourceI
   const runId = generated?.resultOf?.runId
   const nodeId = generated?.resultOf?.sourceId
   if (!runId || !nodeId || !isMeshyAssetUrl(raw)) return raw
+  // Always go through the execution route. The signed URL in the output expires;
+  // the run's task id does not, and the route trades it for a fresh URL on every
+  // load (and supplies the CORS headers a model fetch needs).
   return `/api/executions/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}/${kind}`
 }

@@ -2484,6 +2484,10 @@ var USER_KEY_COOKIES = {
   deepseek: "forge3d_deepseek_key",
   meshy: "forge3d_meshy_key"
 };
+var USER_KEY_HEADERS = {
+  deepseek: "x-forge3d-deepseek-key",
+  meshy: "x-forge3d-meshy-key"
+};
 var MAX_KEY_LENGTH = 256;
 function readUserKeys(request) {
   const cookies = /* @__PURE__ */ new Map();
@@ -2495,11 +2499,14 @@ function readUserKeys(request) {
     } catch {
     }
   }
-  const value = (name) => {
-    const key = (cookies.get(name) || "").trim();
+  const value = (cookie, header) => {
+    const key = (request.headers.get(header) || cookies.get(cookie) || "").trim();
     return key.length <= MAX_KEY_LENGTH ? key : "";
   };
-  return { deepseek: value(USER_KEY_COOKIES.deepseek), meshy: value(USER_KEY_COOKIES.meshy) };
+  return {
+    deepseek: value(USER_KEY_COOKIES.deepseek, USER_KEY_HEADERS.deepseek),
+    meshy: value(USER_KEY_COOKIES.meshy, USER_KEY_HEADERS.meshy)
+  };
 }
 function applyUserKeys(config, keys, createMeshy) {
   if (!keys.deepseek && !keys.meshy) return config;
