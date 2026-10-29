@@ -7,7 +7,9 @@ const SPEC = { props: ["executions","loading","activeExecution","activeExecution
 
 export default function ExecutionOutputPanel(rawProps: any) {
   const vm = useSetup(rawProps, SPEC, (props, emit) => {
-    const taskRuns = derived(() => [...Object.values(props.activeExecutions || {}), ...(props.activeExecution?.id && !props.executions.some(execution => execution.id === props.activeExecution.id) ? [props.activeExecution] : []), ...props.executions].map(execution => ({
+    // A running task is both polled (activeExecutions) and listed in the loaded
+    // history (executions); keep one card per id, preferring the live copy.
+    const taskRuns = derived(() => [...Object.values(props.activeExecutions || {}), ...(props.activeExecution?.id && !props.executions.some(execution => execution.id === props.activeExecution.id) ? [props.activeExecution] : []), ...props.executions].filter((execution, index, all) => !execution.id || all.findIndex(other => other.id === execution.id) === index).map(execution => ({
       ...execution,
       nodeExecutions: execution.nodeExecutions || execution.nodeRuns || {},
       outputs: Object.entries(execution.nodeExecutions || execution.nodeRuns || {}).flatMap(([nodeId, nodeRun]: [string, any]) => {

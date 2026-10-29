@@ -126,14 +126,16 @@
   button:disabled { cursor: not-allowed; opacity: .45; }
 
   /* Toy-block buttons: a pill resting on its own solid shadow, lifting on
-     hover and pressing down on click. Paragraph controls opt out. */
-  button:not(:disabled):not(.forge3d-flat):not(.forge3d-bare) {
+     hover and pressing down on click. Only real action buttons get it:
+     paragraph controls, items inside popup menus (.forge3d-menu) and
+     buttons acting as selects, options, switches or tabs opt out. */
+  button:not(:disabled):not(.forge3d-flat):not(.forge3d-bare):not(.forge3d-menu button):not(:is([aria-haspopup="listbox"], [role="combobox"], [role="option"], [role="switch"], [role="checkbox"], [role="radio"], [role="tab"], [role="menuitem"])) {
     border-radius: 999px;
     transition: transform .16s ease, box-shadow .16s ease, background-color .16s ease, border-color .16s ease, color .16s ease;
     box-shadow: 0 3px 0 0 var(--btn-shadow, var(--acid-shadow));
   }
-  button:not(:disabled):not(.forge3d-flat):not(.forge3d-bare):hover { transform: translateY(-1px); box-shadow: 0 4px 0 0 var(--btn-shadow, var(--acid-shadow)); }
-  button:not(:disabled):not(.forge3d-flat):not(.forge3d-bare):active { transform: translateY(2px); box-shadow: 0 1px 0 0 var(--btn-shadow, var(--acid-shadow)); }
+  button:not(:disabled):not(.forge3d-flat):not(.forge3d-bare):not(.forge3d-menu button):not(:is([aria-haspopup="listbox"], [role="combobox"], [role="option"], [role="switch"], [role="checkbox"], [role="radio"], [role="tab"], [role="menuitem"])):hover { transform: translateY(-1px); box-shadow: 0 4px 0 0 var(--btn-shadow, var(--acid-shadow)); }
+  button:not(:disabled):not(.forge3d-flat):not(.forge3d-bare):not(.forge3d-menu button):not(:is([aria-haspopup="listbox"], [role="combobox"], [role="option"], [role="switch"], [role="checkbox"], [role="radio"], [role="tab"], [role="menuitem"])):active { transform: translateY(2px); box-shadow: 0 1px 0 0 var(--btn-shadow, var(--acid-shadow)); }
   button.forge3d-flat { border-radius: 9px; }
 
   ::selection { background: color-mix(in srgb, var(--acid) 30%, transparent); }

@@ -7,6 +7,18 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { apiUrl } from '../api'
 
+// Downloaded GLB bytes by URL, so reopening a model the viewer already showed
+// only parses it again instead of downloading it again. The server sends model
+// responses with no-store, so the browser cache does not cover this. Capped to
+// the most recently used few to bound memory.
+const MODEL_CACHE_LIMIT = 6;
+const modelBytes = new Map<string, ArrayBuffer>();
+function rememberModel(url: string, bytes: ArrayBuffer) {
+  modelBytes.delete(url);
+  modelBytes.set(url, bytes);
+  while (modelBytes.size > MODEL_CACHE_LIMIT) modelBytes.delete(modelBytes.keys().next().value!);
+}
+
 // A real interactive three.js viewer for the canvas's 3D model.
 // mode: 'model' (solid) | 'wireframe' | 'rig' (skeleton overlay) | 'split' (exploded mesh parts)
 
@@ -243,20 +255,35 @@ export default function Model3D(rawProps: any) {
         return;
       }
       loading.value = true;
-      const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-      loader.load(apiUrl(url), gltf => {
-        if (disposed || !pivot || token !== loadToken) return;
-        pivot.add(props.mode === 'split' ? explodeParts(gltf.scene, 0.38) : applyMode(gltf.scene, props.mode));
+      const resolved = apiUrl(url);
+      const fail = () => {
+        if (disposed || token !== loadToken) return;
         loading.value = false;
+        loadError.value = 'Could not load the model.';
+      };
+      const show = (bytes: ArrayBuffer) => {
+        if (disposed || !pivot || token !== loadToken) return;
+        new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).parse(bytes, THREE.LoaderUtils.extractUrlBase(resolved), gltf => {
+          if (disposed || !pivot || token !== loadToken) return;
+          pivot.add(props.mode === 'split' ? explodeParts(gltf.scene, 0.38) : applyMode(gltf.scene, props.mode));
+          loading.value = false;
+        }, fail);
+      };
+      const cached = modelBytes.get(resolved);
+      if (cached) {
+        rememberModel(resolved, cached);
+        show(cached);
+        return;
+      }
+      new THREE.FileLoader().setResponseType('arraybuffer').load(resolved, data => {
+        const bytes = data as ArrayBuffer;
+        rememberModel(resolved, bytes);
+        show(bytes);
       }, event => {
         if (token !== loadToken) return;
         loadedBytes.value = event.loaded;
         if (event.lengthComputable && event.total > 0) totalBytes.value = event.total;
-      }, () => {
-        if (disposed || token !== loadToken) return;
-        loading.value = false;
-        loadError.value = 'Could not load the model.';
-      });
+      }, fail);
     }
     function rebuild() {
       if (!pivot) return;
