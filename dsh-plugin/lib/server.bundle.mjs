@@ -4409,10 +4409,12 @@ async function streamMeshyAsset(request, config, taskRef, kind) {
   if (!asset.ok || !asset.body) return json({ error: "Meshy asset could not be loaded" }, 502);
   const headers = {
     "content-type": asset.headers.get("content-type") || (kind === "preview" ? "image/png" : "model/gltf-binary"),
-    "cache-control": "private, no-store"
+    "cache-control": "private, no-store, no-transform"
   };
   const length = asset.headers.get("content-length");
   if (length) headers["content-length"] = length;
+  if (length && !asset.headers.get("content-encoding")) headers["x-file-size"] = length;
+  headers["access-control-expose-headers"] = "content-length, x-file-size";
   if (kind === "model") headers["content-disposition"] = 'inline; filename="model.glb"';
   return new Response(asset.body, { headers });
 }
@@ -4893,10 +4895,12 @@ The user selected: ${turn.selection.selected_option_ids.map((optionId) => turn.r
       if (!asset.ok || !asset.body) return json({ error: "Meshy asset could not be loaded" }, 502);
       const headers = {
         "content-type": asset.headers.get("content-type") || "model/gltf-binary",
-        "cache-control": "private, no-store"
+        "cache-control": "private, no-store, no-transform"
       };
       const length = asset.headers.get("content-length");
       if (length) headers["content-length"] = length;
+      if (length && !asset.headers.get("content-encoding")) headers["x-file-size"] = length;
+      headers["access-control-expose-headers"] = "content-length, x-file-size";
       return new Response(asset.body, { headers });
     }
     if (method === "GET" && parts[1] === "executions" && parts[2] && parts[3] === "nodes" && parts[4] && (parts[5] === "model" || parts[5] === "preview") && parts.length === 6) {

@@ -109,12 +109,17 @@ async function streamMeshyAsset(request, config, taskRef, kind) {
   if (!asset.ok || !asset.body) return json({ error: 'Meshy asset could not be loaded' }, 502)
   const headers = {
     'content-type': asset.headers.get('content-type') || (kind === 'preview' ? 'image/png' : 'model/gltf-binary'),
-    'cache-control': 'private, no-store',
+    'cache-control': 'private, no-store, no-transform',
   }
   // The viewer reports loaded/total from this header. A streamed body without it
   // only knows how many bytes have arrived.
   const length = asset.headers.get('content-length')
   if (length) headers['content-length'] = length
+  // A host that gzips this response drops Content-Length and sends the body
+  // chunked, which leaves the viewer with no total and no percentage. X-File-Size
+  // survives compression, and three's FileLoader reads it before Content-Length.
+  if (length && !asset.headers.get('content-encoding')) headers['x-file-size'] = length
+  headers['access-control-expose-headers'] = 'content-length, x-file-size'
   if (kind === 'model') headers['content-disposition'] = 'inline; filename="model.glb"'
   return new Response(asset.body, { headers })
 }
@@ -631,10 +636,14 @@ export function createApi({ createContext, sseIdleTimeoutMs = SSE_IDLE_TIMEOUT_M
       if (!asset.ok || !asset.body) return json({ error: 'Meshy asset could not be loaded' }, 502)
       const headers = {
         'content-type': asset.headers.get('content-type') || 'model/gltf-binary',
-        'cache-control': 'private, no-store',
+        'cache-control': 'private, no-store, no-transform',
       }
       const length = asset.headers.get('content-length')
       if (length) headers['content-length'] = length
+      // Same reason as the execution route: a gzipped response has no
+      // Content-Length, so the viewer needs the size in a header compression keeps.
+      if (length && !asset.headers.get('content-encoding')) headers['x-file-size'] = length
+      headers['access-control-expose-headers'] = 'content-length, x-file-size'
       return new Response(asset.body, { headers })
     }
 

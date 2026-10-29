@@ -355,7 +355,7 @@ export default function Model3D(rawProps: any) {
   })
   return (
     <div {...vm.$attrs} className={cx("forge3d-model3d forge:relative forge:h-full forge:min-h-[180px] forge:w-full", vm.$attrs.className)} style={vm.$attrs.style}><div ref={vm.$ref("host")} className={"forge3d-model3d-view"} />
-{(vm.loading || vm.loadError) ? (<div role={"status"} aria-live={"polite"} className={"forge3d-model-load"}><div className={"forge3d-model-load-card"}>{(vm.loading) ? (<span className={"forge3d-model-load-spin"} />) : (null)}
+{(vm.loading || vm.loadError) ? (<div role={"status"} aria-live={"polite"} className={"forge3d-model-load"}><div className={"forge3d-model-load-card"}>{(vm.loading) ? (<svg className={"forge3d-model-load-spin"} viewBox={"0 0 28 28"} width={"28"} height={"28"} aria-hidden={"true"}><circle cx={"14"} cy={"14"} r={"12"} fill={"none"} stroke={"rgba(255,255,255,0.22)"} strokeWidth={"3"} /><circle cx={"14"} cy={"14"} r={"12"} fill={"none"} stroke={"var(--acid)"} strokeWidth={"3"} strokeDasharray={"18.85 56.55"} strokeLinecap={"round"} transform={"rotate(-90 14 14)"} /></svg>) : (null)}
 <strong >{vm.loadError || 'Loading model'}</strong>
 {(vm.loading) ? (<p >{vm.progressLabel}</p>) : (null)}
 {(vm.loading) ? (<div className={cx("forge3d-model-load-bar", {

@@ -133,11 +133,10 @@
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
 }
 .forge3d-model-load-spin {
+  /* Drawn as SVG: a host stylesheet that rounds or clips box elements cannot
+     turn the ring into a squircle. */
   width: 28px;
   height: 28px;
-  border: 3px solid rgba(255, 255, 255, 0.22);
-  border-top-color: var(--acid);
-  border-radius: 50%;
   animation: model-loading 0.8s linear infinite;
 }
 .forge3d-model-load strong {
