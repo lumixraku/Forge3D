@@ -1,0 +1,77 @@
+{
+  "format": 1,
+  "title": {
+    "en": "Forge3D",
+    "zh": "Forge3D"
+  },
+  "description": {
+    "en": "3D asset workflows on a node canvas inside the DeepSeek conversation.",
+    "zh": "在 DeepSeek 对话里搭 3D 资产工作流。"
+  },
+  "metadata": {
+    "categories": {
+      "3d": {
+        "title": {
+          "en": "3D",
+          "zh": "3D"
+        }
+      }
+    },
+    "labels": {
+      "canvas": {
+        "title": {
+          "en": "Canvas",
+          "zh": "画布"
+        }
+      }
+    },
+    "sortKeys": {}
+  },
+  "plugins": [
+    {
+      "name": "@forge3d/dsh-plugin",
+      "title": {
+        "en": "Forge3D Canvas",
+        "zh": "Forge3D 画布"
+      },
+      "description": {
+        "en": "Build 3D asset workflows on a node canvas from the chat: prompt or reference image to model, UV texture, and export.",
+        "zh": "在对话里直接搭 3D 资产工作流：提示词或参考图 → 3D 模型 → UV 贴图 → 导出。"
+      },
+      "author": "lumixraku",
+      "homepage": "https://github.com/lumixraku/Forge3D",
+      "repository": {
+        "url": "https://github.com/lumixraku/Forge3D",
+        "directory": "dsh-plugin"
+      },
+      "metadata": {
+        "category": "3d",
+        "keywords": [
+          "3d",
+          "canvas",
+          "meshy",
+          "tripo"
+        ],
+        "labels": [
+          "canvas"
+        ],
+        "sortKeys": {}
+      },
+      "versions": [
+        {
+          "version": "0.1.0",
+          "publishTimestamp": 1793436418,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/lumixraku/Forge3D.git",
+            "commit": "a3be7c4a897c10fd21881101e9f927d8c182df15",
+            "path": "dsh-plugin"
+          },
+          "engines": {
+            "dsh": ">=0.2.0"
+          }
+        }
+      ]
+    }
+  ]
+}
