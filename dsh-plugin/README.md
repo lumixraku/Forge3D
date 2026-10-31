@@ -24,16 +24,31 @@ runs as a single process with no side service.
 
 ## Install
 
-The plugin is a harness bundle. Add it to your DSH profile:
+The plugin is a harness bundle, installed into a DSH profile like any dependency.
+Until it is published to npm, install it from the repository at a pinned commit:
+
+```bash
+cd ~/.dsh/profiles/<profile>
+pnpm add "git+https://github.com/lumixraku/Forge3D.git#a3be7c4a897c10fd21881101e9f927d8c182df15&path:/dsh-plugin"
+```
+
+Then add it to the profile's `package.json` so the bundle is mounted:
 
 ```json
 {
-  "dependencies": { "@forge3d/dsh-plugin": "^0.1.0" },
-  "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@forge3d/dsh-plugin"] } }
+  "dsh": {
+    "profile": {
+      "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@forge3d/dsh-plugin"]
+    }
+  }
 }
 ```
 
-Then restart the harness host — bundle registration happens at process start.
+Restart the harness host — bundle registration happens at process start. A
+**Canvas** tab then appears next to Chat and Trajectory.
+
+The same commit is tagged
+[`v0.1.0`](https://github.com/lumixraku/Forge3D/releases/tag/v0.1.0).
 
 ## Build
 
