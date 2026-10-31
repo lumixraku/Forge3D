@@ -12,7 +12,19 @@ export default function CanvasToolbar(rawProps: any) {
     }
   })
   return (
-    <div {...vm.$attrs} className={cx("forge:relative forge:z-[7] forge:row-start-2 forge:flex forge:min-h-0 forge:items-center forge:justify-between forge:gap-3 forge:border-t forge:border-line forge:bg-bg-secondary forge:px-[13px] forge:[&>div:last-child]:flex forge:[&>div:last-child]:items-center forge:[&>div:last-child]:gap-[5px]", vm.$attrs.className)} style={vm.$attrs.style}><div className={"forge:flex forge:h-full forge:min-w-0 forge:items-center forge:gap-[9px] forge:whitespace-nowrap forge:font-mono forge:text-[10px] forge:font-medium forge:leading-none forge:text-text-muted"}>{vm.children}
+    <div {...vm.$attrs} className={cx("forge:relative forge:z-[7] forge:row-start-2 forge:flex forge:min-h-0 forge:items-center forge:justify-between forge:gap-3 forge:border-t forge:border-line forge:bg-bg-secondary forge:px-[13px] forge:[&>div:last-child]:flex forge:[&>div:last-child]:items-center forge:[&>div:last-child]:gap-[5px] forge:[&>div:last-child]:min-w-0 forge:[&>div:last-child]:shrink forge:[&>div:last-child]:overflow-x-auto forge:[&>div:last-child]:py-1 forge:[&>div:last-child]:[scrollbar-width:none]", vm.$attrs.className)} style={vm.$attrs.style}><div className={"forge:flex forge:h-full forge:min-w-0 forge:items-center forge:gap-[9px] forge:whitespace-nowrap forge:font-mono forge:text-[10px] forge:font-medium forge:leading-none forge:text-text-muted"}><div role={"group"} aria-label={"Workspace view"} className={"forge:flex forge:h-[28px] forge:flex-none forge:items-center forge:rounded-full forge:border-0 forge:bg-[color-mix(in_srgb,var(--acid)_10%,var(--bg-input))] forge:p-1 forge3d-bare forge3d-flat forge:[&_button]:flex forge:[&_button]:h-full forge:[&_button]:min-w-[58px] forge:[&_button]:items-center forge:[&_button]:justify-center forge:[&_button]:gap-[5px] forge:[&_button]:border-0 forge:[&_button]:bg-transparent forge:[&_button]:[--btn-shadow:transparent] forge:[&_button]:px-[11px] forge:[&_button]:text-acid-dim forge:[&_button]:hover:bg-[color-mix(in_srgb,var(--acid)_16%,var(--bg-input))] forge:[&_button]:hover:text-acid forge:[&_button.forge3d-active]:bg-acid forge:[&_button.forge3d-active]:text-text-inverse forge:[&_button.forge3d-active]:shadow-[0_2px_0_0_var(--acid-dim,var(--acid))] forge:[&_svg]:size-3 forge:[&_svg]:fill-current forge:[&_span]:text-[11px] forge:[&_span]:font-semibold"}><button type={"button"} aria-pressed={vm.canvasView === 'canvas'} title={"Canvas"} onClick={($event: any) => { vm.emit('update:canvasView', 'canvas'); }} className={cx({
+  'forge3d-active': vm.canvasView === 'canvas'
+})}><svg viewBox={"0 0 16 16"} aria-hidden={"true"}><rect x={"2"} y={"2"} width={"5.2"} height={"5.2"} rx={"1.2"} />
+<rect x={"8.8"} y={"2"} width={"5.2"} height={"5.2"} rx={"1.2"} />
+<rect x={"2"} y={"8.8"} width={"5.2"} height={"5.2"} rx={"1.2"} />
+<rect x={"8.8"} y={"8.8"} width={"5.2"} height={"5.2"} rx={"1.2"} /></svg>
+<span >{"Canvas"}</span></button>
+<button type={"button"} aria-pressed={vm.canvasView === 'assets'} title={"Asset library"} onClick={($event: any) => { vm.emit('update:canvasView', 'assets'); }} className={cx({
+  'forge3d-active': vm.canvasView === 'assets'
+})}><svg viewBox={"0 0 16 16"} aria-hidden={"true"}><rect x={"2"} y={"3.5"} width={"9"} height={"7"} rx={"1.4"} />
+<rect x={"5"} y={"6"} width={"9"} height={"7"} rx={"1.4"} opacity={".5"} /></svg>
+<span >{"Assets"}</span></button></div>
+{vm.children}
 {(vm.canvasView === 'assets') ? (<b className={"forge:block forge:max-[1200px]:hidden forge:font-mono forge:text-[10px] forge:font-medium forge:text-text-muted"}>{vm.assetLibrary.total}
 {" assets · "}
 {vm.assetLibrary.reference.length}

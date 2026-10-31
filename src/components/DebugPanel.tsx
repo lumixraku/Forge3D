@@ -153,6 +153,7 @@ export default function DebugPanel(rawProps: any) {
       }
     }
     return {
+      props,
       bizClass,
       PROVIDER_LABELS,
       activeProviderName,

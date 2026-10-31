@@ -33,6 +33,7 @@ import { activeInputPorts, canConnectNodeTypes, canConnectPorts, compatibleNodeT
 import { resultArtifacts } from './run-results';
 import { resultSpecs } from '@forge3d/canvas-core';
 import { reconcileResultSlots } from '@forge3d/canvas-core';
+import { registerForgeWebMcp } from './webmcp';
 
 // Loaded on first open: three.js and the viewer stay out of the main chunk.
 const ModelEditor = lazy(() => import('./components/ModelEditor'))
@@ -876,7 +877,7 @@ export default function App(rawProps: any) {
         closeContextMenu();
         saveCanvas();
         focusNode(frame.id);
-        return;
+        return frame;
       }
       const node = buildCanvasNode(type, {
         position: position || nodePosition(sourceId),
@@ -903,6 +904,7 @@ export default function App(rawProps: any) {
       // fitView ignores nodes it has not measured yet, so this has to wait for the
       // node to render or the viewport would never move.
       focusNode(node.id);
+      return node;
     }
     function addUpstreamNode(type, targetId, position) {
       const target = targetId ? nodes.value.find(node => node.id === targetId) : null;
@@ -1272,6 +1274,7 @@ export default function App(rawProps: any) {
         error.value = caught.message;
       });
     }
+    let unregisterWebMcp = () => {};
     onMounted(async () => {
       window.addEventListener('pointerdown', closeCanvasMenu);
       window.addEventListener('popstate', handleProjectNavigation);
@@ -1296,6 +1299,7 @@ export default function App(rawProps: any) {
       }
     });
     onUnmounted(() => {
+      unregisterWebMcp();
       stopPendingSave();
       clearTimeout(editLockedNoticeTimer);
       window.removeEventListener('pointerdown', closeCanvasMenu);
@@ -1307,6 +1311,30 @@ export default function App(rawProps: any) {
       document.removeEventListener('gesturestart', preventNativePinchZoom);
       document.removeEventListener('gesturechange', preventNativePinchZoom);
       document.removeEventListener('wheel', preventPageTrackpadPinchZoom, true);
+    });
+    unregisterWebMcp = registerForgeWebMcp({
+      canvas: () => activeCanvas.value,
+      nodes: () => nodes.value,
+      edges: () => edges.value,
+      run: () => run.value,
+      busy: () => canvasBusy.value,
+      error: () => canvasError.value,
+      addNode: (type, sourceId) => addNode(type, sourceId || null),
+      settled: () => nextTick(),
+      connect: (sourceId, targetId) => addConnection({
+        source: sourceId,
+        sourceHandle: 'output',
+        target: targetId,
+        targetHandle: 'input'
+      }),
+      updateParameter: (id, key, value) => updateNodeParameter({
+        id,
+        key,
+        value
+      }),
+      runNode: (id, scope) => runCanvas(id, scope),
+      focus: (id) => focusNode(id),
+      ensureEdit: () => ensureEditAccess()
     });
     return {
       request,
@@ -1560,7 +1588,7 @@ export default function App(rawProps: any) {
   return (
     <main {...vm.$attrs} className={cx("forge:grid forge:h-full forge:w-full forge:grid-rows-[68px_minmax(0,1fr)] forge:bg-bg-primary forge:transition-colors forge:duration-200 forge:max-[760px]:h-auto forge:max-[760px]:min-h-full forge:max-[760px]:grid-rows-[58px_auto]", vm.$attrs.className)} style={vm.$attrs.style}>{(vm.editLockedNoticeOpen) ? (<div role={"alert"} className={"forge:fixed forge:left-1/2 forge:top-4 forge:z-[1000] forge:flex forge:min-w-[300px] forge:-translate-x-1/2 forge:items-center forge:gap-[18px] forge:rounded-[10px] forge:border forge:border-line-strong forge:bg-bg-panel forge:py-3 forge:pl-4 forge:pr-3 forge:text-[13px] forge:text-text-primary forge:shadow-popover"}><span ><strong >{vm.editLockedNoticeName}</strong>
 {" 正在编辑此画布"}</span></div>) : (null)}
-<TopBar switcherOpen={vm.canvasSwitcherOpen} activeCanvas={vm.activeCanvas} canvases={vm.canvases} workspaceMode={vm.workspaceMode} canvasView={vm.canvasView} savedState={vm.savedState} theme={vm.theme} busy={vm.agentBusy || vm.creatingCanvas || vm.openingCanvas} usingOwnKeys={vm.usingOwnKeys} onUpdateSwitcherOpen={($event: any) => { vm.canvasSwitcherOpen = $event }} onRename={($event: any) => { vm.renameCanvas($event) }} onOpenCanvas={($event: any) => { vm.openCanvas($event) }} onCreateCanvas={($event: any) => { vm.createCanvas($event) }} onCanvasContextMenu={($event: any) => { vm.openCanvasMenu($event.event, $event.canvas); }} onImportFile={($event: any) => { vm.importCanvasFile($event) }} onSetTheme={($event: any) => { vm.setTheme($event) }} onUpdateCanvasView={($event: any) => { vm.canvasView = $event; }} onOpenApiKeys={($event: any) => { vm.apiKeysOpen = true; }} />
+<TopBar switcherOpen={vm.canvasSwitcherOpen} activeCanvas={vm.activeCanvas} canvases={vm.canvases} workspaceMode={vm.workspaceMode} savedState={vm.savedState} theme={vm.theme} busy={vm.agentBusy || vm.creatingCanvas || vm.openingCanvas} usingOwnKeys={vm.usingOwnKeys} onUpdateSwitcherOpen={($event: any) => { vm.canvasSwitcherOpen = $event }} onRename={($event: any) => { vm.renameCanvas($event) }} onOpenCanvas={($event: any) => { vm.openCanvas($event) }} onCreateCanvas={($event: any) => { vm.createCanvas($event) }} onCanvasContextMenu={($event: any) => { vm.openCanvasMenu($event.event, $event.canvas); }} onImportFile={($event: any) => { vm.importCanvasFile($event) }} onSetTheme={($event: any) => { vm.setTheme($event) }} onOpenApiKeys={($event: any) => { vm.apiKeysOpen = true; }} />
 {(vm.canvasMenu) ? (<div onPointerDown={($event: any) => { $event.stopPropagation() }} className={"forge3d-menu forge:fixed forge:z-40 forge:grid forge:w-[164px] forge:gap-[3px] forge:rounded-lg forge:border forge:border-line-strong forge:bg-bg-input forge:p-[5px] forge:shadow-popover"} style={{
   left: `${vm.canvasMenu.left}px`,
   top: `${vm.canvasMenu.top}px`
