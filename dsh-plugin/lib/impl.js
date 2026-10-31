@@ -341,6 +341,12 @@ async function loadBackend() {
 // keeps every existing feature (canvas agent, Meshy execution, assets, sessions)
 // instead of re-implementing route by route. The handle is parked on globalThis
 // because this module is re-imported whenever it changes.
+// Reads that cannot carry a header: preview images and model files.
+function isAssetRead(method, path) {
+  if (method !== 'GET' && method !== 'HEAD') return false
+  return /\/nodes\/[^/]+\/(model|preview)$/.test(path) || path.startsWith('/api/assets/')
+}
+
 const SERVER_KEY = Symbol.for('forge3d.dsh.localServer')
 
 function serverState() {
@@ -469,10 +475,12 @@ export function createHandler(options = {}) {
         // `<img>` and `<model-viewer>` cannot send a header and this origin has no
         // cookies, so an asset read would arrive without the key. Keep the last
         // one this process saw — memory only, never written anywhere — and lend
-        // it to those reads.
+        // it to those reads ONLY. Lending it to everything would resurrect a key
+        // the visitor just cleared: clearing it leaves no header on later
+        // requests, and the remembered one would answer for them.
         const sentKey = req.headers['x-forge3d-meshy-key']
         if (typeof sentKey === 'string' && sentKey) rememberedMeshyKey = sentKey
-        else if (rememberedMeshyKey) req.headers['x-forge3d-meshy-key'] = rememberedMeshyKey
+        else if (rememberedMeshyKey && isAssetRead(req.method, rest)) req.headers['x-forge3d-meshy-key'] = rememberedMeshyKey
         // Which user keys actually arrived: the UI stores them in cookies, and a
         // dropped cookie reads as "provider not configured" on the server.
         if (req.method === 'POST' && rest.endsWith('/executions')) {

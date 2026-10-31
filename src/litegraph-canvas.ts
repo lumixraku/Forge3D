@@ -304,6 +304,9 @@ function structureKey(nodes: any[], edges: any[]) {
       preview: previewSlot(node),
       // The notice text sets the node height, so a new message rebuilds the node.
       missing: node._missing || '',
+      // Same reason: a run error is drawn in that strip, so a different message
+      // has to rebuild the node.
+      failure: node._run?.status === 'failed' ? node._run.error || '' : '',
     })),
     edges: edges.map((edge) => ({
       source: edge.source,
@@ -1563,8 +1566,10 @@ export function createGraphHost(canvas: HTMLCanvasElement, handlers: GraphHostHa
     const size = created.computeSize()
     size[0] = Math.max(250, size[0])
     // The notice takes its own room under the parameters. Actions and the
-    // preview are anchored to the bottom, so they stay clear of it.
-    created.noticeLines = wrapNotice(node._missing || '', size[0])
+    // preview are anchored to the bottom, so they stay clear of it. A failed run
+    // prints the message the backend returned, verbatim, instead of the notice.
+    const notice = node._run?.status === 'failed' ? node._run.error || '' : node._missing || ''
+    created.noticeLines = wrapNotice(notice, size[0])
     if (created.noticeLines.length) {
       created.noticeY = size[1]
       size[1] += noticeBoxHeight(created.noticeLines.length) + NOTICE_GAP

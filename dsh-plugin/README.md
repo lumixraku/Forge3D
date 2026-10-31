@@ -1,11 +1,26 @@
 # @forge3d/dsh-plugin
 
-Run the Forge3D 3D-asset canvas inside DeepSeek Harness.
+**Forge3D Canvas** — build 3D asset workflows in the DeepSeek conversation.
 
-The plugin adds a `conversation.view` tab that renders the Forge3D canvas as a
-native React component in the harness page, and serves its API under `/forge3d/api`, so a conversation and a 3D workflow share one window. The
-canvas domain comes from `@forge3d/canvas-core`; the backend is bundled in, so
-the plugin runs as a single process with no side service.
+Say what you want and the chain appears on the canvas: prompt or reference image
+to 3D model, on to UV texture and export. Parameters and stages are edited the same
+way, by asking, and the open canvas changes in place.
+
+- **The canvas is the workflow.** Text to 3D, image to 3D and multi-view feed UV
+  texturing and GLB/FBX/OBJ export, executed against Meshy or Tripo.
+- **The conversation edits it.** The agent reads the canvas, appends stages, changes
+  parameters, and removes a step while re-connecting the graph around it.
+- **Everything stays local.** Canvases live in a SQLite file on this machine, models
+  download from the canvas, and API keys never leave it.
+
+A run still starts with a click on a node's **Run** button: the plugin edits the
+graph, it does not execute it.
+
+Under the hood the plugin adds a `conversation.view` tab that renders the Forge3D
+canvas as a native React component in the harness page, and serves its API under
+`/forge3d/api`, so a conversation and a 3D workflow share one window. The canvas
+domain comes from `@forge3d/canvas-core`; the backend is bundled in, so the plugin
+runs as a single process with no side service.
 
 ## Install
 

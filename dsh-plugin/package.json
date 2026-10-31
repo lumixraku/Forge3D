@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": false,
   "type": "module",
-  "description": "Run the Forge3D 3D-asset canvas inside DeepSeek Harness: a conversation tab, a /forge3d web route, and canvas tools for the agent.",
+  "description": "Build 3D asset workflows on a node canvas from the DeepSeek conversation: prompt or reference image to model, UV texture, and export.",
   "main": "lib/index.js",
   "exports": {
     ".": {

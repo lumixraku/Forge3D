@@ -24,9 +24,17 @@ const store = await createSqliteStore()
 const readAsset = store.readAsset || readAssetFromDisk
 const uploadAsset = store.uploadAsset || persistUploadedAsset
 const createTripoProvider = createTripoRunner(process.env, { readAsset })
-const createMeshyProvider = createMeshyRunner(process.env, { readLocal: createMeshyLocalReader(readAsset) })
-const submitMeshyTask = createMeshySubmitter(process.env)
-const getMeshyTask = createMeshyTaskReader(process.env)
+// The plugin runs on the operator's own machine, so the only key it may spend is
+// the one they typed. A checkout's `.env` belongs to the dev server (`npm run
+// server`); an installed plugin that picked it up would run a task the user
+// thinks they never authorised after clearing their key. Set
+// FORGE3D_USE_ENV_KEYS=1 to opt back in.
+const providerEnv = process.env.FORGE3D_USE_ENV_KEYS === '1'
+  ? process.env
+  : { ...process.env, MESHY_API_KEY: '', TRIPO_API_KEY: '' }
+const createMeshyProvider = createMeshyRunner(providerEnv, { readLocal: createMeshyLocalReader(readAsset) })
+const submitMeshyTask = createMeshySubmitter(providerEnv)
+const getMeshyTask = createMeshyTaskReader(providerEnv)
 const getTripoTask = createTripoTaskReader()
 
 const agentServiceUrl = process.env.AGENT_SERVICE_URL === 'direct'

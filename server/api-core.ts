@@ -244,7 +244,7 @@ function resolveProviderFactory(config, provider) {
     fail('Tripo is not configured. Set TRIPO_API_KEY and restart the API server.', 503)
   }
   if (provider === 'meshy' && !config.createMeshyProvider) {
-    fail('Meshy is not configured. Set MESHY_API_KEY and restart the API server.', 503)
+    fail('Meshy is not configured. Add a Meshy API key.', 503)
   }
   return provider === 'tripo' ? config.createTripoProvider : config.createMeshyProvider
 }
