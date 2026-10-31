@@ -33,6 +33,7 @@ import { activeInputPorts, canConnectNodeTypes, canConnectPorts, compatibleNodeT
 import { resultArtifacts } from './run-results';
 import { resultSpecs } from '@forge3d/canvas-core';
 import { reconcileResultSlots } from '@forge3d/canvas-core';
+import { absoluteNodePosition, frameInsets, frameSize, nodeSize } from '@forge3d/canvas-core';
 import { registerForgeWebMcp } from './webmcp';
 
 // Loaded on first open: three.js and the viewer stay out of the main chunk.
@@ -716,6 +717,19 @@ export default function App(rawProps: any) {
         y: Math.min(...nodes.value.map(node => node.position.y))
       };
     }
+    // Position local to a section: right of the source when it is in the same
+    // section, otherwise right of the section's rightmost child.
+    function sectionChildPosition(frameId, sourceId) {
+      const insets = frameInsets();
+      const source = sourceId ? nodes.value.find(node => node.id === sourceId) : null;
+      if (source?.parentNode === frameId) return { x: source.position.x + 340, y: source.position.y };
+      const children = nodes.value.filter(node => node.parentNode === frameId);
+      if (!children.length) return { x: insets.left, y: insets.top };
+      return {
+        x: Math.max(...children.map(node => node.position.x + nodeSize(node).width)) + 80,
+        y: Math.min(...children.map(node => node.position.y))
+      };
+    }
     function upstreamNodePosition(targetId) {
       const target = targetId ? nodes.value.find(node => node.id === targetId) : null;
       if (target) return {
@@ -843,8 +857,22 @@ export default function App(rawProps: any) {
         data
       };
     }
+    // Top-left for a new section that clears everything already on the canvas:
+    // one section gap to the right of the rightmost node or frame.
+    function freeFramePosition() {
+      const nodeMap = new Map(nodes.value.map(node => [node.id, node]));
+      const boxes = nodes.value.filter(node => !node.parentNode || !nodeMap.has(node.parentNode)).map(node => {
+        const at = absoluteNodePosition(node, nodeMap);
+        const size = node.type === 'frame' ? frameSize(node) : nodeSize(node);
+        return { x: at.x, y: at.y, right: at.x + size.width };
+      });
+      if (!boxes.length) return { x: 120, y: 120 };
+      return { x: Math.max(...boxes.map(box => box.right)) + 200, y: Math.min(...boxes.map(box => box.y)) };
+    }
     function addNode(type, sourceId, position, {
-      initialAsset
+      initialAsset,
+      parentNode,
+      clearOfOthers = false
     } = {}) {
       const presentation = nodePresentation[type];
       if (!presentation || !activeCanvas.value) return;
@@ -855,7 +883,7 @@ export default function App(rawProps: any) {
         const frame = {
           id: nextNodeId(type),
           type: 'frame',
-          position: {
+          position: clearOfOthers ? freeFramePosition() : {
             x: center.x - width / 2,
             y: center.y - height / 2
           },
@@ -880,9 +908,10 @@ export default function App(rawProps: any) {
         return frame;
       }
       const node = buildCanvasNode(type, {
-        position: position || nodePosition(sourceId),
+        position: position || (parentNode ? sectionChildPosition(parentNode, sourceId) : nodePosition(sourceId)),
         selected: true,
-        initialAsset
+        initialAsset,
+        parentNode
       });
       nodes.value = [...nodes.value.map(item => ({
         ...item,
@@ -1319,8 +1348,11 @@ export default function App(rawProps: any) {
       run: () => run.value,
       busy: () => canvasBusy.value,
       error: () => canvasError.value,
-      addNode: (type, sourceId) => addNode(type, sourceId || null),
-      settled: () => nextTick(),
+      addNode: (type, sourceId, sectionId) => addNode(type, sourceId || null, null, type === 'frame' ? { clearOfOthers: true } : { parentNode: sectionId || undefined }),
+      settled: async () => {
+        await nextTick();
+        await fitFramesAfterRender({ persist: true });
+      },
       connect: (sourceId, targetId) => addConnection({
         source: sourceId,
         sourceHandle: 'output',

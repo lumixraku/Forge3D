@@ -6,7 +6,11 @@ import { nodeDefaults, nodeSchema } from './canvas-schema'
  */
 const COL = [48, 360, 672]
 const TOP = 56
-const FRAME_W = 980
+// Each stage gets an Asset Preview column after it, which pushes Export right,
+// so a fitted section ends up about 1720 wide. Sized for that, plus a clear
+// gap, so the Text to 3D section never lands on top of Image to 3D.
+const FRAME_W = 1720
+const FRAME_GAP = 200
 const SINGLE_H = 720
 const MULTI_H = 1180
 const ROW = 270
@@ -51,12 +55,12 @@ export function starterCanvasGraph() {
     step('starter-image-model', 'generate-model', COL[1], TOP, 'starter-image'),
     step('starter-image-export', 'export-model', COL[2], TOP, 'starter-image', { fileName: 'image-to-3d' }),
 
-    frame('starter-text', 'Text to 3D', 'A text prompt becomes a textured model.', FRAME_W + 48, 0, FRAME_W, SINGLE_H),
+    frame('starter-text', 'Text to 3D', 'A text prompt becomes a textured model.', FRAME_W + FRAME_GAP, 0, FRAME_W, SINGLE_H),
     step('starter-text-prompt', 'prompt', COL[0], TOP, 'starter-text'),
     step('starter-text-model', 'text-to-3d', COL[1], TOP, 'starter-text'),
     step('starter-text-export', 'export-model', COL[2], TOP, 'starter-text', { fileName: 'text-to-3d' }),
 
-    frame('starter-multiview', 'Multi-view to 3D', 'Front, back, left, and right views of the same object become a model.', 0, SINGLE_H + 48, FRAME_W, MULTI_H),
+    frame('starter-multiview', 'Multi-view to 3D', 'Front, back, left, and right views of the same object become a model.', 0, SINGLE_H + FRAME_GAP, FRAME_W, MULTI_H),
     step('starter-mv-front', 'reference-image', COL[0], TOP, 'starter-multiview', {}, 'Front', imageAsset('/shark-concept-front.png')),
     step('starter-mv-back', 'reference-image', COL[0], TOP + ROW, 'starter-multiview', {}, 'Back', imageAsset('/shark-concept-back.png')),
     step('starter-mv-left', 'reference-image', COL[0], TOP + ROW * 2, 'starter-multiview', {}, 'Left', imageAsset('/shark-concept-left.png')),

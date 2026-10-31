@@ -382,15 +382,53 @@ function baseCanvas(message) {
   }
 }
 
-function insertBefore(canvas, type, beforeTypes) {
-  if (canvas.nodes.some((node) => node.type === type)) return false
-  const node = createNode(type, canvas.nodes)
-  const index = canvas.nodes.findIndex((candidate) => beforeTypes.includes(candidate.type))
-  canvas.nodes.splice(index < 0 ? canvas.nodes.length : index, 0, node)
-  return true
+/** Section a stage edit applies to: the requested frame, else the newest one. */
+function targetFrameId(canvas, frameId) {
+  const frames = canvas.nodes.filter((node) => node.type === 'frame')
+  if (frameId) {
+    if (!frames.some((frame) => frame.id === frameId)) throw new Error(`Frame not found on the current canvas: ${frameId}`)
+    return frameId
+  }
+  return frames.at(-1)?.id ?? null
 }
 
-export function addCanvasStage(canvas, type, message = '') {
+function sectionMembers(canvas, frameId) {
+  return canvas.nodes.filter((node) => node.type !== 'frame' && (node.ui?.parentFrameId ?? null) === frameId)
+}
+
+/**
+ * Rewire one section from its own nodes. rebuildDagEdges keys nodes by type,
+ * so feeding it the whole canvas wired a prompt in one section into a model
+ * node in another and dropped every other section's wires.
+ */
+function rebuildSectionEdges(canvas, frameId) {
+  const members = sectionMembers(canvas, frameId)
+  const memberIds = new Set(members.map((node) => node.id))
+  const kept = canvas.edges.filter((edge) => !memberIds.has(edge.source.nodeId) && !memberIds.has(edge.target.nodeId))
+  canvas.edges = [...kept, ...rebuildDagEdges(members)]
+}
+
+function insertBefore(canvas, type, beforeTypes, frameId = targetFrameId(canvas)) {
+  const members = sectionMembers(canvas, frameId)
+  if (members.some((node) => node.type === type)) return false
+  const anchor = members.findLast((node) => !beforeTypes.includes(node.type)) ?? members.at(-1)
+  const node = {
+    id: slug(type, canvas.nodes),
+    type,
+    name: nodeDefaults[type].name,
+    config: structuredClone(nodeDefaults[type].config),
+    ui: {
+      position: { x: anchor ? anchor.ui.position.x + 340 : 100, y: anchor?.ui.position.y ?? 150 },
+      ...(frameId ? { parentFrameId: frameId } : {}),
+    },
+  }
+  const before = members.find((candidate) => beforeTypes.includes(candidate.type))
+  const index = before ? canvas.nodes.indexOf(before) : canvas.nodes.length
+  canvas.nodes.splice(index, 0, node)
+  return node
+}
+
+export function addCanvasStage(canvas, type, message = '', frameId = undefined) {
   const nextCanvas = structuredClone(canvas)
   const allowedTypes = new Set(['frame', ...Object.keys(nodeDefaults)])
   if (!allowedTypes.has(type)) throw new Error(`Unsupported canvas node type: ${type}`)
@@ -400,19 +438,39 @@ export function addCanvasStage(canvas, type, message = '') {
     const frame = createFrame(message, nextCanvas.nodes)
     nextCanvas.nodes.push(frame)
     changedNodeIds.push(frame.id)
-  } else if (insertBefore(nextCanvas, type, type === 'review' ? ['generate-model', 'multiview-to-3d'] : ['export-model', 'model-preview'])) {
-    changedNodeIds.push(nextCanvas.nodes.find((node) => node.type === type).id)
+    nextCanvas.revision += 1
+    nextCanvas.updatedAt = new Date().toISOString()
+    return { canvas: nextCanvas, changedNodeIds, structureChanged: true }
   }
 
-  if (!changedNodeIds.length) {
+  const sectionId = targetFrameId(nextCanvas, frameId)
+  const added = insertBefore(nextCanvas, type, type === 'review' ? ['generate-model', 'multiview-to-3d'] : ['export-model', 'model-preview'], sectionId)
+  if (!added) {
     return { canvas: nextCanvas, changedNodeIds, structureChanged: false }
   }
+  changedNodeIds.push(added.id)
 
-  nextCanvas.edges = rebuildDagEdges(nextCanvas.nodes)
+  rebuildSectionEdges(nextCanvas, sectionId)
   fitFrame(nextCanvas.nodes)
   nextCanvas.revision += 1
   nextCanvas.updatedAt = new Date().toISOString()
   return { canvas: nextCanvas, changedNodeIds, structureChanged: true }
+}
+
+/**
+ * add_canvas_node as the agent calls it. Sections already on the canvas are
+ * demos the user edits by hand, so a node only joins one when the user named
+ * it (frameId) or when this turn built it. Otherwise it starts its own section.
+ */
+export function addAgentCanvasNode(canvas, type, message = '', { frameId = undefined, changes = [] } = {}) {
+  if (type === 'frame' || frameId) return addCanvasStage(canvas, type, message, frameId)
+  const addedThisTurn = new Set(changes.map((change) => change.nodeId))
+  const turnFrame = canvas.nodes.filter((node) => node.type === 'frame' && addedThisTurn.has(node.id)).at(-1)
+  if (turnFrame) return addCanvasStage(canvas, type, message, turnFrame.id)
+  if (!nodeDefaults[type]) throw new Error(`Unsupported canvas node type: ${type}`)
+  const existingIds = new Set(canvas.nodes.map((node) => node.id))
+  const next = buildCanvasStructure(message, [type], canvas)
+  return { canvas: next, changedNodeIds: next.nodes.filter((node) => !existingIds.has(node.id)).map((node) => node.id), structureChanged: true }
 }
 
 function parameterHelpType(message) {
@@ -502,25 +560,30 @@ export function planCanvas(message, existingCanvas) {
   }
 
   if (/审核|审查|确认|review|approval|approve/i.test(message)) {
-    if (insertBefore(canvas, 'review', ['generate-model', 'multiview-to-3d'])) structuralChanges.push(canvas.nodes.find((node) => node.type === 'review').id)
+    const added = insertBefore(canvas, 'review', ['generate-model', 'multiview-to-3d'])
+    if (added) structuralChanges.push(added.id)
   }
   if (/低模|low[ -]?poly|retopo/.test(lower)) {
-    if (insertBefore(canvas, 'retopology', ['texture', 'export-model', 'model-preview'])) structuralChanges.push(canvas.nodes.find((node) => node.type === 'retopology').id)
+    const added = insertBefore(canvas, 'retopology', ['texture', 'export-model', 'model-preview'])
+    if (added) structuralChanges.push(added.id)
   }
   if (/贴图|texture|pbr/.test(lower)) {
-    if (insertBefore(canvas, 'texture', ['export-model', 'model-preview'])) structuralChanges.push(canvas.nodes.find((node) => node.type === 'texture').id)
+    const added = insertBefore(canvas, 'texture', ['export-model', 'model-preview'])
+    if (added) structuralChanges.push(added.id)
   }
   if (/rigging|rig|骨骼|绑定/.test(lower)) {
-    if (insertBefore(canvas, 'rigging', ['segments', 'export-model', 'model-preview'])) structuralChanges.push(canvas.nodes.find((node) => node.type === 'rigging').id)
+    const added = insertBefore(canvas, 'rigging', ['segments', 'export-model', 'model-preview'])
+    if (added) structuralChanges.push(added.id)
   }
   if (/segments?|split|拆件|拆分|分件/.test(lower)) {
-    if (insertBefore(canvas, 'segments', ['export-model', 'model-preview'])) structuralChanges.push(canvas.nodes.find((node) => node.type === 'segments').id)
+    const added = insertBefore(canvas, 'segments', ['export-model', 'model-preview'])
+    if (added) structuralChanges.push(added.id)
   }
 
   if (existingCanvas) applyParameterChanges(message, canvas, changes)
 
   if (structuralChanges.length) {
-    canvas.edges = rebuildDagEdges(canvas.nodes)
+    rebuildSectionEdges(canvas, targetFrameId(canvas))
     fitFrame(canvas.nodes)
   }
   const didChange = !existingCanvas || structuralChanges.length || changes.length

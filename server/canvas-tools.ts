@@ -56,10 +56,13 @@ export const canvasToolDefinitions = [
   },
   {
     name: 'add_canvas_node',
-    description: 'Add one canvas node of the requested type when that node type does not already exist. Frame can also be added as a separate canvas container.',
+    description: 'Add one missing node to a section and rewire only that section. Defaults to the section built earlier in this turn. Existing sections are user demos: pass frameId only when the user explicitly asks to modify that section. For any new request, use build_canvas instead. Does nothing if the section already has the type. Frame can also be added as an empty container.',
     parameters: {
       type: 'object',
-      properties: { type: { type: 'string', enum: ['frame', ...canvasNodeTypes] } },
+      properties: {
+        type: { type: 'string', enum: ['frame', ...canvasNodeTypes] },
+        frameId: { type: 'string', description: 'Frame ID of an existing section the user explicitly asked to modify. Omit to use the section built this turn.' },
+      },
       required: ['type'],
       additionalProperties: false,
     },

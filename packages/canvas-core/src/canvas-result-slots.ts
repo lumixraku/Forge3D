@@ -373,9 +373,12 @@ export function reconcileResultSlots(canvas: SlotCanvas, { filled = new Map<stri
   for (const [stageId, slots] of wanted) {
     const stageType = typeById(stageId)
     if (!stageType || !slots.length) continue
+    // Only within the stage's own section: a fresh Export in a new section must
+    // not pick up the model slot of every other section on the canvas.
+    const section = parentOf(byId.get(stageId)!, shape)
     const downstream = nodes.filter((node) => {
       const type = typeOf(node, shape) || ''
-      return !isResultType(type) && node.id !== stageId && mediaPair(stageType, type)
+      return !isResultType(type) && node.id !== stageId && parentOf(node, shape) === section && mediaPair(stageType, type)
     })
     for (const node of downstream) {
       const type = typeOf(node, shape) || ''

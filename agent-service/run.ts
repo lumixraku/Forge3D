@@ -3,7 +3,7 @@ import { Type } from '@earendil-works/pi-ai'
 import { streamSimple } from '@earendil-works/pi-ai/api/openai-completions'
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
-import { addCanvasStage, buildCanvasStructure } from '../server/planner.js'
+import { addAgentCanvasNode, buildCanvasStructure } from '../server/planner.js'
 import { describeCanvasParameters, updateNodeParameters } from '../server/canvas-parameters.js'
 import { systemPrompt } from '../server/deepseek.js'
 import { canvasNodeTypes, canvasToolDefinition } from '../server/canvas-tools.js'
@@ -281,7 +281,7 @@ export function startPiAgent(opts: RunOptions): LiveRun {
       execute: async (_id: string, params: any) => {
         await emit('add_canvas_node')
         try {
-          const planned = addCanvasStage(session.canvas, params.type, opts.message)
+          const planned = addAgentCanvasNode(session.canvas, params.type, opts.message, { frameId: params.frameId, changes: session.changes })
           session.canvas = planned.canvas
           session.structureChanged ||= planned.structureChanged
           for (const nodeId of planned.changedNodeIds) session.changes.push({ nodeId })

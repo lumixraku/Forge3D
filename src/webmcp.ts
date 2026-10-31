@@ -68,7 +68,7 @@ export interface ForgePage {
   run: () => ForgePageRun | null
   busy: () => boolean
   error: () => string
-  addNode: (type: string, sourceId?: string | null) => { id: string } | undefined
+  addNode: (type: string, sourceId?: string | null, sectionId?: string | null) => { id: string } | undefined
   /** Resolves after the page has applied the connection queued by addNode. */
   settled: () => Promise<void>
   connect: (sourceId: string, targetId: string) => boolean
@@ -319,12 +319,13 @@ function toolsFor(page: ForgePage): WebMcpTool[] {
     },
     {
       name: 'add_node',
-      description: 'Add one node to the open canvas and scroll it into view. Pass sourceId to connect it downstream of an existing node when the two types are compatible.',
+      description: 'Add one node to the open canvas and scroll it into view. A new workflow goes in its own section: first add a frame (placed clear of existing sections), then pass its id as sectionId for every node of that workflow. Existing sections are demos; only add to one when the user asks. Pass sourceId to connect from a node in the same section.',
       inputSchema: {
         type: 'object',
         properties: {
           type: { type: 'string', enum: typeEnum, description: 'Node type from list_node_types.' },
-          sourceId: { type: 'string', description: 'Optional node id to connect from.' },
+          sourceId: { type: 'string', description: 'Optional node id to connect from. Must be in the same section.' },
+          sectionId: { type: 'string', description: 'Frame id to place the node in. Defaults to the section of sourceId.' },
         },
         required: ['type'],
         additionalProperties: false,
@@ -334,23 +335,29 @@ function toolsFor(page: ForgePage): WebMcpTool[] {
         const type = String(args.type || '')
         if (!typeEnum.includes(type)) throw new Error(`"${type}" cannot be added. Call list_node_types.`)
         const sourceId = typeof args.sourceId === 'string' && args.sourceId ? args.sourceId : ''
+        let sectionId = typeof args.sectionId === 'string' && args.sectionId ? args.sectionId : ''
+        if (type === 'frame' && (sourceId || sectionId)) throw new Error('A frame takes no sourceId or sectionId.')
+        if (sectionId && canvasTypeOf(findNode(page, sectionId)) !== 'frame') throw new Error(`"${sectionId}" is not a section.`)
         if (sourceId) {
           const source = findNode(page, sourceId)
           if (!canConnectNodeTypes(canvasTypeOf(source), type)) {
             throw new Error(`"${canvasTypeOf(source)}" cannot connect to "${type}".`)
           }
+          const sourceSection = source.parentNode || ''
+          if (sectionId && sourceSection !== sectionId) throw new Error(`"${sourceId}" is not in section "${sectionId}". A workflow stays inside one section.`)
+          sectionId ||= sourceSection
         }
         page.ensureEdit()
-        const created = page.addNode(type, sourceId || null)
+        const created = page.addNode(type, sourceId || null, sectionId || null)
         if (!created) throw new Error(`Could not add "${type}".`)
         await page.settled()
         const connected = sourceId ? page.edges().some((edge) => edge.source === sourceId && edge.target === created.id) : false
-        return JSON.stringify({ id: created.id, type, ...(sourceId ? { connectedTo: sourceId, connected } : {}) })
+        return JSON.stringify({ id: created.id, type, ...(sectionId ? { sectionId } : {}), ...(sourceId ? { connectedTo: sourceId, connected } : {}) })
       },
     },
     {
       name: 'connect_nodes',
-      description: 'Connect the output of one existing node to the input of another, when their types are compatible.',
+      description: 'Connect the output of one existing node to the input of another in the same section, when their types are compatible.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -366,6 +373,9 @@ function toolsFor(page: ForgePage): WebMcpTool[] {
         const target = findNode(page, String(args.targetId || ''))
         if (!canConnectNodeTypes(canvasTypeOf(source), canvasTypeOf(target))) {
           throw new Error(`"${canvasTypeOf(source)}" cannot connect to "${canvasTypeOf(target)}".`)
+        }
+        if ((source.parentNode || '') !== (target.parentNode || '')) {
+          throw new Error(`${source.id} and ${target.id} are in different sections. A workflow stays inside one section.`)
         }
         page.ensureEdit()
         const connected = page.connect(source.id, target.id)

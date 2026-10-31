@@ -744,9 +744,10 @@ function reconcileResultSlots(canvas, { filled = /* @__PURE__ */ new Map(), mate
   for (const [stageId, slots] of wanted) {
     const stageType = typeById(stageId);
     if (!stageType || !slots.length) continue;
+    const section = parentOf(byId.get(stageId), shape);
     const downstream = nodes.filter((node) => {
       const type = typeOf(node, shape) || "";
-      return !isResultType(type) && node.id !== stageId && mediaPair(stageType, type);
+      return !isResultType(type) && node.id !== stageId && parentOf(node, shape) === section && mediaPair(stageType, type);
     });
     for (const node of downstream) {
       const type = typeOf(node, shape) || "";
@@ -842,7 +843,8 @@ var PIN_TURNS = [15, -15, 30, -30, 45, -45, 60, -60].map((degrees) => degrees * 
 // packages/canvas-core/src/starter-canvas.ts
 var COL = [48, 360, 672];
 var TOP = 56;
-var FRAME_W = 980;
+var FRAME_W = 1720;
+var FRAME_GAP = 200;
 var SINGLE_H = 720;
 var MULTI_H = 1180;
 var ROW = 270;
@@ -881,11 +883,11 @@ function starterCanvasGraph() {
     step("starter-image-upload", "reference-image", COL[0], TOP, "starter-image", {}, "Reference image", imageAsset("/shark-reference.png")),
     step("starter-image-model", "generate-model", COL[1], TOP, "starter-image"),
     step("starter-image-export", "export-model", COL[2], TOP, "starter-image", { fileName: "image-to-3d" }),
-    frame("starter-text", "Text to 3D", "A text prompt becomes a textured model.", FRAME_W + 48, 0, FRAME_W, SINGLE_H),
+    frame("starter-text", "Text to 3D", "A text prompt becomes a textured model.", FRAME_W + FRAME_GAP, 0, FRAME_W, SINGLE_H),
     step("starter-text-prompt", "prompt", COL[0], TOP, "starter-text"),
     step("starter-text-model", "text-to-3d", COL[1], TOP, "starter-text"),
     step("starter-text-export", "export-model", COL[2], TOP, "starter-text", { fileName: "text-to-3d" }),
-    frame("starter-multiview", "Multi-view to 3D", "Front, back, left, and right views of the same object become a model.", 0, SINGLE_H + 48, FRAME_W, MULTI_H),
+    frame("starter-multiview", "Multi-view to 3D", "Front, back, left, and right views of the same object become a model.", 0, SINGLE_H + FRAME_GAP, FRAME_W, MULTI_H),
     step("starter-mv-front", "reference-image", COL[0], TOP, "starter-multiview", {}, "Front", imageAsset("/shark-concept-front.png")),
     step("starter-mv-back", "reference-image", COL[0], TOP + ROW, "starter-multiview", {}, "Back", imageAsset("/shark-concept-back.png")),
     step("starter-mv-left", "reference-image", COL[0], TOP + ROW * 2, "starter-multiview", {}, "Left", imageAsset("/shark-concept-left.png")),
@@ -3054,7 +3056,15 @@ function createExecution(runs, canvas, entryNode, mode = "downstream", { nodeIds
     throw error;
   }
   refuse(validateCanvasGraph(canvas.nodes, canvas.edges || []));
-  const planCanvas2 = { ...canvas, edges: stagesOnlyEdges(canvas.nodes, canvas.edges || [], isResultNodeType, slotStageOf(canvas)) };
+  const idEdges = (canvas.edges || []).map((edge) => ({ edge, source: edge.source?.nodeId, target: edge.target?.nodeId }));
+  const planCanvas2 = {
+    ...canvas,
+    edges: stagesOnlyEdges(canvas.nodes, idEdges, isResultNodeType, slotStageOf(canvas)).map(({ edge, source, target }) => ({
+      ...edge,
+      source: { ...edge.source, nodeId: source },
+      target: { ...edge.target, nodeId: target }
+    }))
+  };
   const executionCanvas = mode === "downstream" ? downstreamCanvas(planCanvas2, entryNode.id) : { ...structuredClone(planCanvas2), nodes: [structuredClone(entryNode)], edges: [] };
   const nodes = executionNodes(executionCanvas);
   const plannedNodeIds = nodes.map((node) => node.id);
@@ -3700,14 +3710,43 @@ function baseCanvas(message) {
     viewport: { x: 80, y: 160, zoom: 0.72 }
   };
 }
-function insertBefore(canvas, type, beforeTypes) {
-  if (canvas.nodes.some((node2) => node2.type === type)) return false;
-  const node = createNode(type, canvas.nodes);
-  const index = canvas.nodes.findIndex((candidate) => beforeTypes.includes(candidate.type));
-  canvas.nodes.splice(index < 0 ? canvas.nodes.length : index, 0, node);
-  return true;
+function targetFrameId(canvas, frameId) {
+  const frames = canvas.nodes.filter((node) => node.type === "frame");
+  if (frameId) {
+    if (!frames.some((frame2) => frame2.id === frameId)) throw new Error(`Frame not found on the current canvas: ${frameId}`);
+    return frameId;
+  }
+  return frames.at(-1)?.id ?? null;
 }
-function addCanvasStage(canvas, type, message = "") {
+function sectionMembers(canvas, frameId) {
+  return canvas.nodes.filter((node) => node.type !== "frame" && (node.ui?.parentFrameId ?? null) === frameId);
+}
+function rebuildSectionEdges(canvas, frameId) {
+  const members = sectionMembers(canvas, frameId);
+  const memberIds = new Set(members.map((node) => node.id));
+  const kept = canvas.edges.filter((edge) => !memberIds.has(edge.source.nodeId) && !memberIds.has(edge.target.nodeId));
+  canvas.edges = [...kept, ...rebuildDagEdges(members)];
+}
+function insertBefore(canvas, type, beforeTypes, frameId = targetFrameId(canvas)) {
+  const members = sectionMembers(canvas, frameId);
+  if (members.some((node2) => node2.type === type)) return false;
+  const anchor = members.findLast((node2) => !beforeTypes.includes(node2.type)) ?? members.at(-1);
+  const node = {
+    id: slug(type, canvas.nodes),
+    type,
+    name: nodeDefaults2[type].name,
+    config: structuredClone(nodeDefaults2[type].config),
+    ui: {
+      position: { x: anchor ? anchor.ui.position.x + 340 : 100, y: anchor?.ui.position.y ?? 150 },
+      ...frameId ? { parentFrameId: frameId } : {}
+    }
+  };
+  const before = members.find((candidate) => beforeTypes.includes(candidate.type));
+  const index = before ? canvas.nodes.indexOf(before) : canvas.nodes.length;
+  canvas.nodes.splice(index, 0, node);
+  return node;
+}
+function addCanvasStage(canvas, type, message = "", frameId = void 0) {
   const nextCanvas = structuredClone(canvas);
   const allowedTypes = /* @__PURE__ */ new Set(["frame", ...Object.keys(nodeDefaults2)]);
   if (!allowedTypes.has(type)) throw new Error(`Unsupported canvas node type: ${type}`);
@@ -3716,17 +3755,31 @@ function addCanvasStage(canvas, type, message = "") {
     const frame2 = createFrame(message, nextCanvas.nodes);
     nextCanvas.nodes.push(frame2);
     changedNodeIds.push(frame2.id);
-  } else if (insertBefore(nextCanvas, type, type === "review" ? ["generate-model", "multiview-to-3d"] : ["export-model", "model-preview"])) {
-    changedNodeIds.push(nextCanvas.nodes.find((node) => node.type === type).id);
+    nextCanvas.revision += 1;
+    nextCanvas.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+    return { canvas: nextCanvas, changedNodeIds, structureChanged: true };
   }
-  if (!changedNodeIds.length) {
+  const sectionId = targetFrameId(nextCanvas, frameId);
+  const added = insertBefore(nextCanvas, type, type === "review" ? ["generate-model", "multiview-to-3d"] : ["export-model", "model-preview"], sectionId);
+  if (!added) {
     return { canvas: nextCanvas, changedNodeIds, structureChanged: false };
   }
-  nextCanvas.edges = rebuildDagEdges(nextCanvas.nodes);
+  changedNodeIds.push(added.id);
+  rebuildSectionEdges(nextCanvas, sectionId);
   fitFrame(nextCanvas.nodes);
   nextCanvas.revision += 1;
   nextCanvas.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
   return { canvas: nextCanvas, changedNodeIds, structureChanged: true };
+}
+function addAgentCanvasNode(canvas, type, message = "", { frameId = void 0, changes = [] } = {}) {
+  if (type === "frame" || frameId) return addCanvasStage(canvas, type, message, frameId);
+  const addedThisTurn = new Set(changes.map((change) => change.nodeId));
+  const turnFrame = canvas.nodes.filter((node) => node.type === "frame" && addedThisTurn.has(node.id)).at(-1);
+  if (turnFrame) return addCanvasStage(canvas, type, message, turnFrame.id);
+  if (!nodeDefaults2[type]) throw new Error(`Unsupported canvas node type: ${type}`);
+  const existingIds = new Set(canvas.nodes.map((node) => node.id));
+  const next = buildCanvasStructure(message, [type], canvas);
+  return { canvas: next, changedNodeIds: next.nodes.filter((node) => !existingIds.has(node.id)).map((node) => node.id), structureChanged: true };
 }
 
 // server/canvas-tools.ts
@@ -3784,10 +3837,13 @@ var canvasToolDefinitions = [
   },
   {
     name: "add_canvas_node",
-    description: "Add one canvas node of the requested type when that node type does not already exist. Frame can also be added as a separate canvas container.",
+    description: "Add one missing node to a section and rewire only that section. Defaults to the section built earlier in this turn. Existing sections are user demos: pass frameId only when the user explicitly asks to modify that section. For any new request, use build_canvas instead. Does nothing if the section already has the type. Frame can also be added as an empty container.",
     parameters: {
       type: "object",
-      properties: { type: { type: "string", enum: ["frame", ...canvasNodeTypes] } },
+      properties: {
+        type: { type: "string", enum: ["frame", ...canvasNodeTypes] },
+        frameId: { type: "string", description: "Frame ID of an existing section the user explicitly asked to modify. Omit to use the section built this turn." }
+      },
       required: ["type"],
       additionalProperties: false
     }
@@ -3907,9 +3963,9 @@ Meshy canvases can also use text-to-image, image-to-image, remesh, retexture, ri
 
 When a multi-image request is ambiguous \u2014 you cannot tell whether the user has one image (and wants the views generated) or already has several images \u2014 do NOT guess. Call request_user_select with one option per path above, so the user confirms which one.
 
-When the user asks to create, build, or design a canvas, call build_canvas with the complete ordered nodeTypes list. The server appends one new frame without replacing existing canvas content, places all new nodes inside it, connects compatible ports, and lays out the new section. Common shapes: text-to-image-to-3D = reference-image, prompt, generate-image, generate-model, export-model; direct text-to-3D = prompt, text-to-3d, export-model; one image generating multi-view then 3D = reference-image, generate-multiview-images, generate-model, export-model; several existing images to 3D = reference-image, generate-model, export-model. Add retopology, texture, rigging, and segments before export-model when requested.
+Every new create, build, generate, or design request gets its own new section: call build_canvas with the complete ordered nodeTypes list, even when the canvas already holds similar nodes. Nodes already on the canvas are demos for the user to edit by hand; never extend, rewire, reuse, or add nodes to an existing section unless the user explicitly asks to modify that specific section. The server appends one new frame without replacing existing canvas content, places all new nodes inside it, connects compatible ports, and lays out the new section. Common shapes: text-to-image-to-3D = reference-image, prompt, generate-image, generate-model, export-model; direct text-to-3D = prompt, text-to-3d, export-model; one image generating multi-view then 3D = reference-image, generate-multiview-images, generate-model, export-model; several existing images to 3D = reference-image, generate-model, export-model. Add retopology, texture, rigging, and segments before export-model when requested.
 
-Use get_canvas_structure when the current nodes or connections are unclear. Use list_available_node_types when the creatable node types are unclear. Use get_credit_balance when the user asks about their credits or before a paid execution if the balance is unclear. Use execute_canvas_node only when the user explicitly asks to run, generate, regenerate, retry, or export; every call requests an independent background execution, and several executions may run concurrently. Use list_canvas_executions when the user asks about recent or active tasks without supplying a task ID. Use get_execution_status for the latest progress of a specific task. Use cancel_execution only when the user explicitly asks to stop a task. Use add_canvas_node to add any supported node type, including frame, when it is not already present; use build_canvas to append a complete canvas section. Use get_canvas_parameters when parameter names, node IDs, ranges, or options are unclear. Apply every parameter explicitly requested by the user. Group all requested changes for the same node into one update_node_parameters call, use separate calls for different nodes, and verify every requested change appears in successful tool results before replying. When you need the user to choose from a finite set of valid alternatives before continuing, you MUST call request_user_select. Never ask that question, list the options, or tell the user to choose in normal assistant text. For an empty canvas, if the user has not stated how to create the model, call request_user_select with the available canvas approaches. Do not ask for free-form text with this tool.
+Use get_canvas_structure when the current nodes or connections are unclear. Use list_available_node_types when the creatable node types are unclear. Use get_credit_balance when the user asks about their credits or before a paid execution if the balance is unclear. Use execute_canvas_node only when the user explicitly asks to run, generate, regenerate, retry, or export; every call requests an independent background execution, and several executions may run concurrently. Use list_canvas_executions when the user asks about recent or active tasks without supplying a task ID. Use get_execution_status for the latest progress of a specific task. Use cancel_execution only when the user explicitly asks to stop a task. Use build_canvas to append a complete canvas section. Use add_canvas_node only to add a missing node to a section built earlier in this same turn, or to an existing section the user explicitly named (pass its frameId). Use get_canvas_parameters when parameter names, node IDs, ranges, or options are unclear. Apply every parameter explicitly requested by the user. Group all requested changes for the same node into one update_node_parameters call, use separate calls for different nodes, and verify every requested change appears in successful tool results before replying. When you need the user to choose from a finite set of valid alternatives before continuing, you MUST call request_user_select. Never ask that question, list the options, or tell the user to choose in normal assistant text. For an empty canvas, if the user has not stated how to create the model, call request_user_select with the available canvas approaches. Do not ask for free-form text with this tool.
 
 Format every normal assistant reply as readable Markdown, especially when describing a multi-step workflow, parameter changes, execution status, or alternatives. Prefer a short heading followed by structured sections such as **Summary**, **Nodes**, **Connections**, **Parameters**, **Execution**, and **Next steps**. Use bullet or numbered lists for items and steps, backticks for node types, node IDs, parameters, and values, and Markdown tables when comparing several nodes or options with consistent fields. Use bold only for important labels or conclusions. Keep the response concise, do not repeat the entire canvas, and do not put the response inside a code block. For a user-selection checkpoint, use the selection tool and let the UI render the choices; do not duplicate the choices in normal assistant text. Reply in the user's language and summarize the nodes and connections actually created or changed.`;
 var progressLabelByTool = {
@@ -4044,7 +4100,7 @@ async function runDeepSeekAgent({ apiKey, message, canvas, account, executions =
       } else if (call.function.name === "add_canvas_node") {
         let planned;
         try {
-          planned = addCanvasStage(nextCanvas, args.type, message);
+          planned = addAgentCanvasNode(nextCanvas, args.type, message, { frameId: args.frameId, changes });
         } catch (error) {
           throw new DeepSeekError(error.message);
         }

@@ -283,7 +283,18 @@ export function createExecution(runs, canvas, entryNode, mode = 'downstream', { 
   // Result nodes are transparent to the plan: a stage's dependencies are the
   // stages behind its result slots, and its outgoing edges continue at whatever
   // those slots feed. The canvas keeps the slots; the run does not execute them.
-  const planCanvas = { ...canvas, edges: stagesOnlyEdges(canvas.nodes, canvas.edges || [], isResultNodeType, slotStageOf(canvas)) }
+  // stagesOnlyEdges works on plain ids; a canvas edge keeps `{ nodeId, port }`
+  // ends. Passing those straight in keyed every edge as "[object Object]", so
+  // all but the first were dropped and Run downstream stopped at its entry node.
+  const idEdges = (canvas.edges || []).map((edge) => ({ edge, source: edge.source?.nodeId, target: edge.target?.nodeId }))
+  const planCanvas = {
+    ...canvas,
+    edges: stagesOnlyEdges(canvas.nodes, idEdges, isResultNodeType, slotStageOf(canvas)).map(({ edge, source, target }) => ({
+      ...edge,
+      source: { ...edge.source, nodeId: source },
+      target: { ...edge.target, nodeId: target },
+    })),
+  }
   const executionCanvas = mode === 'downstream'
     ? downstreamCanvas(planCanvas, entryNode.id)
     : { ...structuredClone(planCanvas), nodes: [structuredClone(entryNode)], edges: [] }
