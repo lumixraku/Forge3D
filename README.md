@@ -37,6 +37,7 @@ The task list slides in from the right with each run's status, progress, and dow
 - Connect generated results to downstream processing nodes and preview images and 3D models on the canvas.
 - Persist canvases, sessions, executions, and Agent state so work can continue after reopening the application.
 - Receive execution progress and collaboration updates over SSE; multiple browser tabs can observe the same canvas.
+- Expose the open page as [WebMCP](#agents-on-the-open-page-webmcp) tools, so an agent attached to this Chrome tab can create a canvas, edit it, and run a node without clicking through the UI.
 
 ## Node parameters
 
@@ -50,6 +51,56 @@ Two related mechanisms do not hide a control:
 
 - `range.rules` keeps the control on screen and changes its minimum or maximum when a condition matches. Quad topology, for example, lowers the polycount maximum.
 - `effects` writes other config fields when a value is chosen. A write can select a different option, which swaps the group under that control.
+
+## Agents on the open page (WebMCP)
+
+The page registers tools with Chrome's [WebMCP](https://developer.chrome.com/docs/ai/webmcp) API (`document.modelContext`). An agent that can see this tab calls those tools directly. The canvas the person is looking at is the one that changes. This is not a network MCP server: closing the tab removes the tools, and an agent that is not attached to this browser cannot see them.
+
+This is separate from the in-app copilot. The copilot is the chat column, and it calls server tools such as `build_canvas` and `execute_canvas_node`. WebMCP is how a personal agent outside that chat drives the same page.
+
+### Turn it on
+
+1. In the Chrome you will use, open `chrome://flags/#enable-webmcp-testing` and set it to **Enabled**. Relaunch Chrome.
+2. Start Forge3D and open `http://localhost:5175/`. Use `localhost`, not `127.0.0.1`. They are different sites. Canvases belong to the `forge3d_visitor` cookie, and that cookie does not cross between the two names.
+3. Leave that tab open. The tools exist only while it does.
+
+To see the registered tools and try a prompt by hand, install the [Model Context Tool Inspector](https://chromewebstore.google.com/detail/model-context-tool-inspec/gbpdfapgefenggkahomfgkhfehlcenpd) and open it on this tab. Chrome's Example Agentic extension can do the same with a natural-language prompt.
+
+### What a personal agent does
+
+The agent must be connected to this Chrome (Chrome DevTools, or an extension that reads the page). It then runs, in that tab:
+
+```js
+const tools = await document.modelContext.getTools()
+const create = tools.find((tool) => tool.name === 'create_project')
+await document.modelContext.executeTool(create, { name: 'Ceramic fox' })
+```
+
+A person talks to that agent in ordinary language. The agent reads each tool's name and description and picks the call. Something that works:
+
+> Use the Forge3D tab already open at `http://localhost:5175/`. Read `document.modelContext.getTools()` and call only those tools. List my canvases, create one named "Ceramic fox", set a text-to-3D prompt, and run that node.
+
+Giving the URL to an agent that cannot see this browser does nothing.
+
+### Tools
+
+| Tool | What it does |
+| --- | --- |
+| `list_projects` | Canvases that belong to this browser. |
+| `create_project` | Create a canvas with a given name and open it. No name dialog. |
+| `open_project` | Open one canvas by id. |
+| `rename_project` | Rename the canvas open in this tab. |
+| `get_canvas` | Nodes, edges, and the latest run on the open canvas. |
+| `list_node_types` | Node types that can be added. |
+| `describe_node` | Parameter keys, controls, and allowed values. |
+| `add_node` | Add a node, optionally connected from an existing one. |
+| `connect_nodes` | Connect two existing nodes. |
+| `update_node_parameter` | Set one parameter. The canvas updates in place. |
+| `run_node` | Run one node, or that node and its downstream. This spends generation credits. The call returns when the run is queued; poll `get_run`. |
+| `get_run` | Status of the latest run. |
+| `focus_node` | Scroll a node into view. |
+
+`run_node` is the only tool that spends credits. The other writes change the open canvas and are saved with it.
 
 ## Ways to Run Forge3D
 

@@ -76,6 +76,10 @@ export interface ForgePage {
   runNode: (id: string, scope: 'node' | 'downstream') => Promise<void>
   focus: (id: string) => void
   ensureEdit: () => void
+  projects: () => Array<{ id: string; name: string }>
+  createProject: (name: string) => Promise<{ id: string; name: string }>
+  openProject: (id: string) => Promise<void>
+  renameProject: (name: string) => Promise<{ id: string; name: string }>
 }
 
 const emptySchema = { type: 'object', properties: {}, additionalProperties: false }
@@ -182,6 +186,70 @@ function assertParameterValue(parameter: NodeParameter, value: unknown, config: 
 function toolsFor(page: ForgePage): WebMcpTool[] {
   const typeEnum = creatableTypes().map((node) => node.type)
   return [
+    {
+      name: 'list_projects',
+      description: 'List the canvases that belong to this browser. Use an id from here with open_project.',
+      inputSchema: emptySchema,
+      annotations: { readOnlyHint: true },
+      execute() {
+        const openId = page.canvas()?.id || null
+        return JSON.stringify(page.projects().map((project) => ({
+          id: project.id,
+          name: project.name,
+          ...(project.id === openId ? { open: true } : {}),
+        })))
+      },
+    },
+    {
+      name: 'create_project',
+      description: 'Create a new canvas with the given name, save it, and open it in this tab. Does not ask the user to type the name.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Name of the new canvas.' },
+        },
+        required: ['name'],
+        additionalProperties: false,
+      },
+      execute: async (args) => {
+        const name = typeof args.name === 'string' ? args.name.trim() : ''
+        if (!name) throw new Error('name is required.')
+        const created = await page.createProject(name)
+        return JSON.stringify(created)
+      },
+    },
+    {
+      name: 'open_project',
+      description: 'Open one existing canvas in this tab by id. Call list_projects first.',
+      inputSchema: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        required: ['id'],
+        additionalProperties: false,
+      },
+      execute: async (args) => {
+        const id = typeof args.id === 'string' ? args.id : ''
+        if (!id) throw new Error('id is required.')
+        await page.openProject(id)
+        const canvas = page.canvas()
+        return JSON.stringify({ id: canvas?.id, name: canvas?.name || '' })
+      },
+    },
+    {
+      name: 'rename_project',
+      description: 'Rename the canvas that is open in this tab.',
+      inputSchema: {
+        type: 'object',
+        properties: { name: { type: 'string' } },
+        required: ['name'],
+        additionalProperties: false,
+      },
+      execute: async (args) => {
+        const name = typeof args.name === 'string' ? args.name.trim() : ''
+        if (!name) throw new Error('name is required.')
+        return JSON.stringify(await page.renameProject(name))
+      },
+    },
     {
       name: 'get_canvas',
       description: 'Read the canvas open in this tab: its nodes (id, type, name, config) and edges. Call this before changing or running anything, and use the ids it returns.',
@@ -396,10 +464,20 @@ export function registerForgeWebMcp(page: ForgePage) {
   if (!context) return () => {}
   const controller = new AbortController()
   const tools = toolsFor(page)
-  void Promise.all(tools.map((tool) => context.registerTool(tool, { signal: controller.signal }))).then(() => {
-    if (!controller.signal.aborted) console.info(`[forge3d] WebMCP tools: ${tools.map((tool) => tool.name).join(', ')}`)
-  }).catch((caught: unknown) => {
-    if (!controller.signal.aborted) console.warn('[forge3d] WebMCP registration failed', caught)
-  })
+  void (async () => {
+    const registered: string[] = []
+    for (const tool of tools) {
+      if (controller.signal.aborted) return
+      try {
+        await context.registerTool(tool, { signal: controller.signal })
+        registered.push(tool.name)
+      } catch (caught) {
+        const message = caught instanceof Error ? caught.message : String(caught)
+        if (controller.signal.aborted || /duplicate/i.test(message)) continue
+        console.warn(`[forge3d] WebMCP failed to register ${tool.name}`, caught)
+      }
+    }
+    if (!controller.signal.aborted && registered.length) console.info(`[forge3d] WebMCP tools: ${registered.join(', ')}`)
+  })()
   return () => controller.abort()
 }

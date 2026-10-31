@@ -393,10 +393,11 @@ export function createCanvasDocument({
 
   const creatingCanvas = state(false)
 
-  async function createCanvas() {
+  async function createCanvas(name?: string) {
     if (creatingCanvas.value) return
-    const name = (await askName('Name this canvas', 'New 3D canvas'))?.trim()
-    if (!name) return
+    // A click handler passes the event. Only a real string skips the name dialog.
+    const resolved = (typeof name === 'string' ? name : await askName('Name this canvas', 'New 3D canvas'))?.trim()
+    if (!resolved) return
     creatingCanvas.value = true
     try {
       const starter = starterCanvasGraph()
@@ -404,7 +405,7 @@ export function createCanvasDocument({
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          name,
+          name: resolved,
           description: 'A new 3D production canvas ready to customize.',
           provider: defaultCanvasProvider,
           nodes: starter.nodes,
@@ -415,6 +416,7 @@ export function createCanvasDocument({
       // The POST already returns the new row; re-reading the whole list is a wasted round trip.
       canvases.value = [...canvases.value, canvas]
       await openCanvas(canvas.id, { replaceHistory: true })
+      return canvas
     } catch (caught) {
       error.value = caught.message
     } finally {

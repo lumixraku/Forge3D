@@ -1334,7 +1334,33 @@ export default function App(rawProps: any) {
       }),
       runNode: (id, scope) => runCanvas(id, scope),
       focus: (id) => focusNode(id),
-      ensureEdit: () => ensureEditAccess()
+      ensureEdit: () => ensureEditAccess(),
+      projects: () => canvases.value.map(canvas => ({
+        id: canvas.id,
+        name: canvas.name
+      })),
+      createProject: async name => {
+        error.value = '';
+        const canvas = await createCanvas(name);
+        if (!canvas?.id) throw new Error(error.value || 'Could not create the canvas.');
+        return {
+          id: canvas.id,
+          name: canvas.name
+        };
+      },
+      openProject: async id => {
+        error.value = '';
+        await openCanvas(id);
+        if (activeCanvas.value?.id !== id) throw new Error(error.value || `Could not open ${id}.`);
+      },
+      renameProject: async name => {
+        if (!activeCanvas.value?.id) throw new Error('No canvas is open.');
+        await renameCanvas(name);
+        return {
+          id: activeCanvas.value.id,
+          name: activeCanvas.value.name
+        };
+      }
     });
     return {
       request,
