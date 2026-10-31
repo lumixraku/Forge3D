@@ -4524,7 +4524,7 @@ function resolveProviderFactory(config, provider) {
     fail("Tripo is not configured. Set TRIPO_API_KEY and restart the API server.", 503);
   }
   if (provider === "meshy" && !config.createMeshyProvider) {
-    fail("Meshy is not configured. Set MESHY_API_KEY and restart the API server.", 503);
+    fail("Meshy is not configured. Add a Meshy API key.", 503);
   }
   return provider === "tripo" ? config.createTripoProvider : config.createMeshyProvider;
 }
@@ -5285,9 +5285,10 @@ var store = await createSqliteStore();
 var readAsset2 = store.readAsset || readAsset;
 var uploadAsset = store.uploadAsset || persistUploadedAsset;
 var createTripoProvider = createTripoRunner(process.env, { readAsset: readAsset2 });
-var createMeshyProvider = createMeshyRunner(process.env, { readLocal: createMeshyLocalReader(readAsset2) });
-var submitMeshyTask = createMeshySubmitter(process.env);
-var getMeshyTask = createMeshyTaskReader(process.env);
+var providerEnv = process.env.FORGE3D_USE_ENV_KEYS === "1" ? process.env : { ...process.env, MESHY_API_KEY: "", TRIPO_API_KEY: "" };
+var createMeshyProvider = createMeshyRunner(providerEnv, { readLocal: createMeshyLocalReader(readAsset2) });
+var submitMeshyTask = createMeshySubmitter(providerEnv);
+var getMeshyTask = createMeshyTaskReader(providerEnv);
 var getTripoTask = createTripoTaskReader();
 var agentServiceUrl = process.env.AGENT_SERVICE_URL === "direct" ? "" : process.env.AGENT_SERVICE_URL || "http://127.0.0.1:8788/agent";
 var context = {
